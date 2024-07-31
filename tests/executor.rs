@@ -4,7 +4,7 @@ use assert_matches::assert_matches;
 use fctools::{
     executor::{
         arguments::{FirecrackerApiSocket, FirecrackerArguments, JailerArguments},
-        FirecrackerExecutorError, FlatPathConverter, JailMoveMethod, JailedVmmExecutor,
+        FirecrackerExecutorError, FlatJailRenamer, JailMoveMethod, JailedVmmExecutor,
         UnrestrictedVmmExecutor, VmmExecutor,
     },
     shell::SameUserShellSpawner,
@@ -20,7 +20,7 @@ fn get_unrestricted_executor() -> UnrestrictedVmmExecutor {
     }
 }
 
-fn get_jailed_executor() -> (JailedVmmExecutor<FlatPathConverter>, u32) {
+fn get_jailed_executor() -> (JailedVmmExecutor<FlatJailRenamer>, u32) {
     let firecracker_arguments = FirecrackerArguments::new(FirecrackerApiSocket::Disabled);
     let jail_id = rand::thread_rng().next_u32();
     let jailer_arguments =
@@ -30,7 +30,7 @@ fn get_jailed_executor() -> (JailedVmmExecutor<FlatPathConverter>, u32) {
             firecracker_arguments,
             jailer_arguments,
             jail_move_method: JailMoveMethod::Copy,
-            jail_path_converter: FlatPathConverter::default(),
+            jail_renamer: FlatJailRenamer::default(),
         },
         jail_id,
     )

@@ -15,9 +15,9 @@ use crate::{
 };
 use bytes::Bytes;
 use configuration::{NewVmConfigurationApplier, VmConfiguration};
-use http::StatusCode;
+use http::{Response, StatusCode};
 use http_body_util::Full;
-use hyper::Request;
+use hyper::{body::Incoming, Request};
 use models::{
     VmAction, VmActionType, VmApiError, VmBalloon, VmBalloonStatistics, VmCreateSnapshot,
     VmFetchedConfiguration, VmFirecrackerVersion, VmInfo, VmMachineConfiguration, VmStateForUpdate,
@@ -438,7 +438,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
     }
 
     pub fn take_pipes(&mut self) -> Result<VmmProcessPipes, VmError> {
-        self.ensure_states(vec![VmState::Paused, VmState::Running])?;
+        self.ensure_paused_or_running()?;
         self.vmm_process.take_pipes().map_err(VmError::ProcessError)
     }
 
@@ -585,7 +585,27 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                 state: VmStateForUpdate::Resumed,
             }),
         )
-        .await
+        .await?;
+        self.is_paused = false;
+        Ok(())
+    }
+
+    pub async fn api_custom_request(
+        &mut self,
+        route: impl AsRef<str>,
+        request: Request<Full<Bytes>>,
+        new_is_paused: Option<bool>,
+    ) -> Result<Response<Incoming>, VmError> {
+        self.ensure_paused_or_running()?;
+        let response = self
+            .vmm_process
+            .send_api_request(route, request)
+            .await
+            .map_err(VmError::ProcessError)?;
+        if let Some(new_is_paused) = new_is_paused {
+            self.is_paused = new_is_paused;
+        }
+        Ok(response)
     }
 
     fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmError> {

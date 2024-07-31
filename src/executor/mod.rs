@@ -10,11 +10,7 @@ use arguments::{
 };
 use async_trait::async_trait;
 use installation::FirecrackerInstallation;
-use tokio::{
-    fs,
-    process::Child,
-    task::{JoinError, JoinSet},
-};
+use tokio::{fs, process::Child, task::JoinError};
 
 use crate::shell::ShellSpawner;
 
@@ -31,7 +27,7 @@ pub enum FirecrackerExecutorError {
     ShellSpawnFailed(io::Error),
     ExpectedResourceMissing(PathBuf),
     ExpectedDirectoryParentMissing,
-    ToInnerPathFailed(ToInnerPathError),
+    ToInnerPathFailed(JailRenamerError),
     Other(Box<dyn std::error::Error + Send>),
 }
 
@@ -168,7 +164,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
 /// process itself won't.
 #[derive(Debug)]
-pub struct JailedVmmExecutor<T: ToInnerPath + 'static> {
+pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
     /// The arguments passed to the "firecracker" binary
     pub firecracker_arguments: FirecrackerArguments,
     /// The arguments passed to the "jailer" binary
@@ -176,7 +172,7 @@ pub struct JailedVmmExecutor<T: ToInnerPath + 'static> {
     /// The method of how to move VM resources into the jail
     pub jail_move_method: JailMoveMethod,
     /// The jail renamer that will be applied to VM resource paths during the move process
-    pub jail_path_converter: T,
+    pub jail_renamer: R,
 }
 
 /// The method of moving resources into the jail
@@ -189,7 +185,7 @@ pub enum JailMoveMethod {
 }
 
 #[async_trait]
-impl<T: ToInnerPath + 'static> VmmExecutor for JailedVmmExecutor<T> {
+impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     fn get_outer_socket_path(&self) -> Option<PathBuf> {
         match &self.firecracker_arguments.api_socket {
             FirecrackerApiSocket::Disabled => None,
@@ -263,8 +259,8 @@ impl<T: ToInnerPath + 'static> VmmExecutor for JailedVmmExecutor<T> {
         .await?;
 
         // Apply jail renamer and move in the resources in parallel (via a join set)
-        let mut join_set = JoinSet::new();
         let mut path_mappings = HashMap::with_capacity(outer_paths.len());
+        let mut join_handles = Vec::new();
 
         for outer_path in outer_paths {
             if !fs::try_exists(&outer_path)
@@ -279,8 +275,8 @@ impl<T: ToInnerPath + 'static> VmmExecutor for JailedVmmExecutor<T> {
             force_chown(&outer_path, shell_spawner).await?;
 
             let inner_path = self
-                .jail_path_converter
-                .to_inner_path(&outer_path)
+                .jail_renamer
+                .rename_for_jail(&outer_path)
                 .map_err(FirecrackerExecutorError::ToInnerPathFailed)?;
             let expanded_inner_path = jail_path.jail_join(inner_path.as_ref());
             path_mappings.insert(outer_path.clone(), inner_path);
@@ -288,7 +284,7 @@ impl<T: ToInnerPath + 'static> VmmExecutor for JailedVmmExecutor<T> {
             // Inexpensively clone into the future
             let jail_move_method = self.jail_move_method;
 
-            join_set.spawn(async move {
+            join_handles.push(tokio::spawn(async move {
                 if let Some(new_path_parent_dir) = expanded_inner_path.parent() {
                     fs::create_dir_all(new_path_parent_dir).await?;
                 }
@@ -311,11 +307,12 @@ impl<T: ToInnerPath + 'static> VmmExecutor for JailedVmmExecutor<T> {
                         }
                     }
                 }
-            });
+            }));
         }
 
-        while let Some(result) = join_set.join_next().await {
-            result
+        for join_handle in join_handles {
+            join_handle
+                .await
                 .map_err(FirecrackerExecutorError::TaskJoinFailed)?
                 .map_err(FirecrackerExecutorError::FilesystemError)?;
         }
@@ -357,7 +354,7 @@ impl<T: ToInnerPath + 'static> VmmExecutor for JailedVmmExecutor<T> {
     }
 }
 
-impl<R: ToInnerPath + 'static> JailedVmmExecutor<R> {
+impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
     fn get_jail_path(&self) -> PathBuf {
         let chroot_base_dir = match &self.jailer_arguments.chroot_base_dir {
             Some(dir) => dir.clone(),
@@ -372,7 +369,7 @@ impl<R: ToInnerPath + 'static> JailedVmmExecutor<R> {
 }
 
 #[derive(Debug)]
-pub enum ToInnerPathError {
+pub enum JailRenamerError {
     PathHasNoFilename,
     PathIsUnmapped(PathBuf),
     Other(Box<dyn std::error::Error + Send>),
@@ -380,22 +377,22 @@ pub enum ToInnerPathError {
 
 /// A trait defining a method of conversion between an outer path and an inner path. This conversion
 /// should always produce the same path (or error) for the same given outside-jail path.
-pub trait ToInnerPath: Send + Sync + Clone {
-    fn to_inner_path(&self, outer_path: &Path) -> Result<PathBuf, ToInnerPathError>;
+pub trait JailRenamer: Send + Sync + Clone {
+    fn rename_for_jail(&self, outer_path: &Path) -> Result<PathBuf, JailRenamerError>;
 }
 
 /// A resolver that transforms a host path with filename (including extension) "p" into /p
 /// inside the jail. Given that files have unique names, this should be enough for most scenarios.
 #[derive(Debug, Clone, Default)]
-pub struct FlatPathConverter {}
+pub struct FlatJailRenamer {}
 
-impl ToInnerPath for FlatPathConverter {
-    fn to_inner_path(&self, outside_path: &Path) -> Result<PathBuf, ToInnerPathError> {
+impl JailRenamer for FlatJailRenamer {
+    fn rename_for_jail(&self, outside_path: &Path) -> Result<PathBuf, JailRenamerError> {
         Ok(PathBuf::from(
             "/".to_owned()
                 + &outside_path
                     .file_name()
-                    .ok_or(ToInnerPathError::PathHasNoFilename)?
+                    .ok_or(JailRenamerError::PathHasNoFilename)?
                     .to_string_lossy(),
         ))
     }
@@ -403,11 +400,11 @@ impl ToInnerPath for FlatPathConverter {
 
 /// A jail renamer that uses a lookup table from host to jail in order to transform paths.
 #[derive(Debug, Clone)]
-pub struct MappingPathConverter {
+pub struct MappingJailRenamer {
     mappings: HashMap<PathBuf, PathBuf>,
 }
 
-impl MappingPathConverter {
+impl MappingJailRenamer {
     pub fn new() -> Self {
         Self {
             mappings: HashMap::new(),
@@ -429,18 +426,18 @@ impl MappingPathConverter {
     }
 }
 
-impl From<HashMap<PathBuf, PathBuf>> for MappingPathConverter {
+impl From<HashMap<PathBuf, PathBuf>> for MappingJailRenamer {
     fn from(value: HashMap<PathBuf, PathBuf>) -> Self {
         Self { mappings: value }
     }
 }
 
-impl ToInnerPath for MappingPathConverter {
-    fn to_inner_path(&self, outside_path: &Path) -> Result<PathBuf, ToInnerPathError> {
+impl JailRenamer for MappingJailRenamer {
+    fn rename_for_jail(&self, outside_path: &Path) -> Result<PathBuf, JailRenamerError> {
         let jail_path = self
             .mappings
             .get(outside_path)
-            .ok_or_else(|| ToInnerPathError::PathIsUnmapped(outside_path.to_owned()))?;
+            .ok_or_else(|| JailRenamerError::PathIsUnmapped(outside_path.to_owned()))?;
         Ok(jail_path.clone())
     }
 }

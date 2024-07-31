@@ -6,13 +6,7 @@ edition = "2021"
 [dependencies]
 # common
 async-trait = "0.1.81"
-tokio = { version = "1.39.2", features = [
-    "process",
-    "io-util",
-    "fs",
-    "rt",
-    "time",
-] }
+tokio = { version = "1.39.2", features = ["process", "io-util", "fs", "time"] }
 
 # executor
 libc = { version = "0.2.155", optional = true }

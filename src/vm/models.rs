@@ -100,9 +100,9 @@ impl VmUpdateBalloonStatistics {
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct VmBootSource {
-    pub kernel_image_path: PathBuf,
+    pub(crate) kernel_image_path: PathBuf,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub boot_args: Option<String>,
+    boot_args: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) initrd_path: Option<PathBuf>,
 }

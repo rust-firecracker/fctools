@@ -4,7 +4,7 @@ use assert_matches::assert_matches;
 use fctools::{
     executor::{
         installation::{FirecrackerInstallation, FirecrackerInstallationError},
-        FlatPathConverter, MappingPathConverter, ToInnerPath, ToInnerPathError,
+        FlatJailRenamer, JailRenamer, JailRenamerError, MappingJailRenamer,
     },
     shell::{SameUserShellSpawner, ShellSpawner, SuShellSpawner, SudoShellSpawner},
 };
@@ -146,7 +146,7 @@ async fn installation_does_not_verify_for_incorrect_binary_version() {
 
 #[test]
 fn flat_jail_renamer_moves_correctly() {
-    let renamer = FlatPathConverter::default();
+    let renamer = FlatJailRenamer::default();
     assert_renamer(&renamer, "/opt/file", "/file");
     assert_renamer(&renamer, "/tmp/some_path.txt", "/some_path.txt");
     assert_renamer(
@@ -158,7 +158,7 @@ fn flat_jail_renamer_moves_correctly() {
 
 #[test]
 fn mapping_jail_renamer_moves_correctly() {
-    let mut renamer = MappingPathConverter::new();
+    let mut renamer = MappingJailRenamer::new();
     renamer
         .map("/etc/a", "/tmp/a")
         .map("/opt/b", "/etc/b")
@@ -167,15 +167,15 @@ fn mapping_jail_renamer_moves_correctly() {
     assert_renamer(&renamer, "/opt/b", "/etc/b");
     assert_renamer(&renamer, "/tmp/c", "/c");
     assert_matches!(
-        renamer.to_inner_path(PathBuf::from("/tmp/unknown").as_ref()),
-        Err(ToInnerPathError::PathIsUnmapped(_))
+        renamer.rename_for_jail(PathBuf::from("/tmp/unknown").as_ref()),
+        Err(JailRenamerError::PathIsUnmapped(_))
     );
 }
 
-fn assert_renamer(renamer: &impl ToInnerPath, path: &str, expectation: &str) {
+fn assert_renamer(renamer: &impl JailRenamer, path: &str, expectation: &str) {
     assert_eq!(
         renamer
-            .to_inner_path(&PathBuf::from(path))
+            .rename_for_jail(&PathBuf::from(path))
             .unwrap()
             .to_str()
             .unwrap(),

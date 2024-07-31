@@ -13,7 +13,7 @@ use fctools::{
             FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments,
         },
         installation::FirecrackerInstallation,
-        FirecrackerExecutorError, FlatPathConverter, JailMoveMethod, JailedVmmExecutor,
+        FirecrackerExecutorError, FlatJailRenamer, JailMoveMethod, JailedVmmExecutor,
         UnrestrictedVmmExecutor, VmmExecutor,
     },
     process::{HyperResponseExt, VmmProcess, VmmProcessState},
@@ -245,7 +245,7 @@ fn get_processes() -> (TestVmProcess, TestVmProcess) {
         firecracker_arguments: jailer_firecracker_arguments,
         jailer_arguments,
         jail_move_method: JailMoveMethod::Copy,
-        jail_path_converter: FlatPathConverter::default(),
+        jail_renamer: FlatJailRenamer::default(),
     };
     let su_shell_spawner = SuShellSpawner {
         su_path: PathBuf::from("/usr/bin/su"),
@@ -282,7 +282,7 @@ fn get_processes() -> (TestVmProcess, TestVmProcess) {
 
 enum TestExecutor {
     Unrestricted(UnrestrictedVmmExecutor),
-    Jailed(JailedVmmExecutor<FlatPathConverter>),
+    Jailed(JailedVmmExecutor<FlatJailRenamer>),
 }
 
 enum TestShellSpawner {

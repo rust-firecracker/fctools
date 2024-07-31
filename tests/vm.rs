@@ -4,14 +4,14 @@ use fctools::{
     executor::{
         arguments::{FirecrackerApiSocket, FirecrackerArguments, JailerArguments},
         installation::FirecrackerInstallation,
-        FlatPathConverter, JailMoveMethod, JailedVmmExecutor,
+        FlatJailRenamer, JailMoveMethod, JailedVmmExecutor,
     },
     shell::SuShellSpawner,
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
         models::{
-            VmBalloon, VmBootSource, VmCreateSnapshot, VmDrive, VmIoEngine, VmLogger,
-            VmMachineConfiguration, VmMetrics, VmVsock,
+            VmBalloon, VmBootSource, VmDrive, VmIoEngine, VmLogger, VmMachineConfiguration,
+            VmMetrics, VmVsock,
         },
         Vm, VmShutdownMethod,
     },
@@ -50,7 +50,7 @@ async fn t() {
             )),
             jailer_arguments: JailerArguments::new(1000, 1000, 1),
             jail_move_method: JailMoveMethod::Copy,
-            jail_path_converter: FlatPathConverter::default(),
+            jail_renamer: FlatJailRenamer::default(),
         },
         SuShellSpawner {
             su_path: PathBuf::from("/usr/bin/su"),
@@ -67,7 +67,7 @@ async fn t() {
     .unwrap();
     vm.start(Duration::from_secs(1)).await.unwrap();
     tokio::time::sleep(Duration::from_secs(1)).await;
-    dbg!(vm.api_get_configuration().await.unwrap());
+    dbg!(vm.api_get_firecracker_version().await.unwrap());
     dbg!(vm.get_standard_paths());
     println!(
         "{}",
@@ -76,14 +76,7 @@ async fn t() {
             .unwrap()
     );
 
-    vm.api_pause().await.unwrap();
-    let snapshot_paths = vm
-        .api_create_snapshot(VmCreateSnapshot::new("/snapshot", "/snapshot-mem"))
-        .await
-        .unwrap();
-    dbg!(snapshot_paths);
-    vm.api_resume().await.unwrap();
-    dbg!(vm.api_get_machine_configuration().await);
+    dbg!(vm.api_get_balloon_statistics().await.unwrap());
 
     vm.shutdown(vec![VmShutdownMethod::CtrlAltDel], Duration::from_secs(1))
         .await
