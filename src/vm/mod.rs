@@ -19,9 +19,10 @@ use http::StatusCode;
 use http_body_util::Full;
 use hyper::Request;
 use models::{
-    VmAction, VmActionType, VmApiError, VmBalloonStatistics, VmCreateSnapshot,
-    VmFetchedConfiguration, VmFirecrackerVersion, VmInfo, VmStateForUpdate, VmUpdateBalloon,
-    VmUpdateBalloonStatistics, VmUpdateDrive, VmUpdateNetworkInterface, VmUpdateState,
+    VmAction, VmActionType, VmApiError, VmBalloon, VmBalloonStatistics, VmCreateSnapshot,
+    VmFetchedConfiguration, VmFirecrackerVersion, VmInfo, VmMachineConfiguration, VmStateForUpdate,
+    VmUpdateBalloon, VmUpdateBalloonStatistics, VmUpdateDrive, VmUpdateNetworkInterface,
+    VmUpdateState,
 };
 use paths::{VmSnapshotPaths, VmStandardPaths};
 use serde::{de::DeserializeOwned, Serialize};
@@ -376,7 +377,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         shutdown_methods: Vec<VmShutdownMethod>,
         timeout: Duration,
     ) -> Result<(), VmError> {
-        self.ensure_states(vec![VmState::Running, VmState::Paused])?;
+        self.ensure_paused_or_running()?;
         let mut last_result = Ok(());
 
         for shutdown_method in shutdown_methods {
@@ -449,12 +450,12 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         self.vmm_process.inner_to_outer_path(inner_path)
     }
 
-    pub async fn get_info(&mut self) -> Result<VmInfo, VmError> {
+    pub async fn api_get_info(&mut self) -> Result<VmInfo, VmError> {
         self.ensure_paused_or_running()?;
         self.send_req_with_resp("/", "GET", None::<i32>).await
     }
 
-    pub async fn flush_metrics(&mut self) -> Result<(), VmError> {
+    pub async fn api_flush_metrics(&mut self) -> Result<(), VmError> {
         self.ensure_paused_or_running()?;
         self.send_req(
             "/actions",
@@ -466,19 +467,28 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         .await
     }
 
-    pub async fn update_balloon(&mut self, update_balloon: VmUpdateBalloon) -> Result<(), VmError> {
+    pub async fn api_get_balloon(&mut self) -> Result<VmBalloon, VmError> {
+        self.ensure_paused_or_running()?;
+        self.send_req_with_resp("/balloon", "GET", None::<i32>)
+            .await
+    }
+
+    pub async fn api_update_balloon(
+        &mut self,
+        update_balloon: VmUpdateBalloon,
+    ) -> Result<(), VmError> {
         self.ensure_paused_or_running()?;
         self.send_req("/balloon", "PATCH", Some(update_balloon))
             .await
     }
 
-    pub async fn get_balloon_statistics(&mut self) -> Result<VmBalloonStatistics, VmError> {
+    pub async fn api_get_balloon_statistics(&mut self) -> Result<VmBalloonStatistics, VmError> {
         self.ensure_state(VmState::Running)?;
         self.send_req_with_resp("/balloon/statistics", "GET", None::<i32>)
             .await
     }
 
-    pub async fn update_balloon_statistics(
+    pub async fn api_update_balloon_statistics(
         &mut self,
         update_balloon_statistics: VmUpdateBalloonStatistics,
     ) -> Result<(), VmError> {
@@ -491,7 +501,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         .await
     }
 
-    pub async fn update_drive(&mut self, update_drive: VmUpdateDrive) -> Result<(), VmError> {
+    pub async fn api_update_drive(&mut self, update_drive: VmUpdateDrive) -> Result<(), VmError> {
         self.ensure_paused_or_running()?;
         self.send_req(
             format!("/drives/{}", update_drive.drive_id).as_str(),
@@ -501,7 +511,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         .await
     }
 
-    pub async fn update_network_interface(
+    pub async fn api_update_network_interface(
         &mut self,
         update_network_interface: VmUpdateNetworkInterface,
     ) -> Result<(), VmError> {
@@ -514,7 +524,15 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         .await
     }
 
-    pub async fn create_snapshot(
+    pub async fn api_get_machine_configuration(
+        &mut self,
+    ) -> Result<VmMachineConfiguration, VmError> {
+        self.ensure_paused_or_running()?;
+        self.send_req_with_resp("/machine-config", "GET", None::<i32>)
+            .await
+    }
+
+    pub async fn api_create_snapshot(
         &mut self,
         create_snapshot: VmCreateSnapshot,
     ) -> Result<VmSnapshotPaths, VmError> {
@@ -529,13 +547,13 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         ))
     }
 
-    pub async fn get_firecracker_version(&mut self) -> Result<VmFirecrackerVersion, VmError> {
+    pub async fn api_get_firecracker_version(&mut self) -> Result<VmFirecrackerVersion, VmError> {
         self.ensure_paused_or_running()?;
         self.send_req_with_resp("/version", "GET", None::<i32>)
             .await
     }
 
-    pub async fn fetch_configuration(&mut self) -> Result<VmFetchedConfiguration, VmError> {
+    pub async fn api_get_configuration(&mut self) -> Result<VmFetchedConfiguration, VmError> {
         self.ensure_paused_or_running()?;
         let fetched_configuration = self
             .send_req_with_resp("/vm/config", "GET", None::<i32>)
@@ -544,7 +562,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         Ok(fetched_configuration)
     }
 
-    pub async fn pause(&mut self) -> Result<(), VmError> {
+    pub async fn api_pause(&mut self) -> Result<(), VmError> {
         self.ensure_state(VmState::Running)?;
         self.send_req(
             "/vm",
@@ -558,7 +576,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         Ok(())
     }
 
-    pub async fn resume(&mut self) -> Result<(), VmError> {
+    pub async fn api_resume(&mut self) -> Result<(), VmError> {
         self.ensure_state(VmState::Paused)?;
         self.send_req(
             "/vm",

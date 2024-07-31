@@ -34,6 +34,18 @@ impl VmBalloon {
         self.stats_polling_interval_s = interval;
         self
     }
+
+    pub fn get_amount_mib(&self) -> i32 {
+        self.amount_mib
+    }
+
+    pub fn get_deflate_on_oom(&self) -> bool {
+        self.deflate_on_oom
+    }
+
+    pub fn get_stats_polling_interval_s(&self) -> i32 {
+        self.stats_polling_interval_s
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -360,9 +372,29 @@ impl VmMachineConfiguration {
         self.huge_pages = Some(huge_pages);
         self
     }
+
+    pub fn get_vcpu_count(&self) -> u8 {
+        self.vcpu_count
+    }
+
+    pub fn get_mem_size_mib(&self) -> usize {
+        self.mem_size_mib
+    }
+
+    pub fn get_smt(&self) -> Option<bool> {
+        self.smt
+    }
+
+    pub fn get_track_dirty_pages(&self) -> Option<bool> {
+        self.track_dirty_pages
+    }
+
+    pub fn get_huge_pages(&self) -> Option<VmHugePages> {
+        self.huge_pages
+    }
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmHugePages {
     None,
     #[serde(rename = "2M")]

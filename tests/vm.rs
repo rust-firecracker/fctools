@@ -67,7 +67,7 @@ async fn t() {
     .unwrap();
     vm.start(Duration::from_secs(1)).await.unwrap();
     tokio::time::sleep(Duration::from_secs(1)).await;
-    dbg!(vm.fetch_configuration().await.unwrap());
+    dbg!(vm.api_get_configuration().await.unwrap());
     dbg!(vm.get_standard_paths());
     println!(
         "{}",
@@ -76,13 +76,14 @@ async fn t() {
             .unwrap()
     );
 
-    vm.pause().await.unwrap();
+    vm.api_pause().await.unwrap();
     let snapshot_paths = vm
-        .create_snapshot(VmCreateSnapshot::new("/snapshot", "/snapshot-mem"))
+        .api_create_snapshot(VmCreateSnapshot::new("/snapshot", "/snapshot-mem"))
         .await
         .unwrap();
     dbg!(snapshot_paths);
-    vm.resume().await.unwrap();
+    vm.api_resume().await.unwrap();
+    dbg!(vm.api_get_machine_configuration().await);
 
     vm.shutdown(vec![VmShutdownMethod::CtrlAltDel], Duration::from_secs(1))
         .await
