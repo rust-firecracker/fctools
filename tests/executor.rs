@@ -2,31 +2,31 @@ use std::{path::PathBuf, vec};
 
 use assert_matches::assert_matches;
 use fctools::{
-    arguments::{FirecrackerApiSocket, FirecrackerArguments, JailerArguments},
     executor::{
-        ExecuteFirecracker, FirecrackerExecutorError, FlatPathConverter, JailMoveMethod,
-        JailedFirecrackerExecutor, UnrestrictedFirecrackerExecutor,
+        arguments::{FirecrackerApiSocket, FirecrackerArguments, JailerArguments},
+        FirecrackerExecutorError, FlatPathConverter, JailMoveMethod, JailedVmmExecutor,
+        UnrestrictedVmmExecutor, VmmExecutor,
     },
-    shell::SameUserShellSpawner,
+    shell_spawner::SameUserShellSpawner,
 };
 use rand::RngCore;
 use tokio::{fs, io::AsyncWriteExt};
 use uuid::Uuid;
 
-fn get_unrestricted_executor() -> UnrestrictedFirecrackerExecutor {
+fn get_unrestricted_executor() -> UnrestrictedVmmExecutor {
     let firecracker_arguments = FirecrackerArguments::new(FirecrackerApiSocket::Disabled);
-    UnrestrictedFirecrackerExecutor {
+    UnrestrictedVmmExecutor {
         firecracker_arguments,
     }
 }
 
-fn get_jailed_executor() -> (JailedFirecrackerExecutor<FlatPathConverter>, u32) {
+fn get_jailed_executor() -> (JailedVmmExecutor<FlatPathConverter>, u32) {
     let firecracker_arguments = FirecrackerArguments::new(FirecrackerApiSocket::Disabled);
     let jail_id = rand::thread_rng().next_u32();
     let jailer_arguments =
         JailerArguments::new(1000, 1000, jail_id).chroot_base_dir("/tmp/jail_root");
     (
-        JailedFirecrackerExecutor {
+        JailedVmmExecutor {
             firecracker_arguments,
             jailer_arguments,
             jail_move_method: JailMoveMethod::Copy,

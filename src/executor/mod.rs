@@ -5,18 +5,21 @@ use std::{
     process::ExitStatus,
 };
 
+use arguments::{
+    FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments,
+};
 use async_trait::async_trait;
+use installation::FirecrackerInstallation;
 use tokio::{
     fs,
     process::Child,
     task::{JoinError, JoinSet},
 };
 
-use crate::{
-    arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments},
-    installation::FirecrackerInstallation,
-    shell::SpawnShell,
-};
+use crate::shell_spawner::ShellSpawner;
+
+pub mod arguments;
+pub mod installation;
 
 #[derive(Debug)]
 pub enum FirecrackerExecutorError {
@@ -28,15 +31,15 @@ pub enum FirecrackerExecutorError {
     ShellSpawnFailed(io::Error),
     ExpectedResourceMissing(PathBuf),
     ExpectedDirectoryParentMissing,
-    JailRenamerFailed(JailRenameError),
+    ToInnerPathFailed(ToInnerPathError),
     Other(Box<dyn std::error::Error + Send>),
 }
 
-/// A trait that manages the execution of a Firecracker VM process by setting up the environment, correctly invoking
-/// the process and cleaning up the environment. This allows modularity between different modes of Firecracker execution.
+/// A trait that manages the execution of a Firecracker VMM process by setting up the environment, correctly invoking
+/// the process and cleaning up the environment. This allows modularity between different modes of VMM execution.
 #[async_trait]
-pub trait ExecuteFirecracker {
-    /// Get the host location of the VM socket, if one exists.
+pub trait VmmExecutor {
+    /// Get the host location of the VMM socket, if one exists.
     fn get_outer_socket_path(&self) -> Option<PathBuf>;
 
     /// Resolves an inner path into an outer path.
@@ -45,32 +48,35 @@ pub trait ExecuteFirecracker {
     /// Prepare all transient resources for the VM invocation.
     async fn prepare(
         &self,
-        shell_spawner: &impl SpawnShell,
+        shell_spawner: &impl ShellSpawner,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, FirecrackerExecutorError>;
 
     /// Invoke the VM on the given FirecrackerInstallation and return the spawned tokio Child.
     async fn invoke(
         &self,
-        shell_spawner: &impl SpawnShell,
+        shell_spawner: &impl ShellSpawner,
         installation: &FirecrackerInstallation,
         config_override: FirecrackerConfigOverride,
     ) -> Result<Child, FirecrackerExecutorError>;
 
     /// Clean up all transient resources of the VM invocation.
-    async fn cleanup(&self, shell_spawner: &impl SpawnShell) -> Result<(), FirecrackerExecutorError>;
+    async fn cleanup(
+        &self,
+        shell_spawner: &impl ShellSpawner,
+    ) -> Result<(), FirecrackerExecutorError>;
 }
 
 /// An executor that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
 /// This executor allows rootless execution, given that the user has access to /dev/kvm.
 #[derive(Debug)]
-pub struct UnrestrictedFirecrackerExecutor {
+pub struct UnrestrictedVmmExecutor {
     /// Arguments passed to the "firecracker" binary
     pub firecracker_arguments: FirecrackerArguments,
 }
 
 #[async_trait]
-impl ExecuteFirecracker for UnrestrictedFirecrackerExecutor {
+impl VmmExecutor for UnrestrictedVmmExecutor {
     fn get_outer_socket_path(&self) -> Option<PathBuf> {
         match &self.firecracker_arguments.api_socket {
             FirecrackerApiSocket::Disabled => None,
@@ -84,7 +90,7 @@ impl ExecuteFirecracker for UnrestrictedFirecrackerExecutor {
 
     async fn prepare(
         &self,
-        shell_spawner: &impl SpawnShell,
+        shell_spawner: &impl ShellSpawner,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, FirecrackerExecutorError> {
         for path in &outer_paths {
@@ -92,7 +98,9 @@ impl ExecuteFirecracker for UnrestrictedFirecrackerExecutor {
                 .await
                 .map_err(FirecrackerExecutorError::FilesystemError)?
             {
-                return Err(FirecrackerExecutorError::ExpectedResourceMissing(path.clone()));
+                return Err(FirecrackerExecutorError::ExpectedResourceMissing(
+                    path.clone(),
+                ));
             }
             force_chown(&path, shell_spawner).await?;
         }
@@ -109,17 +117,23 @@ impl ExecuteFirecracker for UnrestrictedFirecrackerExecutor {
             }
         }
 
-        Ok(outer_paths.into_iter().map(|path| (path.clone(), path)).collect())
+        Ok(outer_paths
+            .into_iter()
+            .map(|path| (path.clone(), path))
+            .collect())
     }
 
     async fn invoke(
         &self,
-        shell: &impl SpawnShell,
+        shell: &impl ShellSpawner,
         installation: &FirecrackerInstallation,
         config_override: FirecrackerConfigOverride,
     ) -> Result<Child, FirecrackerExecutorError> {
         let arguments = self.firecracker_arguments.join(config_override);
-        let shell_command = format!("{} {arguments}", installation.firecracker_path.to_string_lossy());
+        let shell_command = format!(
+            "{} {arguments}",
+            installation.firecracker_path.to_string_lossy()
+        );
         let child = shell
             .spawn(shell_command)
             .await
@@ -127,7 +141,10 @@ impl ExecuteFirecracker for UnrestrictedFirecrackerExecutor {
         Ok(child)
     }
 
-    async fn cleanup(&self, shell_spawner: &impl SpawnShell) -> Result<(), FirecrackerExecutorError> {
+    async fn cleanup(
+        &self,
+        shell_spawner: &impl ShellSpawner,
+    ) -> Result<(), FirecrackerExecutorError> {
         if let FirecrackerApiSocket::Enabled(socket_path) = &self.firecracker_arguments.api_socket {
             if fs::try_exists(socket_path)
                 .await
@@ -151,7 +168,7 @@ impl ExecuteFirecracker for UnrestrictedFirecrackerExecutor {
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
 /// process itself won't.
 #[derive(Debug)]
-pub struct JailedFirecrackerExecutor<C: ToInnerPath + 'static> {
+pub struct JailedVmmExecutor<T: ToInnerPath + 'static> {
     /// The arguments passed to the "firecracker" binary
     pub firecracker_arguments: FirecrackerArguments,
     /// The arguments passed to the "jailer" binary
@@ -159,7 +176,7 @@ pub struct JailedFirecrackerExecutor<C: ToInnerPath + 'static> {
     /// The method of how to move VM resources into the jail
     pub jail_move_method: JailMoveMethod,
     /// The jail renamer that will be applied to VM resource paths during the move process
-    pub jail_path_converter: C,
+    pub jail_path_converter: T,
 }
 
 /// The method of moving resources into the jail
@@ -172,11 +189,13 @@ pub enum JailMoveMethod {
 }
 
 #[async_trait]
-impl<R: ToInnerPath + 'static> ExecuteFirecracker for JailedFirecrackerExecutor<R> {
+impl<R: ToInnerPath + 'static> VmmExecutor for JailedVmmExecutor<R> {
     fn get_outer_socket_path(&self) -> Option<PathBuf> {
         match &self.firecracker_arguments.api_socket {
             FirecrackerApiSocket::Disabled => None,
-            FirecrackerApiSocket::Enabled(socket_path) => Some(self.get_jail_path().jail_join(&socket_path)),
+            FirecrackerApiSocket::Enabled(socket_path) => {
+                Some(self.get_jail_path().jail_join(&socket_path))
+            }
         }
     }
 
@@ -186,7 +205,7 @@ impl<R: ToInnerPath + 'static> ExecuteFirecracker for JailedFirecrackerExecutor<
 
     async fn prepare(
         &self,
-        shell_spawner: &impl SpawnShell,
+        shell_spawner: &impl ShellSpawner,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, FirecrackerExecutorError> {
         // Ensure chroot base dir exists and is accessible
@@ -226,7 +245,14 @@ impl<R: ToInnerPath + 'static> ExecuteFirecracker for JailedFirecrackerExecutor<
         }
 
         // Ensure argument paths exist
-        create_file_with_tree(&self.firecracker_arguments.log_path.as_ref().map(|p| jail_path.join(p))).await?;
+        create_file_with_tree(
+            &self
+                .firecracker_arguments
+                .log_path
+                .as_ref()
+                .map(|p| jail_path.join(p)),
+        )
+        .await?;
         create_file_with_tree(
             &self
                 .firecracker_arguments
@@ -245,7 +271,9 @@ impl<R: ToInnerPath + 'static> ExecuteFirecracker for JailedFirecrackerExecutor<
                 .await
                 .map_err(FirecrackerExecutorError::FilesystemError)?
             {
-                return Err(FirecrackerExecutorError::ExpectedResourceMissing(outer_path.clone()));
+                return Err(FirecrackerExecutorError::ExpectedResourceMissing(
+                    outer_path.clone(),
+                ));
             }
 
             force_chown(&outer_path, shell_spawner).await?;
@@ -253,7 +281,7 @@ impl<R: ToInnerPath + 'static> ExecuteFirecracker for JailedFirecrackerExecutor<
             let inner_path = self
                 .jail_path_converter
                 .to_inner_path(&outer_path)
-                .map_err(FirecrackerExecutorError::JailRenamerFailed)?;
+                .map_err(FirecrackerExecutorError::ToInnerPathFailed)?;
             let expanded_inner_path = jail_path.jail_join(inner_path.as_ref());
             path_mappings.insert(outer_path.clone(), inner_path);
 
@@ -265,12 +293,19 @@ impl<R: ToInnerPath + 'static> ExecuteFirecracker for JailedFirecrackerExecutor<
                     fs::create_dir_all(new_path_parent_dir).await?;
                 }
                 match jail_move_method {
-                    JailMoveMethod::Copy => fs::copy(outer_path, expanded_inner_path).await.map(|_| ()),
-                    JailMoveMethod::HardLink => fs::hard_link(outer_path, expanded_inner_path).await,
+                    JailMoveMethod::Copy => {
+                        fs::copy(outer_path, expanded_inner_path).await.map(|_| ())
+                    }
+                    JailMoveMethod::HardLink => {
+                        fs::hard_link(outer_path, expanded_inner_path).await
+                    }
                     JailMoveMethod::HardLinkWithCopyFallback => {
-                        let hardlink_result = fs::hard_link(&outer_path, &expanded_inner_path).await;
+                        let hardlink_result =
+                            fs::hard_link(&outer_path, &expanded_inner_path).await;
                         if let Err(_) = hardlink_result {
-                            fs::copy(&outer_path, &expanded_inner_path).await.map(|_| ())
+                            fs::copy(&outer_path, &expanded_inner_path)
+                                .await
+                                .map(|_| ())
                         } else {
                             hardlink_result
                         }
@@ -290,7 +325,7 @@ impl<R: ToInnerPath + 'static> ExecuteFirecracker for JailedFirecrackerExecutor<
 
     async fn invoke(
         &self,
-        shell: &impl SpawnShell,
+        shell: &impl ShellSpawner,
         installation: &FirecrackerInstallation,
         config_override: FirecrackerConfigOverride,
     ) -> Result<Child, FirecrackerExecutorError> {
@@ -306,7 +341,10 @@ impl<R: ToInnerPath + 'static> ExecuteFirecracker for JailedFirecrackerExecutor<
             .map_err(FirecrackerExecutorError::ShellSpawnFailed)
     }
 
-    async fn cleanup(&self, _shell_spawner: &impl SpawnShell) -> Result<(), FirecrackerExecutorError> {
+    async fn cleanup(
+        &self,
+        _shell_spawner: &impl ShellSpawner,
+    ) -> Result<(), FirecrackerExecutorError> {
         let jail_path = self.get_jail_path();
         let jail_parent_path = jail_path
             .parent()
@@ -319,7 +357,7 @@ impl<R: ToInnerPath + 'static> ExecuteFirecracker for JailedFirecrackerExecutor<
     }
 }
 
-impl<R: ToInnerPath + 'static> JailedFirecrackerExecutor<R> {
+impl<R: ToInnerPath + 'static> JailedVmmExecutor<R> {
     fn get_jail_path(&self) -> PathBuf {
         let chroot_base_dir = match &self.jailer_arguments.chroot_base_dir {
             Some(dir) => dir.clone(),
@@ -334,7 +372,7 @@ impl<R: ToInnerPath + 'static> JailedFirecrackerExecutor<R> {
 }
 
 #[derive(Debug)]
-pub enum JailRenameError {
+pub enum ToInnerPathError {
     PathHasNoFilename,
     PathIsUnmapped(PathBuf),
     Other(Box<dyn std::error::Error + Send>),
@@ -343,7 +381,7 @@ pub enum JailRenameError {
 /// A trait defining a method of conversion between an outer path and an inner path. This conversion
 /// should always produce the same path (or error) for the same given outside-jail path.
 pub trait ToInnerPath: Send + Sync + Clone {
-    fn to_inner_path(&self, outer_path: &Path) -> Result<PathBuf, JailRenameError>;
+    fn to_inner_path(&self, outer_path: &Path) -> Result<PathBuf, ToInnerPathError>;
 }
 
 /// A resolver that transforms a host path with filename (including extension) "p" into /p
@@ -352,12 +390,12 @@ pub trait ToInnerPath: Send + Sync + Clone {
 pub struct FlatPathConverter {}
 
 impl ToInnerPath for FlatPathConverter {
-    fn to_inner_path(&self, outside_path: &Path) -> Result<PathBuf, JailRenameError> {
+    fn to_inner_path(&self, outside_path: &Path) -> Result<PathBuf, ToInnerPathError> {
         Ok(PathBuf::from(
             "/".to_owned()
                 + &outside_path
                     .file_name()
-                    .ok_or(JailRenameError::PathHasNoFilename)?
+                    .ok_or(ToInnerPathError::PathHasNoFilename)?
                     .to_string_lossy(),
         ))
     }
@@ -376,7 +414,11 @@ impl MappingPathConverter {
         }
     }
 
-    pub fn map(&mut self, outside_path: impl Into<PathBuf>, jail_path: impl Into<PathBuf>) -> &mut Self {
+    pub fn map(
+        &mut self,
+        outside_path: impl Into<PathBuf>,
+        jail_path: impl Into<PathBuf>,
+    ) -> &mut Self {
         self.mappings.insert(outside_path.into(), jail_path.into());
         self
     }
@@ -394,16 +436,19 @@ impl From<HashMap<PathBuf, PathBuf>> for MappingPathConverter {
 }
 
 impl ToInnerPath for MappingPathConverter {
-    fn to_inner_path(&self, outside_path: &Path) -> Result<PathBuf, JailRenameError> {
+    fn to_inner_path(&self, outside_path: &Path) -> Result<PathBuf, ToInnerPathError> {
         let jail_path = self
             .mappings
             .get(outside_path)
-            .ok_or_else(|| JailRenameError::PathIsUnmapped(outside_path.to_owned()))?;
+            .ok_or_else(|| ToInnerPathError::PathIsUnmapped(outside_path.to_owned()))?;
         Ok(jail_path.clone())
     }
 }
 
-pub(crate) async fn force_chown(path: &Path, shell_spawner: &impl SpawnShell) -> Result<(), FirecrackerExecutorError> {
+pub(crate) async fn force_chown(
+    path: &Path,
+    shell_spawner: &impl ShellSpawner,
+) -> Result<(), FirecrackerExecutorError> {
     if shell_spawner.belongs_to_process() {
         return Ok(());
     }
@@ -416,16 +461,24 @@ pub(crate) async fn force_chown(path: &Path, shell_spawner: &impl SpawnShell) ->
         .spawn(format!("chown -R {uid}:{gid} {}", path.to_string_lossy()))
         .await
         .map_err(FirecrackerExecutorError::ShellSpawnFailed)?;
-    let exit_status = child.wait().await.map_err(FirecrackerExecutorError::ShellWaitFailed)?;
+    let exit_status = child
+        .wait()
+        .await
+        .map_err(FirecrackerExecutorError::ShellWaitFailed)?;
 
     if !exit_status.success() {
-        return Err(FirecrackerExecutorError::ChownExitedWithWrongStatus(exit_status));
+        return Err(FirecrackerExecutorError::ChownExitedWithWrongStatus(
+            exit_status,
+        ));
     }
 
     Ok(())
 }
 
-async fn force_mkdir(path: &Path, shell_spawner: &impl SpawnShell) -> Result<(), FirecrackerExecutorError> {
+async fn force_mkdir(
+    path: &Path,
+    shell_spawner: &impl ShellSpawner,
+) -> Result<(), FirecrackerExecutorError> {
     if shell_spawner.belongs_to_process() {
         fs::create_dir_all(path)
             .await
@@ -437,10 +490,15 @@ async fn force_mkdir(path: &Path, shell_spawner: &impl SpawnShell) -> Result<(),
         .spawn(format!("mkdir -p {}", path.to_string_lossy()))
         .await
         .map_err(FirecrackerExecutorError::ShellSpawnFailed)?;
-    let exit_status = child.wait().await.map_err(FirecrackerExecutorError::ShellWaitFailed)?;
+    let exit_status = child
+        .wait()
+        .await
+        .map_err(FirecrackerExecutorError::ShellWaitFailed)?;
 
     if !exit_status.success() {
-        return Err(FirecrackerExecutorError::MkdirExitedWithWrongStatus(exit_status));
+        return Err(FirecrackerExecutorError::MkdirExitedWithWrongStatus(
+            exit_status,
+        ));
     }
 
     Ok(())

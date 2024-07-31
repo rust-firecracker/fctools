@@ -7,30 +7,34 @@ use std::{
 };
 
 use crate::{
-    arguments::FirecrackerConfigOverride,
-    configuration::{NewVmConfigurationApplier, VmConfiguration},
-    executor::ExecuteFirecracker,
-    installation::FirecrackerInstallation,
-    models::{
-        VmAction, VmActionType, VmApiError, VmBalloonStatistics, VmCreateSnapshot,
-        VmFetchedConfiguration, VmFirecrackerVersion, VmInfo, VmSnapshotPaths, VmStandardPaths,
-        VmStateForUpdate, VmUpdateBalloon, VmUpdateBalloonStatistics, VmUpdateDrive,
-        VmUpdateNetworkInterface, VmUpdateState,
+    executor::{
+        arguments::FirecrackerConfigOverride, installation::FirecrackerInstallation, VmmExecutor,
     },
-    response::HyperResponseExt,
-    shell::SpawnShell,
-    vm_process::{VmProcess, VmProcessError, VmProcessPipes, VmProcessState},
+    shell_spawner::ShellSpawner,
+    vmm_process::{
+        HyperResponseExt, VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState,
+    },
 };
 use bytes::Bytes;
+use configuration::{NewVmConfigurationApplier, VmConfiguration};
 use http::StatusCode;
 use http_body_util::Full;
 use hyper::Request;
+use models::{
+    VmAction, VmActionType, VmApiError, VmBalloonStatistics, VmCreateSnapshot,
+    VmFetchedConfiguration, VmFirecrackerVersion, VmInfo, VmSnapshotPaths, VmStandardPaths,
+    VmStateForUpdate, VmUpdateBalloon, VmUpdateBalloonStatistics, VmUpdateDrive,
+    VmUpdateNetworkInterface, VmUpdateState,
+};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{fs, io::AsyncWriteExt, process::ChildStdin};
 
+pub mod configuration;
+pub mod models;
+
 #[derive(Debug)]
-pub struct Vm<E: ExecuteFirecracker, S: SpawnShell> {
-    vm_process: VmProcess<E, S>,
+pub struct Vm<E: VmmExecutor, S: ShellSpawner> {
+    vmm_process: VmmProcess<E, S>,
     is_paused: bool,
     configuration: Option<VmConfiguration>,
     accessible_paths: VmStandardPaths,
@@ -47,7 +51,7 @@ pub enum VmState {
 
 #[derive(Debug)]
 pub enum VmError {
-    ProcessError(VmProcessError),
+    ProcessError(VmmProcessError),
     ExpectedState {
         expected: Vec<VmState>,
         actual: VmState,
@@ -80,7 +84,7 @@ pub enum VmShutdownMethod {
     Kill,
 }
 
-impl<E: ExecuteFirecracker, S: SpawnShell> Vm<E, S> {
+impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
     pub async fn prepare(
         executor: E,
         shell_spawner: S,
@@ -130,7 +134,7 @@ impl<E: ExecuteFirecracker, S: SpawnShell> Vm<E, S> {
 
         // prepare
         let mut vm_process =
-            VmProcess::new_arced(executor, shell_spawner_arc, installation_arc, outer_paths);
+            VmmProcess::new_arced(executor, shell_spawner_arc, installation_arc, outer_paths);
         let mut path_mappings = vm_process.prepare().await.map_err(VmError::ProcessError)?;
 
         // set inner paths for configuration (to conform to FC expectations) based on returned mappings
@@ -222,7 +226,7 @@ impl<E: ExecuteFirecracker, S: SpawnShell> Vm<E, S> {
         };
 
         Ok(Self {
-            vm_process,
+            vmm_process: vm_process,
             is_paused: false,
             configuration: Some(configuration),
             accessible_paths,
@@ -230,13 +234,13 @@ impl<E: ExecuteFirecracker, S: SpawnShell> Vm<E, S> {
     }
 
     pub fn state(&mut self) -> VmState {
-        match self.vm_process.state() {
-            VmProcessState::Started => match self.is_paused {
+        match self.vmm_process.state() {
+            VmmProcessState::Started => match self.is_paused {
                 true => VmState::Paused,
                 false => VmState::Running,
             },
-            VmProcessState::Exited => VmState::Exited,
-            VmProcessState::Crashed(exit_status) => VmState::Crashed(exit_status),
+            VmmProcessState::Exited => VmState::Exited,
+            VmmProcessState::Crashed(exit_status) => VmState::Crashed(exit_status),
             _ => VmState::NotStarted,
         }
     }
@@ -248,7 +252,7 @@ impl<E: ExecuteFirecracker, S: SpawnShell> Vm<E, S> {
             .take()
             .expect("No configuration cannot exist for a VM, unreachable");
         let socket_path = self
-            .vm_process
+            .vmm_process
             .get_socket_path()
             .ok_or(VmError::DisabledApiSocketIsUnsupported)?;
 
@@ -261,7 +265,7 @@ impl<E: ExecuteFirecracker, S: SpawnShell> Vm<E, S> {
                 config_override = FirecrackerConfigOverride::Enable(inner_path.clone());
                 prepare_file(inner_path, true).await?;
                 fs::write(
-                    self.vm_process.inner_to_outer_path(inner_path),
+                    self.vmm_process.inner_to_outer_path(inner_path),
                     serde_json::to_string(config).map_err(VmError::SerdeError)?,
                 )
                 .await
@@ -270,7 +274,7 @@ impl<E: ExecuteFirecracker, S: SpawnShell> Vm<E, S> {
             }
         }
 
-        self.vm_process
+        self.vmm_process
             .invoke(config_override)
             .await
             .map_err(VmError::ProcessError)?;
@@ -381,7 +385,7 @@ impl<E: ExecuteFirecracker, S: SpawnShell> Vm<E, S> {
         for shutdown_method in shutdown_methods {
             last_result = match shutdown_method {
                 VmShutdownMethod::CtrlAltDel => self
-                    .vm_process
+                    .vmm_process
                     .send_ctrl_alt_del()
                     .await
                     .map_err(VmError::ProcessError),
@@ -403,13 +407,13 @@ impl<E: ExecuteFirecracker, S: SpawnShell> Vm<E, S> {
                     stdin.flush().await.map_err(VmError::IoError)
                 }
                 VmShutdownMethod::Kill => self
-                    .vm_process
+                    .vmm_process
                     .send_sigkill()
                     .map_err(VmError::ProcessError),
             };
 
             if last_result.is_ok() {
-                last_result = tokio::time::timeout(timeout, self.vm_process.wait_for_exit())
+                last_result = tokio::time::timeout(timeout, self.vmm_process.wait_for_exit())
                     .await
                     .map_err(|_| VmError::ShutdownWaitTimedOut)
                     .map(|_| ());
@@ -429,15 +433,15 @@ impl<E: ExecuteFirecracker, S: SpawnShell> Vm<E, S> {
 
     pub async fn cleanup(&mut self) -> Result<(), VmError> {
         self.ensure_exited_or_crashed()?;
-        self.vm_process
+        self.vmm_process
             .cleanup()
             .await
             .map_err(VmError::ProcessError)
     }
 
-    pub fn take_pipes(&mut self) -> Result<VmProcessPipes, VmError> {
+    pub fn take_pipes(&mut self) -> Result<VmmProcessPipes, VmError> {
         self.ensure_states(vec![VmState::Paused, VmState::Running])?;
-        self.vm_process.take_pipes().map_err(VmError::ProcessError)
+        self.vmm_process.take_pipes().map_err(VmError::ProcessError)
     }
 
     pub fn get_standard_paths(&self) -> &VmStandardPaths {
@@ -445,7 +449,7 @@ impl<E: ExecuteFirecracker, S: SpawnShell> Vm<E, S> {
     }
 
     pub fn get_path(&self, inner_path: impl AsRef<Path>) -> PathBuf {
-        self.vm_process.inner_to_outer_path(inner_path)
+        self.vmm_process.inner_to_outer_path(inner_path)
     }
 
     pub async fn get_info(&mut self) -> Result<VmInfo, VmError> {
@@ -521,9 +525,9 @@ impl<E: ExecuteFirecracker, S: SpawnShell> Vm<E, S> {
         self.send_req("/snapshot/create", "PUT", Some(&create_snapshot))
             .await?;
         Ok(VmSnapshotPaths::new(
-            self.vm_process
+            self.vmm_process
                 .inner_to_outer_path(create_snapshot.snapshot_path),
-            self.vm_process
+            self.vmm_process
                 .inner_to_outer_path(create_snapshot.mem_file_path),
         ))
     }
@@ -638,7 +642,7 @@ impl<E: ExecuteFirecracker, S: SpawnShell> Vm<E, S> {
         }
         .map_err(VmError::ApiRequestNotConstructed)?;
         let mut response = self
-            .vm_process
+            .vmm_process
             .send_api_request(route, request)
             .await
             .map_err(VmError::ProcessError)?;

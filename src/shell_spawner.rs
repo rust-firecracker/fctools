@@ -6,11 +6,11 @@ use tokio::{
     process::{Child, Command},
 };
 
-/// SpawnShell is a trait that fctools calls to when spawning a Linux shell that runs a given command.
+/// ShellSpawner is layer 1 of fctools and concerns itself with spawning a rootful or rootless shell process.
 /// The command delegated to the shell is either a firecracker or jailer invocation for starting the respective
 /// processes, or a chown operation used by executors in order to elevate permissions.
 #[async_trait]
-pub trait SpawnShell: Send + Sync {
+pub trait ShellSpawner: Send + Sync {
     fn belongs_to_process(&self) -> bool;
 
     /// Spawn the shell and enter shell_command in it, with the shell exiting as soon as the command completes.
@@ -36,7 +36,7 @@ impl Default for SameUserShellSpawner {
 }
 
 #[async_trait]
-impl SpawnShell for SameUserShellSpawner {
+impl ShellSpawner for SameUserShellSpawner {
     fn belongs_to_process(&self) -> bool {
         true
     }
@@ -65,19 +65,29 @@ pub struct SuShellSpawner {
 }
 
 #[async_trait]
-impl SpawnShell for SuShellSpawner {
+impl ShellSpawner for SuShellSpawner {
     fn belongs_to_process(&self) -> bool {
         false
     }
 
     async fn spawn(&self, shell_command: String) -> Result<Child, io::Error> {
         let mut command = Command::new(self.su_path.as_os_str());
-        command.stderr(Stdio::piped()).stdout(Stdio::piped()).stdin(Stdio::piped());
+        command
+            .stderr(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stdin(Stdio::piped());
         let mut child = command.spawn()?;
 
-        let stdin_ref = child.stdin.as_mut().ok_or_else(|| io::Error::other("Stdin not received"))?;
-        stdin_ref.write(format!("{}\n", self.password).as_bytes()).await?;
-        stdin_ref.write(format!("{shell_command} ; exit\n").as_bytes()).await?;
+        let stdin_ref = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| io::Error::other("Stdin not received"))?;
+        stdin_ref
+            .write(format!("{}\n", self.password).as_bytes())
+            .await?;
+        stdin_ref
+            .write(format!("{shell_command} ; exit\n").as_bytes())
+            .await?;
 
         Ok(child)
     }
@@ -96,7 +106,7 @@ pub struct SudoShellSpawner {
 }
 
 #[async_trait]
-impl SpawnShell for SudoShellSpawner {
+impl ShellSpawner for SudoShellSpawner {
     fn belongs_to_process(&self) -> bool {
         false
     }
@@ -108,10 +118,16 @@ impl SpawnShell for SudoShellSpawner {
         for component in shell_command.split(' ') {
             command.arg(component);
         }
-        command.stderr(Stdio::piped()).stdout(Stdio::piped()).stdin(Stdio::piped());
+        command
+            .stderr(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stdin(Stdio::piped());
         let mut child = command.spawn()?;
 
-        let stdin_ref = child.stdin.as_mut().ok_or_else(|| io::Error::other("Stdin not received"))?;
+        let stdin_ref = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| io::Error::other("Stdin not received"))?;
         if let Some(password) = &self.password {
             stdin_ref.write(format!("{password}\n").as_bytes()).await?;
         } else {

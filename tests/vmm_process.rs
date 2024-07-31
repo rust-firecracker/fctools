@@ -8,17 +8,16 @@ use std::{
 use async_trait::async_trait;
 use bytes::Bytes;
 use fctools::{
-    arguments::{
-        FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments,
-    },
     executor::{
-        ExecuteFirecracker, FirecrackerExecutorError, FlatPathConverter, JailMoveMethod,
-        JailedFirecrackerExecutor, UnrestrictedFirecrackerExecutor,
+        arguments::{
+            FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments,
+        },
+        installation::FirecrackerInstallation,
+        FirecrackerExecutorError, FlatPathConverter, JailMoveMethod, JailedVmmExecutor,
+        UnrestrictedVmmExecutor, VmmExecutor,
     },
-    installation::FirecrackerInstallation,
-    response::HyperResponseExt,
-    shell::{SameUserShellSpawner, SpawnShell, SuShellSpawner},
-    vm_process::{VmProcess, VmProcessState},
+    shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
+    vmm_process::{HyperResponseExt, VmmProcess, VmmProcessState},
 };
 use http_body_util::Full;
 use hyper::Request;
@@ -30,20 +29,20 @@ use tokio::{
 use uuid::Uuid;
 
 #[tokio::test]
-async fn vm_can_recv_ctrl_alt_del() {
-    vm_test(|mut process| async move {
+async fn vmm_can_recv_ctrl_alt_del() {
+    vmm_test(|mut process| async move {
         shutdown(&mut process).await;
-        assert_eq!(process.state(), VmProcessState::Exited);
+        assert_eq!(process.state(), VmmProcessState::Exited);
     })
     .await;
 }
 
 #[tokio::test]
-async fn vm_can_recv_sigkill() {
-    vm_test(|mut process| async move {
+async fn vmm_can_recv_sigkill() {
+    vmm_test(|mut process| async move {
         process.send_sigkill().unwrap();
         process.wait_for_exit().await.unwrap();
-        if let VmProcessState::Crashed(exit_status) = process.state() {
+        if let VmmProcessState::Crashed(exit_status) = process.state() {
             assert!(!exit_status.success());
         } else {
             panic!("State was not reported as crashed!");
@@ -55,8 +54,8 @@ async fn vm_can_recv_sigkill() {
 }
 
 #[tokio::test]
-async fn vm_can_take_out_pipes() {
-    vm_test(|mut process| async move {
+async fn vmm_can_take_out_pipes() {
+    vmm_test(|mut process| async move {
         let pipes = process.take_pipes().unwrap();
         process.take_pipes().unwrap_err(); // cannot take out pipes twice
         process.send_ctrl_alt_del().await.unwrap();
@@ -77,8 +76,8 @@ async fn vm_can_take_out_pipes() {
 }
 
 #[tokio::test]
-async fn vm_operations_are_rejected_in_incorrect_states() {
-    vm_test(|mut process| async move {
+async fn vmm_operations_are_rejected_in_incorrect_states() {
+    vmm_test(|mut process| async move {
         process.prepare().await.unwrap_err();
         process
             .invoke(FirecrackerConfigOverride::NoOverride)
@@ -101,8 +100,8 @@ async fn vm_operations_are_rejected_in_incorrect_states() {
 }
 
 #[tokio::test]
-async fn vm_can_send_get_request_to_api_socket() {
-    vm_test(|mut process| async move {
+async fn vmm_can_send_get_request_to_api_socket() {
+    vmm_test(|mut process| async move {
         let request = Request::builder()
             .method("GET")
             .body(Full::new(Bytes::new()))
@@ -119,7 +118,7 @@ async fn vm_can_send_get_request_to_api_socket() {
 }
 
 #[tokio::test]
-async fn vm_can_send_patch_request_to_api_socket() {
+async fn vmm_can_send_patch_request_to_api_socket() {
     async fn send_state_request(state: &str, process: &mut TestVmProcess) {
         let request = Request::builder()
             .method("PATCH")
@@ -133,7 +132,7 @@ async fn vm_can_send_patch_request_to_api_socket() {
         assert!(response.recv_to_string().await.unwrap().is_empty());
     }
 
-    vm_test(|mut process| async move {
+    vmm_test(|mut process| async move {
         send_state_request("Paused", &mut process).await;
         send_state_request("Resumed", &mut process).await;
         shutdown(&mut process).await;
@@ -142,8 +141,8 @@ async fn vm_can_send_patch_request_to_api_socket() {
 }
 
 #[tokio::test]
-async fn vm_can_send_put_request_to_api_socket() {
-    vm_test(|mut process| async move {
+async fn vmm_can_send_put_request_to_api_socket() {
+    vmm_test(|mut process| async move {
         let request = Request::builder()
             .method("PUT")
             .header("Content-Type", "application/json")
@@ -163,7 +162,7 @@ async fn shutdown(handle: &mut TestVmProcess) {
     handle.cleanup().await.unwrap();
 }
 
-async fn vm_test<F, Fut>(closure: F)
+async fn vmm_test<F, Fut>(closure: F)
 where
     F: Fn(TestVmProcess) -> Fut,
     F: 'static,
@@ -176,14 +175,14 @@ where
         process.take_pipes().unwrap_err();
         process.cleanup().await.unwrap_err();
 
-        assert_eq!(process.state(), VmProcessState::AwaitingPrepare);
+        assert_eq!(process.state(), VmmProcessState::AwaitingPrepare);
         process.prepare().await.unwrap();
-        assert_eq!(process.state(), VmProcessState::AwaitingStart);
+        assert_eq!(process.state(), VmmProcessState::AwaitingStart);
         process
             .invoke(FirecrackerConfigOverride::NoOverride)
             .await
             .unwrap();
-        assert_eq!(process.state(), VmProcessState::Started);
+        assert_eq!(process.state(), VmmProcessState::Started);
     }
 
     let (mut unrestricted_process, mut jailed_process) = get_processes();
@@ -207,7 +206,7 @@ struct EnvironmentPaths {
     pub snapshot_editor: PathBuf,
 }
 
-type TestVmProcess = VmProcess<TestExecutor, TestShellSpawner>;
+type TestVmProcess = VmmProcess<TestExecutor, TestShellSpawner>;
 
 fn get_kernel_and_rootfs_paths() -> EnvironmentPaths {
     let path = |s: &str| format!("/opt/testdata/{s}").into();
@@ -239,10 +238,10 @@ fn get_processes() -> (TestVmProcess, TestVmProcess) {
         unsafe { libc::getegid() },
         rand::thread_rng().next_u32(),
     );
-    let unrestricted_executor = UnrestrictedFirecrackerExecutor {
+    let unrestricted_executor = UnrestrictedVmmExecutor {
         firecracker_arguments: unrestricted_firecracker_arguments,
     };
-    let jailed_executor = JailedFirecrackerExecutor {
+    let jailed_executor = JailedVmmExecutor {
         firecracker_arguments: jailer_firecracker_arguments,
         jailer_arguments,
         jail_move_method: JailMoveMethod::Copy,
@@ -262,7 +261,7 @@ fn get_processes() -> (TestVmProcess, TestVmProcess) {
     };
 
     (
-        VmProcess::new(
+        VmmProcess::new(
             TestExecutor::Unrestricted(unrestricted_executor),
             TestShellSpawner::SameUser(same_user_shell_spawner),
             installation.clone(),
@@ -272,7 +271,7 @@ fn get_processes() -> (TestVmProcess, TestVmProcess) {
                 env_paths.config,
             ],
         ),
-        VmProcess::new(
+        VmmProcess::new(
             TestExecutor::Jailed(jailed_executor),
             TestShellSpawner::Su(su_shell_spawner),
             installation,
@@ -282,8 +281,8 @@ fn get_processes() -> (TestVmProcess, TestVmProcess) {
 }
 
 enum TestExecutor {
-    Unrestricted(UnrestrictedFirecrackerExecutor),
-    Jailed(JailedFirecrackerExecutor<FlatPathConverter>),
+    Unrestricted(UnrestrictedVmmExecutor),
+    Jailed(JailedVmmExecutor<FlatPathConverter>),
 }
 
 enum TestShellSpawner {
@@ -292,7 +291,7 @@ enum TestShellSpawner {
 }
 
 #[async_trait]
-impl SpawnShell for TestShellSpawner {
+impl ShellSpawner for TestShellSpawner {
     fn belongs_to_process(&self) -> bool {
         match self {
             TestShellSpawner::Su(e) => e.belongs_to_process(),
@@ -309,7 +308,7 @@ impl SpawnShell for TestShellSpawner {
 }
 
 #[async_trait]
-impl ExecuteFirecracker for TestExecutor {
+impl VmmExecutor for TestExecutor {
     fn get_outer_socket_path(&self) -> Option<PathBuf> {
         match self {
             TestExecutor::Unrestricted(e) => e.get_outer_socket_path(),
@@ -326,7 +325,7 @@ impl ExecuteFirecracker for TestExecutor {
 
     async fn prepare(
         &self,
-        shell_spawner: &impl SpawnShell,
+        shell_spawner: &impl ShellSpawner,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, FirecrackerExecutorError> {
         match self {
@@ -337,7 +336,7 @@ impl ExecuteFirecracker for TestExecutor {
 
     async fn invoke(
         &self,
-        shell_spawner: &impl SpawnShell,
+        shell_spawner: &impl ShellSpawner,
         installation: &FirecrackerInstallation,
         config_override: FirecrackerConfigOverride,
     ) -> Result<Child, FirecrackerExecutorError> {
@@ -351,7 +350,7 @@ impl ExecuteFirecracker for TestExecutor {
 
     async fn cleanup(
         &self,
-        shell_spawner: &impl SpawnShell,
+        shell_spawner: &impl ShellSpawner,
     ) -> Result<(), FirecrackerExecutorError> {
         match self {
             TestExecutor::Unrestricted(e) => e.cleanup(shell_spawner).await,

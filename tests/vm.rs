@@ -1,18 +1,20 @@
 use std::{path::PathBuf, time::Duration};
 
 use fctools::{
-    arguments::{FirecrackerApiSocket, FirecrackerArguments, JailerArguments},
-    executor::{FlatPathConverter, JailMoveMethod, JailedFirecrackerExecutor},
-    installation::FirecrackerInstallation,
-    shell::SuShellSpawner,
-};
-use fctools::{
-    configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
-    models::{
-        VmBalloon, VmBootSource, VmDrive, VmIoEngine, VmLogger, VmMachineConfiguration, VmMetrics,
-        VmVsock,
+    executor::{
+        arguments::{FirecrackerApiSocket, FirecrackerArguments, JailerArguments},
+        installation::FirecrackerInstallation,
+        FlatPathConverter, JailMoveMethod, JailedVmmExecutor,
     },
-    vm::{Vm, VmShutdownMethod},
+    shell_spawner::SuShellSpawner,
+    vm::{
+        configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
+        models::{
+            VmBalloon, VmBootSource, VmDrive, VmIoEngine, VmLogger, VmMachineConfiguration,
+            VmMetrics, VmVsock,
+        },
+        Vm, VmShutdownMethod,
+    },
 };
 use tokio::fs;
 
@@ -44,7 +46,7 @@ async fn t() {
     );
 
     let mut vm = Vm::prepare(
-        JailedFirecrackerExecutor {
+        JailedVmmExecutor {
             firecracker_arguments: FirecrackerArguments::new(FirecrackerApiSocket::Enabled(
                 PathBuf::from("/tmp/fc.sock"),
             )),

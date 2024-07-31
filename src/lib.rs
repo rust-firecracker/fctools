@@ -1,9 +1,4 @@
-pub mod arguments;
-pub mod configuration;
 pub mod executor;
-pub mod installation;
-pub mod models;
-pub mod response;
-pub mod shell;
+pub mod shell_spawner;
 pub mod vm;
-pub mod vm_process;
+pub mod vmm_process;

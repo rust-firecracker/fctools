@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{
-    VmBalloon, VmBootSource, VmDrive, VmEntropy, VmLoadSnapshot, VmLogger, VmMachineConfiguration, VmMetrics,
-    VmMmdsConfiguration, VmNetworkInterface, VmVsock,
+use super::models::{
+    VmBalloon, VmBootSource, VmDrive, VmEntropy, VmLoadSnapshot, VmLogger, VmMachineConfiguration,
+    VmMetrics, VmMmdsConfiguration, VmNetworkInterface, VmVsock,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

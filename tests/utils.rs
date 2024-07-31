@@ -2,9 +2,11 @@ use std::path::PathBuf;
 
 use assert_matches::assert_matches;
 use fctools::{
-    executor::{FlatPathConverter, JailRenameError, MappingPathConverter, ToInnerPath},
-    installation::{FirecrackerInstallation, FirecrackerVerificationError},
-    shell::{SameUserShellSpawner, SpawnShell, SuShellSpawner, SudoShellSpawner},
+    executor::{
+        installation::{FirecrackerInstallation, FirecrackerInstallationError},
+        FlatPathConverter, MappingPathConverter, ToInnerPath, ToInnerPathError,
+    },
+    shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner, SudoShellSpawner},
 };
 use tokio::fs;
 use uuid::Uuid;
@@ -62,7 +64,7 @@ async fn sudo_shell_should_elevate() {
 async fn elevation_test<F, S>(closure: F)
 where
     F: FnOnce(String) -> S,
-    S: SpawnShell,
+    S: ShellSpawner,
 {
     let password = std::env::var("ROOT_PWD");
     if password.is_err() {
@@ -89,7 +91,7 @@ async fn installation_does_not_verify_for_missing_files() {
     };
     assert_matches!(
         installation.verify("v1.8.0").await,
-        Err(FirecrackerVerificationError::BinaryMissing)
+        Err(FirecrackerInstallationError::BinaryMissing)
     );
 }
 
@@ -108,7 +110,7 @@ async fn installation_does_not_verify_for_non_executable_files() {
     };
     assert_matches!(
         installation.verify("v1.8.0").await,
-        Err(FirecrackerVerificationError::BinaryNotExecutable)
+        Err(FirecrackerInstallationError::BinaryNotExecutable)
     );
 }
 
@@ -125,7 +127,7 @@ async fn installation_does_not_verify_for_incorrect_binary_type() {
     };
     assert_matches!(
         installation.verify("v1.8.0").await,
-        Err(FirecrackerVerificationError::BinaryIsOfIncorrectType)
+        Err(FirecrackerInstallationError::BinaryIsOfIncorrectType)
     );
 }
 
@@ -138,7 +140,7 @@ async fn installation_does_not_verify_for_incorrect_binary_version() {
     };
     assert_matches!(
         installation.verify("v1.8.0").await,
-        Err(FirecrackerVerificationError::BinaryDoesNotMatchExpectedVersion)
+        Err(FirecrackerInstallationError::BinaryDoesNotMatchExpectedVersion)
     );
 }
 
@@ -166,7 +168,7 @@ fn mapping_jail_renamer_moves_correctly() {
     assert_renamer(&renamer, "/tmp/c", "/c");
     assert_matches!(
         renamer.to_inner_path(PathBuf::from("/tmp/unknown").as_ref()),
-        Err(JailRenameError::PathIsUnmapped(_))
+        Err(ToInnerPathError::PathIsUnmapped(_))
     );
 }
 
