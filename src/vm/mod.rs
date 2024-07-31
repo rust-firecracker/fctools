@@ -314,6 +314,11 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                 )
                 .await?;
 
+                if let Some(cpu_template) = &config.cpu_template {
+                    self.send_req("/cpu-config", "PUT", Some(cpu_template))
+                        .await?;
+                }
+
                 for network_interface in &config.network_interfaces {
                     self.send_req(
                         format!("/network-interfaces/{}", network_interface.iface_id).as_str(),

@@ -61,7 +61,7 @@ async fn t() {
         vms.push(vm);
     }
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
     for mut vm in vms {
         dbg!(vm.api_get_info().await.unwrap());

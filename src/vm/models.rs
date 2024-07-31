@@ -669,6 +669,56 @@ pub struct VmEffectiveConfiguration {
     pub vsock: Option<VmVsock>,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct VmCpuTemplate {
+    pub kvm_capabilities: Vec<String>,
+    #[cfg(target_arch = "x86_64")]
+    pub cpuid_modifiers: Vec<VmCpuidModifier>,
+    #[cfg(target_arch = "x86_64")]
+    pub msr_modifiers: Vec<VmMsrModifier>,
+    #[cfg(target_arch = "aarch64")]
+    pub vcpu_features: Vec<VmVcpuFeature>,
+    #[cfg(target_arch = "aarch64")]
+    pub reg_modifiers: Vec<VmRegModifier>,
+}
+
+#[cfg(target_arch = "x86_64")]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct VmCpuidModifier {
+    pub leaf: String,
+    pub subleaf: String,
+    pub flags: u32,
+    pub modifiers: Vec<VmCpuidRegisterModifier>,
+}
+
+#[cfg(target_arch = "x86_64")]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct VmCpuidRegisterModifier {
+    pub register: String,
+    pub bitmap: String,
+}
+
+#[cfg(target_arch = "x86_64")]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct VmMsrModifier {
+    pub addr: String,
+    pub bitmap: String,
+}
+
+#[cfg(target_arch = "aarch64")]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct VmVcpuFeature {
+    pub index: u32,
+    pub bitmap: String,
+}
+
+#[cfg(target_arch = "aarch64")]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct VmRegModifier {
+    pub addr: String,
+    pub bitmap: String,
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct VmApiError {
     pub fault_message: String,

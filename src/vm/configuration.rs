@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use super::models::{
-    VmBalloon, VmBootSource, VmDrive, VmEntropy, VmLoadSnapshot, VmLogger, VmMachineConfiguration,
-    VmMetrics, VmMmdsConfiguration, VmNetworkInterface, VmVsock,
+    VmBalloon, VmBootSource, VmCpuTemplate, VmDrive, VmEntropy, VmLoadSnapshot, VmLogger,
+    VmMachineConfiguration, VmMetrics, VmMmdsConfiguration, VmNetworkInterface, VmVsock,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +22,8 @@ pub struct NewVmConfiguration {
     pub(crate) drives: Vec<VmDrive>,
     #[serde(rename = "machine-config")]
     pub(crate) machine_configuration: VmMachineConfiguration,
+    #[serde(rename = "cpu-config")]
+    pub(crate) cpu_template: Option<VmCpuTemplate>,
     #[serde(rename = "network-interfaces")]
     pub(crate) network_interfaces: Vec<VmNetworkInterface>,
     pub(crate) balloon: Option<VmBalloon>,
@@ -52,6 +54,7 @@ impl NewVmConfiguration {
             boot_source,
             drives: vec![],
             machine_configuration,
+            cpu_template: None,
             network_interfaces: vec![],
             balloon: None,
             vsock: None,
@@ -69,6 +72,11 @@ impl NewVmConfiguration {
 
     pub fn drive(mut self, drive: VmDrive) -> Self {
         self.drives.push(drive);
+        self
+    }
+
+    pub fn cpu_template(mut self, cpu_template: VmCpuTemplate) -> Self {
+        self.cpu_template = Some(cpu_template);
         self
     }
 
@@ -111,6 +119,10 @@ impl NewVmConfiguration {
         &self.applier
     }
 
+    pub fn get_cpu_template(&self) -> Option<&VmCpuTemplate> {
+        self.cpu_template.as_ref()
+    }
+
     pub fn get_drives(&self) -> &Vec<VmDrive> {
         &self.drives
     }
@@ -119,28 +131,28 @@ impl NewVmConfiguration {
         &self.network_interfaces
     }
 
-    pub fn get_balloon(&self) -> &Option<VmBalloon> {
-        &self.balloon
+    pub fn get_balloon(&self) -> Option<&VmBalloon> {
+        self.balloon.as_ref()
     }
 
-    pub fn get_vsock(&self) -> &Option<VmVsock> {
-        &self.vsock
+    pub fn get_vsock(&self) -> Option<&VmVsock> {
+        self.vsock.as_ref()
     }
 
-    pub fn get_logger(&self) -> &Option<VmLogger> {
-        &self.logger
+    pub fn get_logger(&self) -> Option<&VmLogger> {
+        self.logger.as_ref()
     }
 
-    pub fn get_metrics(&self) -> &Option<VmMetrics> {
-        &self.metrics
+    pub fn get_metrics(&self) -> Option<&VmMetrics> {
+        self.metrics.as_ref()
     }
 
-    pub fn get_mmds_configuration(&self) -> &Option<VmMmdsConfiguration> {
-        &self.mmds_configuration
+    pub fn get_mmds_configuration(&self) -> Option<&VmMmdsConfiguration> {
+        self.mmds_configuration.as_ref()
     }
 
-    pub fn get_entropy(&self) -> &Option<VmEntropy> {
-        &self.entropy
+    pub fn get_entropy(&self) -> Option<&VmEntropy> {
+        self.entropy.as_ref()
     }
 }
 
