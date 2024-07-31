@@ -68,9 +68,7 @@ pub enum VmError {
     ApiResponseCouldNotBeReceived(hyper::Error),
     ApiResponseExpectedEmpty,
     NoShutdownMethodsSpecified,
-    ShutdownApplicationTimedOut,
-    ShutdownWaitTimedOut,
-    SocketWaitTimedOut,
+    Timeout,
     DisabledApiSocketIsUnsupported,
     MissingPathMapping,
 }
@@ -287,7 +285,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             Ok(())
         })
         .await
-        .map_err(|_| VmError::SocketWaitTimedOut)?
+        .map_err(|_| VmError::Timeout)?
         .map_err(VmError::IoError)?;
 
         match &configuration {
@@ -378,7 +376,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         shutdown_methods: Vec<VmShutdownMethod>,
         timeout: Duration,
     ) -> Result<(), VmError> {
-        self.ensure_state(VmState::Running)?;
+        self.ensure_states(vec![VmState::Running, VmState::Paused])?;
         let mut last_result = Ok(());
 
         for shutdown_method in shutdown_methods {
@@ -414,7 +412,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             if last_result.is_ok() {
                 last_result = tokio::time::timeout(timeout, self.vmm_process.wait_for_exit())
                     .await
-                    .map_err(|_| VmError::ShutdownWaitTimedOut)
+                    .map_err(|_| VmError::Timeout)
                     .map(|_| ());
             }
 
@@ -537,12 +535,13 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             .await
     }
 
-    pub async fn fetch_configuration_from_vm_process(
-        &mut self,
-    ) -> Result<VmFetchedConfiguration, VmError> {
+    pub async fn fetch_configuration(&mut self) -> Result<VmFetchedConfiguration, VmError> {
         self.ensure_paused_or_running()?;
-        self.send_req_with_resp("/vm/config", "GET", None::<i32>)
-            .await
+        let fetched_configuration = self
+            .send_req_with_resp("/vm/config", "GET", None::<i32>)
+            .await?;
+        self.is_paused = false;
+        Ok(fetched_configuration)
     }
 
     pub async fn pause(&mut self) -> Result<(), VmError> {
@@ -554,7 +553,9 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                 state: VmStateForUpdate::Paused,
             }),
         )
-        .await
+        .await?;
+        self.is_paused = true;
+        Ok(())
     }
 
     pub async fn resume(&mut self) -> Result<(), VmError> {

@@ -41,7 +41,7 @@ pub enum NewVmConfigurationApplier {
 
 impl Default for NewVmConfigurationApplier {
     fn default() -> Self {
-        NewVmConfigurationApplier::ViaJsonConfiguration(PathBuf::from("/config.json"))
+        NewVmConfigurationApplier::ViaApiCalls
     }
 }
 

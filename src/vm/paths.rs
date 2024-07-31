@@ -30,6 +30,7 @@ impl VmStandardPaths {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VmSnapshotPaths {
     snapshot_path: PathBuf,
     mem_file_path: PathBuf,

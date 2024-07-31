@@ -10,8 +10,8 @@ use fctools::{
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
         models::{
-            VmBalloon, VmBootSource, VmDrive, VmIoEngine, VmLogger, VmMachineConfiguration,
-            VmMetrics, VmVsock,
+            VmBalloon, VmBootSource, VmCreateSnapshot, VmDrive, VmIoEngine, VmLogger,
+            VmMachineConfiguration, VmMetrics, VmVsock,
         },
         Vm, VmShutdownMethod,
     },
@@ -38,11 +38,9 @@ async fn t() {
                 .log_path("/opt/path.txt")
                 .show_log_origin(true),
         )
-        .metrics(VmMetrics::new("/opt/metrics.txt"))
+        .metrics(VmMetrics::new("/opt/metrics.fifo"))
         .vsock(VmVsock::new(5, "/opt/uds.sock"))
-        .applier(NewVmConfigurationApplier::ViaJsonConfiguration(
-            PathBuf::from("/opt/conf.json"),
-        )),
+        .applier(NewVmConfigurationApplier::ViaApiCalls),
     );
 
     let mut vm = Vm::prepare(
@@ -69,10 +67,7 @@ async fn t() {
     .unwrap();
     vm.start(Duration::from_secs(1)).await.unwrap();
     tokio::time::sleep(Duration::from_secs(1)).await;
-
-    vm.shutdown(vec![VmShutdownMethod::CtrlAltDel], Duration::from_secs(1))
-        .await
-        .unwrap();
+    dbg!(vm.fetch_configuration().await.unwrap());
     dbg!(vm.get_standard_paths());
     println!(
         "{}",
@@ -80,6 +75,19 @@ async fn t() {
             .await
             .unwrap()
     );
+
+    vm.pause().await.unwrap();
+    let snapshot_paths = vm
+        .create_snapshot(VmCreateSnapshot::new("/snapshot", "/snapshot-mem"))
+        .await
+        .unwrap();
+    dbg!(snapshot_paths);
+    vm.resume().await.unwrap();
+
+    vm.shutdown(vec![VmShutdownMethod::CtrlAltDel], Duration::from_secs(1))
+        .await
+        .unwrap();
+
     vm.cleanup().await.unwrap();
     dbg!(vm.state());
 }
