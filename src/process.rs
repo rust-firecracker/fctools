@@ -86,7 +86,7 @@ pub enum VmmProcessError {
     CtrlAltDelRequestNotBuilt(hyper::http::Error),
     CtrlAltDelRequestFailed(StatusCode),
     WaitFailed(io::Error),
-    IncorrectSocketUri(Box<dyn std::error::Error>),
+    IncorrectSocketUri,
     ExecutorError(FirecrackerExecutorError),
     PipesAlreadyTaken,
 }
@@ -188,7 +188,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
             .await?;
 
         *request.uri_mut() =
-            Uri::unix(socket_path, route).map_err(VmmProcessError::IncorrectSocketUri)?;
+            Uri::unix(socket_path, route).map_err(|_| VmmProcessError::IncorrectSocketUri)?;
         hyper_client
             .request(request)
             .await

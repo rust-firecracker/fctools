@@ -653,7 +653,7 @@ pub enum VmState {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmFetchedConfiguration {
+pub struct VmEffectiveConfiguration {
     pub balloon: Option<VmBalloon>,
     pub drives: Vec<VmDrive>,
     #[serde(rename = "boot-source")]

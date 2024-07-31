@@ -20,11 +20,11 @@ fn get_unrestricted_executor() -> UnrestrictedVmmExecutor {
     }
 }
 
-fn get_jailed_executor() -> (JailedVmmExecutor<FlatJailRenamer>, u32) {
+fn get_jailed_executor() -> (JailedVmmExecutor<FlatJailRenamer>, String) {
     let firecracker_arguments = FirecrackerArguments::new(FirecrackerApiSocket::Disabled);
-    let jail_id = rand::thread_rng().next_u32();
+    let jail_id = rand::thread_rng().next_u32().to_string();
     let jailer_arguments =
-        JailerArguments::new(1000, 1000, jail_id).chroot_base_dir("/tmp/jail_root");
+        JailerArguments::new(1000, 1000, jail_id.clone()).chroot_base_dir("/tmp/jail_root");
     (
         JailedVmmExecutor {
             firecracker_arguments,

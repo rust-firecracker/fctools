@@ -236,7 +236,7 @@ fn get_processes() -> (TestVmProcess, TestVmProcess) {
     let jailer_arguments = JailerArguments::new(
         unsafe { libc::geteuid() },
         unsafe { libc::getegid() },
-        rand::thread_rng().next_u32(),
+        rand::thread_rng().next_u32().to_string(),
     );
     let unrestricted_executor = UnrestrictedVmmExecutor {
         firecracker_arguments: unrestricted_firecracker_arguments,

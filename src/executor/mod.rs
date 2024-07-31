@@ -31,7 +31,7 @@ pub enum FirecrackerExecutorError {
     Other(Box<dyn std::error::Error + Send>),
 }
 
-/// A trait that manages the execution of a Firecracker VMM process by setting up the environment, correctly invoking
+/// A VMM executor is layer 2 of FCTools: manages a VMM process by setting up the environment, correctly invoking
 /// the process and cleaning up the environment. This allows modularity between different modes of VMM execution.
 #[async_trait]
 pub trait VmmExecutor {

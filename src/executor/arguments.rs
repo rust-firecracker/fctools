@@ -131,7 +131,10 @@ impl FirecrackerArguments {
                 args.insert("no-api".into(), ArgValue::None);
             }
             FirecrackerApiSocket::Enabled(socket_path) => {
-                args.insert("api-sock".into(), ArgValue::Some(socket_path.to_string_lossy().into_owned()));
+                args.insert(
+                    "api-sock".into(),
+                    ArgValue::Some(socket_path.to_string_lossy().into_owned()),
+                );
             }
         }
 
@@ -150,7 +153,10 @@ impl FirecrackerArguments {
             }
             FirecrackerConfigOverride::Disable => {}
             FirecrackerConfigOverride::Enable(path) => {
-                args.insert("config-file".into(), ArgValue::Some(path.to_string_lossy().into_owned()));
+                args.insert(
+                    "config-file".into(),
+                    ArgValue::Some(path.to_string_lossy().into_owned()),
+                );
             }
         }
 
@@ -159,7 +165,10 @@ impl FirecrackerArguments {
         }
 
         if let Some(log_path) = &self.log_path {
-            args.insert("log-path".into(), ArgValue::Some(log_path.to_string_lossy().into_owned()));
+            args.insert(
+                "log-path".into(),
+                ArgValue::Some(log_path.to_string_lossy().into_owned()),
+            );
         }
 
         if self.show_log_origin {
@@ -179,7 +188,10 @@ impl FirecrackerArguments {
         }
 
         if let Some(max_payload) = self.api_max_payload_bytes {
-            args.insert("http-api-max-payload-size".into(), ArgValue::Some(max_payload.to_string()));
+            args.insert(
+                "http-api-max-payload-size".into(),
+                ArgValue::Some(max_payload.to_string()),
+            );
         }
 
         if let Some(metadata_path) = &self.metadata_path {
@@ -220,7 +232,7 @@ impl FirecrackerArguments {
 pub struct JailerArguments {
     uid: u32,
     gid: u32,
-    pub(crate) jail_id: u32,
+    pub(crate) jail_id: String,
 
     cgroup_values: HashMap<String, String>,
     cgroup_version: Option<JailerCgroupVersion>,
@@ -233,11 +245,11 @@ pub struct JailerArguments {
 }
 
 impl JailerArguments {
-    pub fn new(uid: u32, gid: u32, jail_id: u32) -> Self {
+    pub fn new(uid: u32, gid: u32, jail_id: impl Into<String>) -> Self {
         Self {
             uid,
             gid,
-            jail_id,
+            jail_id: jail_id.into(),
             cgroup_values: HashMap::new(),
             cgroup_version: None,
             chroot_base_dir: None,
@@ -294,7 +306,10 @@ impl JailerArguments {
         self
     }
 
-    pub fn resource_limits(mut self, resource_limits: impl IntoIterator<Item = (String, String)>) -> Self {
+    pub fn resource_limits(
+        mut self,
+        resource_limits: impl IntoIterator<Item = (String, String)>,
+    ) -> Self {
         self.resource_limits.extend(resource_limits);
         self
     }
@@ -312,7 +327,12 @@ impl JailerArguments {
         if !self.cgroup_values.is_empty() {
             args.insert(
                 "cgroup".into(),
-                ArgValue::Many(self.cgroup_values.iter().map(|(k, v)| format!("{k}={v}")).collect()),
+                ArgValue::Many(
+                    self.cgroup_values
+                        .iter()
+                        .map(|(k, v)| format!("{k}={v}"))
+                        .collect(),
+                ),
             );
         }
 
@@ -349,13 +369,21 @@ impl JailerArguments {
         }
 
         if let Some(parent_cgroup) = &self.parent_cgroup {
-            args.insert("parent-cgroup".into(), ArgValue::Some(parent_cgroup.to_owned()));
+            args.insert(
+                "parent-cgroup".into(),
+                ArgValue::Some(parent_cgroup.to_owned()),
+            );
         }
 
         if !self.resource_limits.is_empty() {
             args.insert(
                 "resource-limit".into(),
-                ArgValue::Many(self.resource_limits.iter().map(|(k, v)| format!("{k}={v}")).collect()),
+                ArgValue::Many(
+                    self.resource_limits
+                        .iter()
+                        .map(|(k, v)| format!("{k}={v}"))
+                        .collect(),
+                ),
             );
         }
 
@@ -441,20 +469,26 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, FirecrackerLogLevel, JailerArguments,
-        JailerCgroupVersion,
+        FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, FirecrackerLogLevel,
+        JailerArguments, JailerCgroupVersion,
     };
 
     #[test]
     fn firecracker_builds_correctly() {
-        assert_fc(&["--no-api"], FirecrackerArguments::new(FirecrackerApiSocket::Disabled));
+        assert_fc(
+            &["--no-api"],
+            FirecrackerArguments::new(FirecrackerApiSocket::Disabled),
+        );
         assert_fc(
             &["--api-sock", "/tmp/socket.sock"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Enabled(PathBuf::from("/tmp/socket.sock"))),
+            FirecrackerArguments::new(FirecrackerApiSocket::Enabled(PathBuf::from(
+                "/tmp/socket.sock",
+            ))),
         );
         assert_fc(
             &["--no-api", "--level Info"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).log_level(FirecrackerLogLevel::Info),
+            FirecrackerArguments::new(FirecrackerApiSocket::Disabled)
+                .log_level(FirecrackerLogLevel::Info),
         );
         assert_fc(
             &["--no-api", "--log-path /tmp/t.fifo"],
@@ -482,7 +516,8 @@ mod tests {
         );
         assert_fc(
             &["--no-api", "--metadata /tmp/metadata"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).metadata_path("/tmp/metadata"),
+            FirecrackerArguments::new(FirecrackerApiSocket::Disabled)
+                .metadata_path("/tmp/metadata"),
         );
         assert_fc(
             &["--no-api", "--metrics-path /tmp/m.path"],
@@ -498,13 +533,14 @@ mod tests {
         );
         assert_fc(
             &["--no-api", "--seccomp-filter /tmp/seccomp.filter"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).seccomp_path("/tmp/seccomp.filter"),
+            FirecrackerArguments::new(FirecrackerApiSocket::Disabled)
+                .seccomp_path("/tmp/seccomp.filter"),
         );
     }
 
     #[test]
     fn jailer_builds_correctly() {
-        let baseline = JailerArguments::new(1000, 1000, 1000);
+        let baseline = JailerArguments::new(1000, 1000, 1000.to_string());
 
         assert_jailer(
             &["--cgroup a=b", "--cgroup c=d"],
@@ -525,13 +561,21 @@ mod tests {
         assert_jailer(&["--daemonize"], baseline.clone().daemonize());
         assert_jailer(
             &["--netns /var/run/netns/testing"],
-            baseline.clone().network_namespace_path("/var/run/netns/testing"),
+            baseline
+                .clone()
+                .network_namespace_path("/var/run/netns/testing"),
         );
         assert_jailer(&["--new-pid-ns"], baseline.clone().exec_in_new_pid_ns());
-        assert_jailer(&["--parent-cgroup cgroup"], baseline.clone().parent_cgroup("cgroup"));
+        assert_jailer(
+            &["--parent-cgroup cgroup"],
+            baseline.clone().parent_cgroup("cgroup"),
+        );
         assert_jailer(
             &["--resource-limit a=b", "--resource-limit c=d"],
-            baseline.clone().resource_limit("a", "b").resource_limit("c", "d"),
+            baseline
+                .clone()
+                .resource_limit("a", "b")
+                .resource_limit("c", "d"),
         );
     }
 

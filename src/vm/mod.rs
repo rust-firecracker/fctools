@@ -20,9 +20,9 @@ use http_body_util::Full;
 use hyper::{body::Incoming, Request};
 use models::{
     VmAction, VmActionType, VmApiError, VmBalloon, VmBalloonStatistics, VmCreateSnapshot,
-    VmFetchedConfiguration, VmFirecrackerVersion, VmInfo, VmMachineConfiguration, VmStateForUpdate,
-    VmUpdateBalloon, VmUpdateBalloonStatistics, VmUpdateDrive, VmUpdateNetworkInterface,
-    VmUpdateState,
+    VmEffectiveConfiguration, VmFirecrackerVersion, VmInfo, VmMachineConfiguration,
+    VmStateForUpdate, VmUpdateBalloon, VmUpdateBalloonStatistics, VmUpdateDrive,
+    VmUpdateNetworkInterface, VmUpdateState,
 };
 use paths::{VmSnapshotPaths, VmStandardPaths};
 use serde::{de::DeserializeOwned, Serialize};
@@ -553,7 +553,9 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             .await
     }
 
-    pub async fn api_get_configuration(&mut self) -> Result<VmFetchedConfiguration, VmError> {
+    pub async fn api_get_effective_configuration(
+        &mut self,
+    ) -> Result<VmEffectiveConfiguration, VmError> {
         self.ensure_paused_or_running()?;
         let fetched_configuration = self
             .send_req_with_resp("/vm/config", "GET", None::<i32>)
@@ -588,6 +590,21 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         .await?;
         self.is_paused = false;
         Ok(())
+    }
+
+    pub async fn api_create_mmds(&mut self, value: &serde_json::Value) -> Result<(), VmError> {
+        self.ensure_paused_or_running()?;
+        self.send_req("/mmds", "PUT", Some(value)).await
+    }
+
+    pub async fn api_update_mmds(&mut self, value: &serde_json::Value) -> Result<(), VmError> {
+        self.ensure_paused_or_running()?;
+        self.send_req("/mmds", "PATCH", Some(value)).await
+    }
+
+    pub async fn api_get_mmds(&mut self) -> Result<serde_json::Value, VmError> {
+        self.ensure_paused_or_running()?;
+        self.send_req_with_resp("/mmds", "GET", None::<i32>).await
     }
 
     pub async fn api_custom_request(
