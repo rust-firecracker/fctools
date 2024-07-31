@@ -25,11 +25,11 @@ use crate::{
         arguments::FirecrackerConfigOverride, force_chown, installation::FirecrackerInstallation,
         FirecrackerExecutorError, VmmExecutor,
     },
-    shell_spawner::ShellSpawner,
+    shell::ShellSpawner,
 };
 
-/// A VMM process is the low-level abstraction that manages a Firecracker process. It is
-/// tied to the given executor E and shell spawner S.
+/// A VMM process is layer 3 of FCTools: an abstraction that manages a VMM process. It is
+/// tied to the given VMM executor E and shell spawner S.
 #[derive(Debug)]
 pub struct VmmProcess<E: VmmExecutor, S: ShellSpawner> {
     executor: E,

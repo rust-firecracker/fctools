@@ -10,10 +10,8 @@ use crate::{
     executor::{
         arguments::FirecrackerConfigOverride, installation::FirecrackerInstallation, VmmExecutor,
     },
-    shell_spawner::ShellSpawner,
-    vmm_process::{
-        HyperResponseExt, VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState,
-    },
+    process::{HyperResponseExt, VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
+    shell::ShellSpawner,
 };
 use bytes::Bytes;
 use configuration::{NewVmConfigurationApplier, VmConfiguration};
@@ -22,22 +20,23 @@ use http_body_util::Full;
 use hyper::Request;
 use models::{
     VmAction, VmActionType, VmApiError, VmBalloonStatistics, VmCreateSnapshot,
-    VmFetchedConfiguration, VmFirecrackerVersion, VmInfo, VmSnapshotPaths, VmStandardPaths,
-    VmStateForUpdate, VmUpdateBalloon, VmUpdateBalloonStatistics, VmUpdateDrive,
-    VmUpdateNetworkInterface, VmUpdateState,
+    VmFetchedConfiguration, VmFirecrackerVersion, VmInfo, VmStateForUpdate, VmUpdateBalloon,
+    VmUpdateBalloonStatistics, VmUpdateDrive, VmUpdateNetworkInterface, VmUpdateState,
 };
+use paths::{VmSnapshotPaths, VmStandardPaths};
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{fs, io::AsyncWriteExt, process::ChildStdin};
 
 pub mod configuration;
 pub mod models;
+pub mod paths;
 
 #[derive(Debug)]
 pub struct Vm<E: VmmExecutor, S: ShellSpawner> {
     vmm_process: VmmProcess<E, S>,
     is_paused: bool,
     configuration: Option<VmConfiguration>,
-    accessible_paths: VmStandardPaths,
+    standard_paths: VmStandardPaths,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -229,7 +228,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             vmm_process: vm_process,
             is_paused: false,
             configuration: Some(configuration),
-            accessible_paths,
+            standard_paths: accessible_paths,
         })
     }
 
@@ -445,7 +444,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
     }
 
     pub fn get_standard_paths(&self) -> &VmStandardPaths {
-        &self.accessible_paths
+        &self.standard_paths
     }
 
     pub fn get_path(&self, inner_path: impl AsRef<Path>) -> PathBuf {

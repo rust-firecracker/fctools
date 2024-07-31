@@ -16,7 +16,7 @@ use tokio::{
     task::{JoinError, JoinSet},
 };
 
-use crate::shell_spawner::ShellSpawner;
+use crate::shell::ShellSpawner;
 
 pub mod arguments;
 pub mod installation;

@@ -6,7 +6,7 @@ use fctools::{
         installation::{FirecrackerInstallation, FirecrackerInstallationError},
         FlatPathConverter, MappingPathConverter, ToInnerPath, ToInnerPathError,
     },
-    shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner, SudoShellSpawner},
+    shell::{SameUserShellSpawner, ShellSpawner, SuShellSpawner, SudoShellSpawner},
 };
 use tokio::fs;
 use uuid::Uuid;

@@ -6,7 +6,7 @@ use tokio::{
     process::{Child, Command},
 };
 
-/// ShellSpawner is layer 1 of fctools and concerns itself with spawning a rootful or rootless shell process.
+/// ShellSpawner is layer 1 of FCTools and concerns itself with spawning a rootful or rootless shell process.
 /// The command delegated to the shell is either a firecracker or jailer invocation for starting the respective
 /// processes, or a chown operation used by executors in order to elevate permissions.
 #[async_trait]

@@ -16,8 +16,8 @@ use fctools::{
         FirecrackerExecutorError, FlatPathConverter, JailMoveMethod, JailedVmmExecutor,
         UnrestrictedVmmExecutor, VmmExecutor,
     },
-    shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
-    vmm_process::{HyperResponseExt, VmmProcess, VmmProcessState},
+    process::{HyperResponseExt, VmmProcess, VmmProcessState},
+    shell::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
 };
 use http_body_util::Full;
 use hyper::Request;

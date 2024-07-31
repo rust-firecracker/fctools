@@ -6,7 +6,7 @@ use fctools::{
         installation::FirecrackerInstallation,
         FlatPathConverter, JailMoveMethod, JailedVmmExecutor,
     },
-    shell_spawner::SuShellSpawner,
+    shell::SuShellSpawner,
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
         models::{
