@@ -569,7 +569,7 @@ impl VmLoadSnapshot {
     pub fn new(snapshot_path: impl Into<PathBuf>, mem_backend: VmMemoryBackend) -> Self {
         Self {
             enable_diff_snapshots: None,
-            mem_backend: mem_backend,
+            mem_backend,
             snapshot_path: snapshot_path.into(),
             resume_vm: None,
         }

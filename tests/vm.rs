@@ -9,7 +9,7 @@ use fctools::{
     shell::SudoShellSpawner,
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
-        models::{VmBootSource, VmDrive, VmMachineConfiguration},
+        models::{VmBootSource, VmDrive, VmMachineConfiguration, VmMetrics},
         Vm, VmShutdownMethod,
     },
 };
@@ -26,7 +26,8 @@ async fn t() {
             VmMachineConfiguration::new(1, 512),
         )
         .drive(VmDrive::new("rootfs", true).path_on_host("/opt/testdata/ubuntu-22.04.ext4"))
-        .applier(NewVmConfigurationApplier::ViaApiCalls),
+        .applier(NewVmConfigurationApplier::ViaApiCalls)
+        .metrics(VmMetrics::new("/metrics")),
     );
 
     let mut vms = Vec::new();

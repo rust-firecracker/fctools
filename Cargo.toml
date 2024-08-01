@@ -39,7 +39,7 @@ run_script = "0.10.1"
 tokio = { version = "1.38.1", features = ["macros"] }
 uuid = { version = "1.10.0", features = ["v4"] }
 
-fctools = { path = ".", features = ["vm"] }
+fctools = { path = ".", features = ["vm", "metrics-ext"] }
 
 [features]
 default = []
@@ -54,3 +54,4 @@ process = [
     "dep:hyper-util",
 ]
 vm = ["process", "dep:serde", "dep:serde_json", "dep:http"]
+metrics-ext = ["vm"]
