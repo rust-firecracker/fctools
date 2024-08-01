@@ -323,7 +323,6 @@ pub fn spawn_metrics_task(
             };
             let metrics_entry =
                 serde_json::from_str::<Metrics>(&line).map_err(MetricsTaskError::Serde)?;
-            dbg!(&metrics_entry);
             sender
                 .send(metrics_entry)
                 .await
