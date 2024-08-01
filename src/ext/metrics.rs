@@ -1,12 +1,10 @@
-use std::{
-    path::Path,
-    sync::{Arc, Mutex},
-};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use tokio::{
     fs::File,
     io::{AsyncBufReadExt, BufReader},
+    sync::mpsc::{self, error::SendError},
     task::JoinHandle,
 };
 
@@ -42,42 +40,21 @@ pub struct MetricsAggregate {
     pub sum_us: u64,
 }
 
-pub trait MetricsBuffer {
-    fn recv_metrics(&mut self, metrics_entry: MetricsEntry);
-}
-
-pub struct InMemoryMetricsBuffer {
-    vec: Vec<MetricsEntry>,
-}
-
-impl InMemoryMetricsBuffer {
-    pub fn new() -> Self {
-        Self { vec: Vec::new() }
-    }
-
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            vec: Vec::with_capacity(capacity),
-        }
-    }
-}
-
-impl MetricsBuffer for InMemoryMetricsBuffer {
-    fn recv_metrics(&mut self, metrics_entry: MetricsEntry) {
-        self.vec.push(metrics_entry);
-    }
-}
-
 pub enum MetricsTaskError {
     Io(tokio::io::Error),
     Serde(serde_json::Error),
+    Send(SendError<MetricsEntry>),
 }
 
-pub fn spawn_metrics_task(
-    metrics_path: impl AsRef<Path> + Send + 'static,
-    buffer: Arc<Mutex<impl MetricsBuffer + Send + 'static>>,
-) -> JoinHandle<Result<(), MetricsTaskError>> {
-    tokio::spawn(async move {
+pub struct MetricsTask {
+    pub join_handle: JoinHandle<Result<(), MetricsTaskError>>,
+    pub receiver: mpsc::UnboundedReceiver<MetricsEntry>,
+}
+
+pub fn spawn_metrics_task(metrics_path: impl AsRef<Path> + Send + 'static) -> MetricsTask {
+    let (sender, receiver) = mpsc::unbounded_channel();
+
+    let join_handle = tokio::task::spawn(async move {
         let mut buf_reader = BufReader::new(
             File::open(metrics_path)
                 .await
@@ -87,12 +64,17 @@ pub fn spawn_metrics_task(
         loop {
             let line = match buf_reader.next_line().await {
                 Ok(Some(line)) => line,
-                _ => break,
+                Ok(None) => continue,
+                Err(err) => return Err(MetricsTaskError::Io(err)),
             };
             let metrics_entry =
                 serde_json::from_str::<MetricsEntry>(&line).map_err(MetricsTaskError::Serde)?;
-            buffer.lock().unwrap().recv_metrics(metrics_entry);
+            sender.send(metrics_entry).map_err(MetricsTaskError::Send)?;
         }
-        Ok(())
-    })
+    });
+
+    MetricsTask {
+        join_handle,
+        receiver,
+    }
 }

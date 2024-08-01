@@ -6,16 +6,15 @@ use fctools::{
         installation::FirecrackerInstallation,
         FlatJailRenamer, JailMoveMethod, JailedVmmExecutor,
     },
+    ext::metrics::spawn_metrics_task,
     shell::SudoShellSpawner,
     vm::{
-        configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
-        models::{VmBootSource, VmDrive, VmMachineConfiguration, VmMetrics},
+        configuration::{NewVmConfiguration, VmConfiguration},
+        models::{VmBalloon, VmBootSource, VmDrive, VmMachineConfiguration, VmMetrics},
         Vm, VmShutdownMethod,
     },
 };
 use rand::RngCore;
-
-static VM_COUNT: u8 = 1;
 
 #[tokio::test]
 async fn t() {
@@ -26,49 +25,45 @@ async fn t() {
             VmMachineConfiguration::new(1, 512),
         )
         .drive(VmDrive::new("rootfs", true).path_on_host("/opt/testdata/ubuntu-22.04.ext4"))
-        .applier(NewVmConfigurationApplier::ViaApiCalls)
+        .balloon(VmBalloon::new(256, false))
         .metrics(VmMetrics::new("/metrics")),
     );
 
-    let mut vms = Vec::new();
-    for _ in 1..=VM_COUNT {
-        let mut vm = Vm::prepare(
-            JailedVmmExecutor {
-                firecracker_arguments: FirecrackerArguments::new(FirecrackerApiSocket::Enabled(
-                    PathBuf::from("/tmp/fc.sock"),
-                )),
-                jailer_arguments: JailerArguments::new(
-                    1000,
-                    1000,
-                    rand::thread_rng().next_u32().to_string(),
-                ),
-                jail_move_method: JailMoveMethod::Copy,
-                jail_renamer: FlatJailRenamer::default(),
-            },
-            SudoShellSpawner {
-                sudo_path: PathBuf::from("/usr/bin/sudo"),
-                password: Some("495762".into()),
-            },
-            FirecrackerInstallation {
-                firecracker_path: PathBuf::from("/opt/testdata/firecracker"),
-                jailer_path: PathBuf::from("/opt/testdata/jailer"),
-                snapshot_editor_path: PathBuf::from("/opt/testdata/snapshot-editor"),
-            },
-            configuration.clone(),
-        )
-        .await
-        .unwrap();
-        vm.start(Duration::from_secs(1)).await.unwrap();
-        vms.push(vm);
-    }
+    let mut vm = Vm::prepare(
+        JailedVmmExecutor {
+            firecracker_arguments: FirecrackerArguments::new(FirecrackerApiSocket::Enabled(
+                PathBuf::from("/tmp/fc.sock"),
+            )),
+            jailer_arguments: JailerArguments::new(
+                1000,
+                1000,
+                rand::thread_rng().next_u32().to_string(),
+            ),
+            jail_move_method: JailMoveMethod::Copy,
+            jail_renamer: FlatJailRenamer::default(),
+        },
+        SudoShellSpawner {
+            sudo_path: PathBuf::from("/usr/bin/sudo"),
+            password: Some("495762".into()),
+        },
+        FirecrackerInstallation {
+            firecracker_path: PathBuf::from("/opt/testdata/firecracker"),
+            jailer_path: PathBuf::from("/opt/testdata/jailer"),
+            snapshot_editor_path: PathBuf::from("/opt/testdata/snapshot-editor"),
+        },
+        configuration.clone(),
+    )
+    .await
+    .unwrap();
+    vm.start(Duration::from_secs(1)).await.unwrap();
+    let mut mt = spawn_metrics_task(vm.get_standard_paths().get_metrics_path().unwrap().clone());
+    dbg!(mt.receiver.recv().await);
 
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    for mut vm in vms {
-        dbg!(vm.api_get_info().await.unwrap());
-        vm.shutdown(vec![VmShutdownMethod::CtrlAltDel], Duration::from_secs(1))
-            .await
-            .unwrap();
-        vm.cleanup().await.unwrap();
-    }
+    dbg!(vm.api_get_info().await.unwrap());
+    vm.shutdown(vec![VmShutdownMethod::CtrlAltDel], Duration::from_secs(1))
+        .await
+        .unwrap();
+    vm.cleanup().await.unwrap();
 }
