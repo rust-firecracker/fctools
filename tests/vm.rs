@@ -9,7 +9,7 @@ use fctools::{
     ext::metrics::spawn_metrics_task,
     shell::SudoShellSpawner,
     vm::{
-        configuration::{NewVmConfiguration, VmConfiguration},
+        configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
         models::{VmBalloon, VmBootSource, VmDrive, VmMachineConfiguration, VmMetrics},
         Vm, VmShutdownMethod,
     },
@@ -26,7 +26,8 @@ async fn t() {
         )
         .drive(VmDrive::new("rootfs", true).path_on_host("/opt/testdata/ubuntu-22.04.ext4"))
         .balloon(VmBalloon::new(256, false))
-        .metrics(VmMetrics::new("/metrics")),
+        .metrics(VmMetrics::new("/metrics"))
+        .applier(NewVmConfigurationApplier::ViaApiCalls),
     );
 
     let mut vm = Vm::prepare(
@@ -56,12 +57,15 @@ async fn t() {
     .await
     .unwrap();
     vm.start(Duration::from_secs(1)).await.unwrap();
-    let mut mt = spawn_metrics_task(vm.get_standard_paths().get_metrics_path().unwrap().clone());
-    dbg!(mt.receiver.recv().await);
 
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let mut mt = spawn_metrics_task(
+        vm.get_standard_paths().get_metrics_path().unwrap().clone(),
+        100,
+    );
 
     dbg!(vm.api_get_info().await.unwrap());
+    tokio::time::sleep(Duration::from_secs(5)).await;
     vm.shutdown(vec![VmShutdownMethod::CtrlAltDel], Duration::from_secs(1))
         .await
         .unwrap();
