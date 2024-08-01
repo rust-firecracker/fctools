@@ -19,7 +19,7 @@ pub mod installation;
 
 #[derive(Debug)]
 pub enum FirecrackerExecutorError {
-    FilesystemError(io::Error),
+    IoError(io::Error),
     ShellWaitFailed(io::Error),
     ChownExitedWithWrongStatus(ExitStatus),
     MkdirExitedWithWrongStatus(ExitStatus),
@@ -92,7 +92,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         for path in &outer_paths {
             if !fs::try_exists(path)
                 .await
-                .map_err(FirecrackerExecutorError::FilesystemError)?
+                .map_err(FirecrackerExecutorError::IoError)?
             {
                 return Err(FirecrackerExecutorError::ExpectedResourceMissing(
                     path.clone(),
@@ -104,13 +104,21 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         if let FirecrackerApiSocket::Enabled(socket_path) = &self.firecracker_arguments.api_socket {
             if fs::try_exists(socket_path)
                 .await
-                .map_err(FirecrackerExecutorError::FilesystemError)?
+                .map_err(FirecrackerExecutorError::IoError)?
             {
                 force_chown(socket_path, shell_spawner).await?;
                 fs::remove_file(socket_path)
                     .await
-                    .map_err(FirecrackerExecutorError::FilesystemError)?;
+                    .map_err(FirecrackerExecutorError::IoError)?;
             }
+        }
+
+        // Ensure argument paths exist
+        if let Some(ref log_path) = self.firecracker_arguments.log_path {
+            create_file_with_tree(log_path).await?;
+        }
+        if let Some(ref metrics_path) = self.firecracker_arguments.metrics_path {
+            create_file_with_tree(metrics_path).await?;
         }
 
         Ok(outer_paths
@@ -144,17 +152,25 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         if let FirecrackerApiSocket::Enabled(socket_path) = &self.firecracker_arguments.api_socket {
             if fs::try_exists(socket_path)
                 .await
-                .map_err(FirecrackerExecutorError::FilesystemError)?
+                .map_err(FirecrackerExecutorError::IoError)?
             {
                 force_chown(socket_path, shell_spawner).await?;
                 fs::remove_file(socket_path)
                     .await
-                    .map_err(FirecrackerExecutorError::FilesystemError)?;
+                    .map_err(FirecrackerExecutorError::IoError)?;
             }
         }
 
-        create_file_with_tree(&self.firecracker_arguments.log_path).await?;
-        create_file_with_tree(&self.firecracker_arguments.metrics_path).await?;
+        if let Some(ref log_path) = self.firecracker_arguments.log_path {
+            fs::remove_file(log_path)
+                .await
+                .map_err(FirecrackerExecutorError::IoError)?;
+        }
+        if let Some(ref metrics_path) = self.firecracker_arguments.metrics_path {
+            fs::remove_file(metrics_path)
+                .await
+                .map_err(FirecrackerExecutorError::IoError)?;
+        }
 
         Ok(())
     }
@@ -211,7 +227,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         };
         if !fs::try_exists(chroot_base_dir)
             .await
-            .map_err(FirecrackerExecutorError::FilesystemError)?
+            .map_err(FirecrackerExecutorError::IoError)?
         {
             force_mkdir(chroot_base_dir, shell_spawner).await?;
         }
@@ -221,42 +237,32 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         let jail_path = self.get_jail_path();
         if fs::try_exists(&jail_path)
             .await
-            .map_err(FirecrackerExecutorError::FilesystemError)?
+            .map_err(FirecrackerExecutorError::IoError)?
         {
             fs::remove_dir_all(&jail_path)
                 .await
-                .map_err(FirecrackerExecutorError::FilesystemError)?;
+                .map_err(FirecrackerExecutorError::IoError)?;
         }
         fs::create_dir_all(&jail_path)
             .await
-            .map_err(FirecrackerExecutorError::FilesystemError)?;
+            .map_err(FirecrackerExecutorError::IoError)?;
 
         // Ensure socket parent directory exists so that the firecracker process can bind inside of it
         if let FirecrackerApiSocket::Enabled(socket_path) = &self.firecracker_arguments.api_socket {
             if let Some(socket_parent_dir) = socket_path.parent() {
                 fs::create_dir_all(jail_path.jail_join(socket_parent_dir))
                     .await
-                    .map_err(FirecrackerExecutorError::FilesystemError)?;
+                    .map_err(FirecrackerExecutorError::IoError)?;
             }
         }
 
         // Ensure argument paths exist
-        create_file_with_tree(
-            &self
-                .firecracker_arguments
-                .log_path
-                .as_ref()
-                .map(|p| jail_path.join(p)),
-        )
-        .await?;
-        create_file_with_tree(
-            &self
-                .firecracker_arguments
-                .metrics_path
-                .as_ref()
-                .map(|p| jail_path.jail_join(p)),
-        )
-        .await?;
+        if let Some(ref log_path) = self.firecracker_arguments.log_path {
+            create_file_with_tree(jail_path.jail_join(log_path)).await?;
+        }
+        if let Some(ref metrics_path) = self.firecracker_arguments.metrics_path {
+            create_file_with_tree(jail_path.jail_join(metrics_path)).await?;
+        }
 
         // Apply jail renamer and move in the resources in parallel (via a join set)
         let mut path_mappings = HashMap::with_capacity(outer_paths.len());
@@ -265,7 +271,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         for outer_path in outer_paths {
             if !fs::try_exists(&outer_path)
                 .await
-                .map_err(FirecrackerExecutorError::FilesystemError)?
+                .map_err(FirecrackerExecutorError::IoError)?
             {
                 return Err(FirecrackerExecutorError::ExpectedResourceMissing(
                     outer_path.clone(),
@@ -314,7 +320,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             join_handle
                 .await
                 .map_err(FirecrackerExecutorError::TaskJoinFailed)?
-                .map_err(FirecrackerExecutorError::FilesystemError)?;
+                .map_err(FirecrackerExecutorError::IoError)?;
         }
 
         Ok(path_mappings)
@@ -350,7 +356,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         // Delete entire jail (../{id}/root) recursively
         fs::remove_dir_all(jail_parent_path)
             .await
-            .map_err(FirecrackerExecutorError::FilesystemError)
+            .map_err(FirecrackerExecutorError::IoError)
     }
 }
 
@@ -479,7 +485,7 @@ async fn force_mkdir(
     if shell_spawner.belongs_to_process() {
         fs::create_dir_all(path)
             .await
-            .map_err(FirecrackerExecutorError::FilesystemError)?;
+            .map_err(FirecrackerExecutorError::IoError)?;
         return Ok(());
     }
 
@@ -501,19 +507,18 @@ async fn force_mkdir(
     Ok(())
 }
 
-async fn create_file_with_tree(path: &Option<PathBuf>) -> Result<(), FirecrackerExecutorError> {
-    if let Some(path) = path {
-        if let Some(parent_path) = path.parent() {
-            fs::create_dir_all(parent_path)
-                .await
-                .map_err(FirecrackerExecutorError::FilesystemError)?;
-        }
+async fn create_file_with_tree(path: impl AsRef<Path>) -> Result<(), FirecrackerExecutorError> {
+    let path = path.as_ref();
 
-        fs::File::create(path)
+    if let Some(parent_path) = path.parent() {
+        fs::create_dir_all(parent_path)
             .await
-            .map_err(FirecrackerExecutorError::FilesystemError)?;
+            .map_err(FirecrackerExecutorError::IoError)?;
     }
 
+    fs::File::create(path)
+        .await
+        .map_err(FirecrackerExecutorError::IoError)?;
     Ok(())
 }
 
