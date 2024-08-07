@@ -7,8 +7,8 @@ use fctools::{
         installation::FirecrackerInstallation,
         FlatJailRenamer, JailMoveMethod, JailedVmmExecutor,
     },
-    ext::nat::NatNetwork,
-    shell::SudoShellSpawner,
+    ext::{fcnet::FcnetConfiguration, nat::NatNetwork},
+    shell::{SuShellSpawner, SudoShellSpawner},
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
         models::{VmBalloon, VmBootSource, VmDrive, VmMachineConfiguration, VmMetrics},
@@ -86,4 +86,30 @@ async fn t() {
     vm.cleanup().await.unwrap();
 
     nat_network.delete().await.unwrap();
+}
+
+#[tokio::test]
+async fn fcnet_execution() {
+    let configuration = FcnetConfiguration::simple().iface_name("wlp1s0");
+    let fcnet_path = PathBuf::from("/home/kanpov/.cargo/bin/fcnet");
+    let shell_spawner = SuShellSpawner {
+        su_path: PathBuf::from("/usr/bin/su"),
+        password: "495762".to_string(),
+    };
+
+    dbg!(configuration
+        .generate_guest_ip_boot_arg(&IpInet::from_str("172.16.0.2/24").unwrap(), "eth0"));
+    dbg!(configuration.generate_guest_routing_command());
+    configuration
+        .add(&fcnet_path, &shell_spawner)
+        .await
+        .unwrap();
+    configuration
+        .check(&fcnet_path, &shell_spawner)
+        .await
+        .unwrap();
+    configuration
+        .delete(&fcnet_path, &shell_spawner)
+        .await
+        .unwrap();
 }
