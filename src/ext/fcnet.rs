@@ -156,11 +156,11 @@ impl FcnetConfiguration {
         self.exec("--del", fcnet_path, shell_spawner).await
     }
 
-    pub fn generate_guest_routing_command(&self) -> String {
+    pub fn get_guest_routing_command(&self) -> String {
         format!("ip route add default via {}", self.get_tap_ip_str())
     }
 
-    pub fn generate_guest_ip_boot_arg(
+    pub fn get_guest_ip_boot_arg(
         &self,
         guest_ip: &IpInet,
         guest_iface_name: impl AsRef<str>,

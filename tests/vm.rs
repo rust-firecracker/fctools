@@ -1,4 +1,4 @@
-use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
+use std::{path::PathBuf, str::FromStr, time::Duration};
 
 use cidr::IpInet;
 use fctools::{
@@ -7,7 +7,7 @@ use fctools::{
         installation::FirecrackerInstallation,
         FlatJailRenamer, JailMoveMethod, JailedVmmExecutor,
     },
-    ext::{fcnet::FcnetConfiguration, nat::NatNetwork},
+    ext::fcnet::FcnetConfiguration,
     shell::{SuShellSpawner, SudoShellSpawner},
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
@@ -19,33 +19,15 @@ use rand::RngCore;
 
 #[tokio::test]
 async fn t() {
-    let nat_network = NatNetwork {
-        tap_name: "tap0".to_string(),
-        host_ip: IpInet::from_str("172.16.0.1/24").unwrap(),
-        host_iface: "wlp1s0".to_string(),
-        guest_ip: IpInet::from_str("172.16.0.2/24").unwrap(),
-        shell_spawner: Arc::new(SudoShellSpawner {
-            sudo_path: PathBuf::from("/usr/bin/sudo"),
-            password: Some("495762".into()),
-        }),
-    };
-    nat_network.create().await.unwrap();
-    let iface = nat_network
-        .get_vm_network_interface()
-        .guest_mac("06:00:AC:10:00:02");
-    let mut boot_args = "console=ttyS0 reboot=k panic=1 pci=off".to_string();
-    nat_network.append_ip_boot_arg(&mut boot_args);
-    dbg!(&boot_args);
-
     let configuration = VmConfiguration::New(
         NewVmConfiguration::new(
-            VmBootSource::new("/opt/testdata/vmlinux-6.1").boot_args(boot_args),
+            VmBootSource::new("/opt/testdata/vmlinux-6.1")
+                .boot_args("console=ttyS0 reboot=k panic=1 pci=off"),
             VmMachineConfiguration::new(1, 512),
         )
         .drive(VmDrive::new("rootfs", true).path_on_host("/opt/testdata/ubuntu-22.04.ext4"))
         .balloon(VmBalloon::new(256, false))
         .metrics(VmMetrics::new("/metrics"))
-        .network_interface(iface)
         .applier(NewVmConfigurationApplier::ViaApiCalls),
     );
 
@@ -84,8 +66,6 @@ async fn t() {
         .await
         .unwrap();
     vm.cleanup().await.unwrap();
-
-    nat_network.delete().await.unwrap();
 }
 
 #[tokio::test]
@@ -97,9 +77,8 @@ async fn fcnet_execution() {
         password: "495762".to_string(),
     };
 
-    dbg!(configuration
-        .generate_guest_ip_boot_arg(&IpInet::from_str("172.16.0.2/24").unwrap(), "eth0"));
-    dbg!(configuration.generate_guest_routing_command());
+    dbg!(configuration.get_guest_ip_boot_arg(&IpInet::from_str("172.16.0.2/24").unwrap(), "eth0"));
+    dbg!(configuration.get_guest_routing_command());
     configuration
         .add(&fcnet_path, &shell_spawner)
         .await

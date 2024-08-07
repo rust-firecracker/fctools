@@ -41,12 +41,7 @@ run_script = "0.10.1"
 tokio = { version = "1.39.2", features = ["macros"] }
 uuid = { version = "1.10.0", features = ["v4"] }
 
-fctools = { path = ".", features = [
-    "vm",
-    "metrics-ext",
-    "nat-ext",
-    "fcnet-ext",
-] }
+fctools = { path = ".", features = ["vm", "metrics-ext", "fcnet-ext"] }
 
 [features]
 default = []
@@ -62,5 +57,4 @@ process = [
 ]
 vm = ["process", "dep:serde", "dep:serde_json", "dep:http"]
 metrics-ext = ["vm"]
-nat-ext = ["vm", "dep:cidr"]
 fcnet-ext = ["vm", "dep:cidr"]
