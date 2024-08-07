@@ -13,7 +13,7 @@ pub struct FcnetConfiguration {
     iface_name: Option<String>,
     tap_name: Option<String>,
     tap_ip: Option<IpInet>,
-    network_type: FcnetConfigurationType,
+    configuration_type: FcnetConfigurationType,
 }
 
 impl FcnetConfiguration {
@@ -23,7 +23,7 @@ impl FcnetConfiguration {
             iface_name: None,
             tap_name: None,
             tap_ip: None,
-            network_type: FcnetConfigurationType::Simple,
+            configuration_type: FcnetConfigurationType::Simple,
         }
     }
 
@@ -33,7 +33,7 @@ impl FcnetConfiguration {
             iface_name: None,
             tap_name: None,
             tap_ip: None,
-            network_type: FcnetConfigurationType::Netns(netns_options),
+            configuration_type: FcnetConfigurationType::Netns(netns_options),
         }
     }
 
@@ -216,7 +216,7 @@ impl FcnetConfiguration {
             push_arg("tap-ip", tap_ip.to_string().as_str());
         }
 
-        match self.network_type {
+        match self.configuration_type {
             FcnetConfigurationType::Simple => {
                 push_arg("simple", "");
             }
