@@ -302,36 +302,21 @@ pub struct MetricsTask {
     pub receiver: mpsc::Receiver<Metrics>,
 }
 
-pub fn spawn_metrics_task(
-    metrics_path: impl AsRef<Path> + Send + 'static,
-    buffer: usize,
-) -> MetricsTask {
+pub fn spawn_metrics_task(metrics_path: impl AsRef<Path> + Send + 'static, buffer: usize) -> MetricsTask {
     let (sender, receiver) = mpsc::channel(buffer);
 
     let join_handle = tokio::task::spawn(async move {
-        let mut buf_reader = BufReader::new(
-            File::open(metrics_path)
-                .await
-                .map_err(MetricsTaskError::Io)?,
-        )
-        .lines();
+        let mut buf_reader = BufReader::new(File::open(metrics_path).await.map_err(MetricsTaskError::Io)?).lines();
         loop {
             let line = match buf_reader.next_line().await {
                 Ok(Some(line)) => line,
                 Ok(None) => continue,
                 Err(err) => return Err(MetricsTaskError::Io(err)),
             };
-            let metrics_entry =
-                serde_json::from_str::<Metrics>(&line).map_err(MetricsTaskError::Serde)?;
-            sender
-                .send(metrics_entry)
-                .await
-                .map_err(MetricsTaskError::Send)?;
+            let metrics_entry = serde_json::from_str::<Metrics>(&line).map_err(MetricsTaskError::Serde)?;
+            sender.send(metrics_entry).await.map_err(MetricsTaskError::Send)?;
         }
     });
 
-    MetricsTask {
-        join_handle,
-        receiver,
-    }
+    MetricsTask { join_handle, receiver }
 }

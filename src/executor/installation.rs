@@ -26,23 +26,10 @@ pub enum FirecrackerInstallationError {
 }
 
 impl FirecrackerInstallation {
-    pub async fn verify(
-        &self,
-        expected_version: impl AsRef<str>,
-    ) -> Result<(), FirecrackerInstallationError> {
-        verify_imp(
-            &self.firecracker_path,
-            expected_version.as_ref(),
-            "Firecracker",
-        )
-        .await?;
+    pub async fn verify(&self, expected_version: impl AsRef<str>) -> Result<(), FirecrackerInstallationError> {
+        verify_imp(&self.firecracker_path, expected_version.as_ref(), "Firecracker").await?;
         verify_imp(&self.jailer_path, expected_version.as_ref(), "Jailer").await?;
-        verify_imp(
-            &self.snapshot_editor_path,
-            expected_version.as_ref(),
-            "snapshot-editor",
-        )
-        .await?;
+        verify_imp(&self.snapshot_editor_path, expected_version.as_ref(), "snapshot-editor").await?;
         Ok(())
     }
 }

@@ -82,12 +82,8 @@ impl ShellSpawner for SuShellSpawner {
             .stdin
             .as_mut()
             .ok_or_else(|| io::Error::other("Stdin not received"))?;
-        stdin_ref
-            .write(format!("{}\n", self.password).as_bytes())
-            .await?;
-        stdin_ref
-            .write(format!("{shell_command} ; exit\n").as_bytes())
-            .await?;
+        stdin_ref.write(format!("{}\n", self.password).as_bytes()).await?;
+        stdin_ref.write(format!("{shell_command} ; exit\n").as_bytes()).await?;
 
         Ok(child)
     }

@@ -7,9 +7,7 @@ use std::{
 };
 
 use crate::{
-    executor::{
-        arguments::FirecrackerConfigOverride, installation::FirecrackerInstallation, VmmExecutor,
-    },
+    executor::{arguments::FirecrackerConfigOverride, installation::FirecrackerInstallation, VmmExecutor},
     process::{HyperResponseExt, VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
     shell::ShellSpawner,
 };
@@ -19,10 +17,9 @@ use http::{Response, StatusCode};
 use http_body_util::Full;
 use hyper::{body::Incoming, Request};
 use models::{
-    VmAction, VmActionType, VmApiError, VmBalloon, VmBalloonStatistics, VmCreateSnapshot,
-    VmEffectiveConfiguration, VmFirecrackerVersion, VmInfo, VmMachineConfiguration,
-    VmStateForUpdate, VmUpdateBalloon, VmUpdateBalloonStatistics, VmUpdateDrive,
-    VmUpdateNetworkInterface, VmUpdateState,
+    VmAction, VmActionType, VmApiError, VmBalloon, VmBalloonStatistics, VmCreateSnapshot, VmEffectiveConfiguration,
+    VmFirecrackerVersion, VmInfo, VmMachineConfiguration, VmStateForUpdate, VmUpdateBalloon, VmUpdateBalloonStatistics,
+    VmUpdateDrive, VmUpdateNetworkInterface, VmUpdateState,
 };
 use paths::{VmSnapshotPaths, VmStandardPaths};
 use serde::{de::DeserializeOwned, Serialize};
@@ -89,13 +86,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         installation: FirecrackerInstallation,
         configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
-        Self::prepare_arced(
-            executor,
-            Arc::new(shell_spawner),
-            Arc::new(installation),
-            configuration,
-        )
-        .await
+        Self::prepare_arced(executor, Arc::new(shell_spawner), Arc::new(installation), configuration).await
     }
 
     pub async fn prepare_arced(
@@ -131,8 +122,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         }
 
         // prepare
-        let mut vm_process =
-            VmmProcess::new_arced(executor, shell_spawner_arc, installation_arc, outer_paths);
+        let mut vm_process = VmmProcess::new_arced(executor, shell_spawner_arc, installation_arc, outer_paths);
         let mut path_mappings = vm_process.prepare().await.map_err(VmError::ProcessError)?;
 
         // set inner paths for configuration (to conform to FC expectations) based on returned mappings
@@ -143,18 +133,13 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                     .ok_or(VmError::MissingPathMapping)?;
 
                 if let Some(ref mut path) = config.boot_source.initrd_path {
-                    config.boot_source.initrd_path = Some(
-                        path_mappings
-                            .remove(path)
-                            .ok_or(VmError::MissingPathMapping)?,
-                    );
+                    config.boot_source.initrd_path =
+                        Some(path_mappings.remove(path).ok_or(VmError::MissingPathMapping)?);
                 }
 
                 for drive in &mut config.drives {
                     if let Some(ref mut path) = drive.path_on_host {
-                        *path = path_mappings
-                            .remove(path)
-                            .ok_or(VmError::MissingPathMapping)?;
+                        *path = path_mappings.remove(path).ok_or(VmError::MissingPathMapping)?;
                     }
                 }
             }
@@ -179,10 +164,9 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             VmConfiguration::New(ref config) => {
                 for drive in &config.drives {
                     if let Some(ref socket) = drive.socket {
-                        accessible_paths.drive_sockets.insert(
-                            drive.drive_id.clone(),
-                            vm_process.inner_to_outer_path(&socket),
-                        );
+                        accessible_paths
+                            .drive_sockets
+                            .insert(drive.drive_id.clone(), vm_process.inner_to_outer_path(&socket));
                     }
                 }
 
@@ -257,9 +241,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         let mut config_override = FirecrackerConfigOverride::NoOverride;
         let mut no_api_calls = false;
         if let VmConfiguration::New(ref config) = configuration {
-            if let NewVmConfigurationApplier::ViaJsonConfiguration(inner_path) =
-                config.get_applier()
-            {
+            if let NewVmConfigurationApplier::ViaJsonConfiguration(inner_path) = config.get_applier() {
                 config_override = FirecrackerConfigOverride::Enable(inner_path.clone());
                 prepare_file(inner_path, true).await?;
                 fs::write(
@@ -295,28 +277,18 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                     return Ok(());
                 }
 
-                self.send_req("/boot-source", "PUT", Some(&config.boot_source))
-                    .await?;
+                self.send_req("/boot-source", "PUT", Some(&config.boot_source)).await?;
 
                 for drive in &config.drives {
-                    self.send_req(
-                        format!("/drives/{}", drive.drive_id).as_str(),
-                        "PUT",
-                        Some(drive),
-                    )
-                    .await?;
+                    self.send_req(format!("/drives/{}", drive.drive_id).as_str(), "PUT", Some(drive))
+                        .await?;
                 }
 
-                self.send_req(
-                    "/machine-config",
-                    "PUT",
-                    Some(&config.machine_configuration),
-                )
-                .await?;
+                self.send_req("/machine-config", "PUT", Some(&config.machine_configuration))
+                    .await?;
 
                 if let Some(cpu_template) = &config.cpu_template {
-                    self.send_req("/cpu-config", "PUT", Some(cpu_template))
-                        .await?;
+                    self.send_req("/cpu-config", "PUT", Some(cpu_template)).await?;
                 }
 
                 for network_interface in &config.network_interfaces {
@@ -345,8 +317,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                 }
 
                 if let Some(mmds_configuration) = &config.mmds_configuration {
-                    self.send_req("/mmds/config", "PUT", Some(mmds_configuration))
-                        .await?;
+                    self.send_req("/mmds/config", "PUT", Some(mmds_configuration)).await?;
                 }
 
                 if let Some(entropy) = &config.entropy {
@@ -403,16 +374,10 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                     .await
                 }
                 VmShutdownMethod::WriteRebootToStdin(mut stdin) => {
-                    stdin
-                        .write_all(b"reboot\n")
-                        .await
-                        .map_err(VmError::IoError)?;
+                    stdin.write_all(b"reboot\n").await.map_err(VmError::IoError)?;
                     stdin.flush().await.map_err(VmError::IoError)
                 }
-                VmShutdownMethod::Kill => self
-                    .vmm_process
-                    .send_sigkill()
-                    .map_err(VmError::ProcessError),
+                VmShutdownMethod::Kill => self.vmm_process.send_sigkill().map_err(VmError::ProcessError),
             };
 
             if last_result.is_ok() {
@@ -436,10 +401,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
 
     pub async fn cleanup(&mut self) -> Result<(), VmError> {
         self.ensure_exited_or_crashed()?;
-        self.vmm_process
-            .cleanup()
-            .await
-            .map_err(VmError::ProcessError)
+        self.vmm_process.cleanup().await.map_err(VmError::ProcessError)
     }
 
     pub fn take_pipes(&mut self) -> Result<VmmProcessPipes, VmError> {
@@ -474,23 +436,17 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
 
     pub async fn api_get_balloon(&mut self) -> Result<VmBalloon, VmError> {
         self.ensure_paused_or_running()?;
-        self.send_req_with_resp("/balloon", "GET", None::<i32>)
-            .await
+        self.send_req_with_resp("/balloon", "GET", None::<i32>).await
     }
 
-    pub async fn api_update_balloon(
-        &mut self,
-        update_balloon: VmUpdateBalloon,
-    ) -> Result<(), VmError> {
+    pub async fn api_update_balloon(&mut self, update_balloon: VmUpdateBalloon) -> Result<(), VmError> {
         self.ensure_paused_or_running()?;
-        self.send_req("/balloon", "PATCH", Some(update_balloon))
-            .await
+        self.send_req("/balloon", "PATCH", Some(update_balloon)).await
     }
 
     pub async fn api_get_balloon_statistics(&mut self) -> Result<VmBalloonStatistics, VmError> {
         self.ensure_state(VmState::Running)?;
-        self.send_req_with_resp("/balloon/statistics", "GET", None::<i32>)
-            .await
+        self.send_req_with_resp("/balloon/statistics", "GET", None::<i32>).await
     }
 
     pub async fn api_update_balloon_statistics(
@@ -498,12 +454,8 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         update_balloon_statistics: VmUpdateBalloonStatistics,
     ) -> Result<(), VmError> {
         self.ensure_paused_or_running()?;
-        self.send_req(
-            "/balloon/statistics",
-            "PATCH",
-            Some(update_balloon_statistics),
-        )
-        .await
+        self.send_req("/balloon/statistics", "PATCH", Some(update_balloon_statistics))
+            .await
     }
 
     pub async fn api_update_drive(&mut self, update_drive: VmUpdateDrive) -> Result<(), VmError> {
@@ -529,42 +481,28 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         .await
     }
 
-    pub async fn api_get_machine_configuration(
-        &mut self,
-    ) -> Result<VmMachineConfiguration, VmError> {
+    pub async fn api_get_machine_configuration(&mut self) -> Result<VmMachineConfiguration, VmError> {
         self.ensure_paused_or_running()?;
-        self.send_req_with_resp("/machine-config", "GET", None::<i32>)
-            .await
+        self.send_req_with_resp("/machine-config", "GET", None::<i32>).await
     }
 
-    pub async fn api_create_snapshot(
-        &mut self,
-        create_snapshot: VmCreateSnapshot,
-    ) -> Result<VmSnapshotPaths, VmError> {
+    pub async fn api_create_snapshot(&mut self, create_snapshot: VmCreateSnapshot) -> Result<VmSnapshotPaths, VmError> {
         self.ensure_state(VmState::Paused)?;
-        self.send_req("/snapshot/create", "PUT", Some(&create_snapshot))
-            .await?;
+        self.send_req("/snapshot/create", "PUT", Some(&create_snapshot)).await?;
         Ok(VmSnapshotPaths::new(
-            self.vmm_process
-                .inner_to_outer_path(create_snapshot.snapshot_path),
-            self.vmm_process
-                .inner_to_outer_path(create_snapshot.mem_file_path),
+            self.vmm_process.inner_to_outer_path(create_snapshot.snapshot_path),
+            self.vmm_process.inner_to_outer_path(create_snapshot.mem_file_path),
         ))
     }
 
     pub async fn api_get_firecracker_version(&mut self) -> Result<VmFirecrackerVersion, VmError> {
         self.ensure_paused_or_running()?;
-        self.send_req_with_resp("/version", "GET", None::<i32>)
-            .await
+        self.send_req_with_resp("/version", "GET", None::<i32>).await
     }
 
-    pub async fn api_get_effective_configuration(
-        &mut self,
-    ) -> Result<VmEffectiveConfiguration, VmError> {
+    pub async fn api_get_effective_configuration(&mut self) -> Result<VmEffectiveConfiguration, VmError> {
         self.ensure_paused_or_running()?;
-        let fetched_configuration = self
-            .send_req_with_resp("/vm/config", "GET", None::<i32>)
-            .await?;
+        let fetched_configuration = self.send_req_with_resp("/vm/config", "GET", None::<i32>).await?;
         self.is_paused = false;
         Ok(fetched_configuration)
     }
@@ -712,8 +650,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             .map_err(VmError::ApiResponseCouldNotBeReceived)?;
 
         if !response.status().is_success() {
-            let api_error: VmApiError =
-                serde_json::from_str(&response_json).map_err(VmError::SerdeError)?;
+            let api_error: VmApiError = serde_json::from_str(&response_json).map_err(VmError::SerdeError)?;
             return Err(VmError::ApiRespondedWithFault {
                 status_code: response.status(),
                 fault_message: api_error.fault_message,
@@ -726,9 +663,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
 
 async fn prepare_file(path: &PathBuf, only_tree: bool) -> Result<(), VmError> {
     if let Some(parent_path) = path.parent() {
-        fs::create_dir_all(parent_path)
-            .await
-            .map_err(VmError::IoError)?;
+        fs::create_dir_all(parent_path).await.map_err(VmError::IoError)?;
     }
 
     if !only_tree {

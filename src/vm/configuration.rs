@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use super::models::{
-    VmBalloon, VmBootSource, VmCpuTemplate, VmDrive, VmEntropy, VmLoadSnapshot, VmLogger,
-    VmMachineConfiguration, VmMetrics, VmMmdsConfiguration, VmNetworkInterface, VmVsock,
+    VmBalloon, VmBootSource, VmCpuTemplate, VmDrive, VmEntropy, VmLoadSnapshot, VmLogger, VmMachineConfiguration,
+    VmMetrics, VmMmdsConfiguration, VmNetworkInterface, VmVsock,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

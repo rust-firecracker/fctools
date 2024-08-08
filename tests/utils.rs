@@ -73,8 +73,7 @@ where
     }
     let shell_spawner = closure(password.unwrap());
     let child = shell_spawner.spawn("echo $UID".into()).await.unwrap();
-    let stdout =
-        String::from_utf8_lossy(&child.wait_with_output().await.unwrap().stdout).into_owned();
+    let stdout = String::from_utf8_lossy(&child.wait_with_output().await.unwrap().stdout).into_owned();
     assert_eq!(stdout, "0\n");
 }
 
@@ -149,11 +148,7 @@ fn flat_jail_renamer_moves_correctly() {
     let renamer = FlatJailRenamer::default();
     assert_renamer(&renamer, "/opt/file", "/file");
     assert_renamer(&renamer, "/tmp/some_path.txt", "/some_path.txt");
-    assert_renamer(
-        &renamer,
-        "/some/complex/outside/path/filename.ext4",
-        "/filename.ext4",
-    );
+    assert_renamer(&renamer, "/some/complex/outside/path/filename.ext4", "/filename.ext4");
 }
 
 #[test]
@@ -174,11 +169,7 @@ fn mapping_jail_renamer_moves_correctly() {
 
 fn assert_renamer(renamer: &impl JailRenamer, path: &str, expectation: &str) {
     assert_eq!(
-        renamer
-            .rename_for_jail(&PathBuf::from(path))
-            .unwrap()
-            .to_str()
-            .unwrap(),
+        renamer.rename_for_jail(&PathBuf::from(path)).unwrap().to_str().unwrap(),
         expectation
     );
 }

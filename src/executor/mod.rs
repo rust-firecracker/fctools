@@ -5,9 +5,7 @@ use std::{
     process::ExitStatus,
 };
 
-use arguments::{
-    FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments,
-};
+use arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments};
 use async_trait::async_trait;
 use installation::FirecrackerInstallation;
 use tokio::{fs, process::Child, task::JoinError};
@@ -57,10 +55,7 @@ pub trait VmmExecutor {
     ) -> Result<Child, FirecrackerExecutorError>;
 
     /// Clean up all transient resources of the VM invocation.
-    async fn cleanup(
-        &self,
-        shell_spawner: &impl ShellSpawner,
-    ) -> Result<(), FirecrackerExecutorError>;
+    async fn cleanup(&self, shell_spawner: &impl ShellSpawner) -> Result<(), FirecrackerExecutorError>;
 }
 
 /// An executor that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
@@ -90,13 +85,8 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, FirecrackerExecutorError> {
         for path in &outer_paths {
-            if !fs::try_exists(path)
-                .await
-                .map_err(FirecrackerExecutorError::IoError)?
-            {
-                return Err(FirecrackerExecutorError::ExpectedResourceMissing(
-                    path.clone(),
-                ));
+            if !fs::try_exists(path).await.map_err(FirecrackerExecutorError::IoError)? {
+                return Err(FirecrackerExecutorError::ExpectedResourceMissing(path.clone()));
             }
             force_chown(&path, shell_spawner).await?;
         }
@@ -121,10 +111,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             create_file_with_tree(metrics_path).await?;
         }
 
-        Ok(outer_paths
-            .into_iter()
-            .map(|path| (path.clone(), path))
-            .collect())
+        Ok(outer_paths.into_iter().map(|path| (path.clone(), path)).collect())
     }
 
     async fn invoke(
@@ -134,10 +121,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         config_override: FirecrackerConfigOverride,
     ) -> Result<Child, FirecrackerExecutorError> {
         let arguments = self.firecracker_arguments.join(config_override);
-        let shell_command = format!(
-            "{} {arguments}",
-            installation.firecracker_path.to_string_lossy()
-        );
+        let shell_command = format!("{} {arguments}", installation.firecracker_path.to_string_lossy());
         let child = shell
             .spawn(shell_command)
             .await
@@ -145,10 +129,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         Ok(child)
     }
 
-    async fn cleanup(
-        &self,
-        shell_spawner: &impl ShellSpawner,
-    ) -> Result<(), FirecrackerExecutorError> {
+    async fn cleanup(&self, shell_spawner: &impl ShellSpawner) -> Result<(), FirecrackerExecutorError> {
         if let FirecrackerApiSocket::Enabled(socket_path) = &self.firecracker_arguments.api_socket {
             if fs::try_exists(socket_path)
                 .await
@@ -205,9 +186,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     fn get_outer_socket_path(&self) -> Option<PathBuf> {
         match &self.firecracker_arguments.api_socket {
             FirecrackerApiSocket::Disabled => None,
-            FirecrackerApiSocket::Enabled(socket_path) => {
-                Some(self.get_jail_path().jail_join(&socket_path))
-            }
+            FirecrackerApiSocket::Enabled(socket_path) => Some(self.get_jail_path().jail_join(&socket_path)),
         }
     }
 
@@ -273,9 +252,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                 .await
                 .map_err(FirecrackerExecutorError::IoError)?
             {
-                return Err(FirecrackerExecutorError::ExpectedResourceMissing(
-                    outer_path.clone(),
-                ));
+                return Err(FirecrackerExecutorError::ExpectedResourceMissing(outer_path.clone()));
             }
 
             force_chown(&outer_path, shell_spawner).await?;
@@ -295,19 +272,12 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                     fs::create_dir_all(new_path_parent_dir).await?;
                 }
                 match jail_move_method {
-                    JailMoveMethod::Copy => {
-                        fs::copy(outer_path, expanded_inner_path).await.map(|_| ())
-                    }
-                    JailMoveMethod::HardLink => {
-                        fs::hard_link(outer_path, expanded_inner_path).await
-                    }
+                    JailMoveMethod::Copy => fs::copy(outer_path, expanded_inner_path).await.map(|_| ()),
+                    JailMoveMethod::HardLink => fs::hard_link(outer_path, expanded_inner_path).await,
                     JailMoveMethod::HardLinkWithCopyFallback => {
-                        let hardlink_result =
-                            fs::hard_link(&outer_path, &expanded_inner_path).await;
+                        let hardlink_result = fs::hard_link(&outer_path, &expanded_inner_path).await;
                         if let Err(_) = hardlink_result {
-                            fs::copy(&outer_path, &expanded_inner_path)
-                                .await
-                                .map(|_| ())
+                            fs::copy(&outer_path, &expanded_inner_path).await.map(|_| ())
                         } else {
                             hardlink_result
                         }
@@ -344,10 +314,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             .map_err(FirecrackerExecutorError::ShellSpawnFailed)
     }
 
-    async fn cleanup(
-        &self,
-        _shell_spawner: &impl ShellSpawner,
-    ) -> Result<(), FirecrackerExecutorError> {
+    async fn cleanup(&self, _shell_spawner: &impl ShellSpawner) -> Result<(), FirecrackerExecutorError> {
         let jail_path = self.get_jail_path();
         let jail_parent_path = jail_path
             .parent()
@@ -417,11 +384,7 @@ impl MappingJailRenamer {
         }
     }
 
-    pub fn map(
-        &mut self,
-        outside_path: impl Into<PathBuf>,
-        jail_path: impl Into<PathBuf>,
-    ) -> &mut Self {
+    pub fn map(&mut self, outside_path: impl Into<PathBuf>, jail_path: impl Into<PathBuf>) -> &mut Self {
         self.mappings.insert(outside_path.into(), jail_path.into());
         self
     }
@@ -464,24 +427,16 @@ pub(crate) async fn force_chown(
         .spawn(format!("chown -R {uid}:{gid} {}", path.to_string_lossy()))
         .await
         .map_err(FirecrackerExecutorError::ShellSpawnFailed)?;
-    let exit_status = child
-        .wait()
-        .await
-        .map_err(FirecrackerExecutorError::ShellWaitFailed)?;
+    let exit_status = child.wait().await.map_err(FirecrackerExecutorError::ShellWaitFailed)?;
 
     if !exit_status.success() {
-        return Err(FirecrackerExecutorError::ChownExitedWithWrongStatus(
-            exit_status,
-        ));
+        return Err(FirecrackerExecutorError::ChownExitedWithWrongStatus(exit_status));
     }
 
     Ok(())
 }
 
-async fn force_mkdir(
-    path: &Path,
-    shell_spawner: &impl ShellSpawner,
-) -> Result<(), FirecrackerExecutorError> {
+async fn force_mkdir(path: &Path, shell_spawner: &impl ShellSpawner) -> Result<(), FirecrackerExecutorError> {
     if shell_spawner.belongs_to_process() {
         fs::create_dir_all(path)
             .await
@@ -493,15 +448,10 @@ async fn force_mkdir(
         .spawn(format!("mkdir -p {}", path.to_string_lossy()))
         .await
         .map_err(FirecrackerExecutorError::ShellSpawnFailed)?;
-    let exit_status = child
-        .wait()
-        .await
-        .map_err(FirecrackerExecutorError::ShellWaitFailed)?;
+    let exit_status = child.wait().await.map_err(FirecrackerExecutorError::ShellWaitFailed)?;
 
     if !exit_status.success() {
-        return Err(FirecrackerExecutorError::MkdirExitedWithWrongStatus(
-            exit_status,
-        ));
+        return Err(FirecrackerExecutorError::MkdirExitedWithWrongStatus(exit_status));
     }
 
     Ok(())

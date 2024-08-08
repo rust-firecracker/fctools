@@ -11,9 +11,7 @@ use fctools::{
     shell::{SuShellSpawner, SudoShellSpawner},
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
-        models::{
-            VmBalloon, VmBootSource, VmDrive, VmMachineConfiguration, VmMetrics, VmNetworkInterface,
-        },
+        models::{VmBalloon, VmBootSource, VmDrive, VmMachineConfiguration, VmMetrics, VmNetworkInterface},
         Vm, VmShutdownMethod,
     },
 };
@@ -28,15 +26,13 @@ async fn t() {
         password: "495762".to_string(),
     };
 
-    let ip_boot_arg =
-        fcnet.get_guest_ip_boot_arg(&IpInet::from_str("172.16.0.2/24").unwrap(), "eth0");
+    let ip_boot_arg = dbg!(fcnet.get_guest_ip_boot_arg(&IpInet::from_str("172.16.0.2/24").unwrap(), "eth0"));
     fcnet.add(&fcnet_path, &shell_spawner).await.unwrap();
 
     let configuration = VmConfiguration::New(
         NewVmConfiguration::new(
-            VmBootSource::new("/opt/testdata/vmlinux-6.10").boot_args(format!(
-                "console=ttyS0 reboot=k panic=1 pci=off {ip_boot_arg}"
-            )),
+            VmBootSource::new("/opt/testdata/vmlinux-6.10")
+                .boot_args(format!("console=ttyS0 reboot=k panic=1 pci=off {ip_boot_arg}")),
             VmMachineConfiguration::new(1, 512),
         )
         .drive(VmDrive::new("rootfs", true).path_on_host("/opt/testdata/ubuntu-22.04.ext4"))
@@ -48,14 +44,10 @@ async fn t() {
 
     let mut vm = Vm::prepare(
         JailedVmmExecutor {
-            firecracker_arguments: FirecrackerArguments::new(FirecrackerApiSocket::Enabled(
-                PathBuf::from("/tmp/fc.sock"),
-            )),
-            jailer_arguments: JailerArguments::new(
-                1000,
-                1000,
-                rand::thread_rng().next_u32().to_string(),
-            ),
+            firecracker_arguments: FirecrackerArguments::new(FirecrackerApiSocket::Enabled(PathBuf::from(
+                "/tmp/fc.sock",
+            ))),
+            jailer_arguments: JailerArguments::new(1000, 1000, rand::thread_rng().next_u32().to_string()),
             jail_move_method: JailMoveMethod::Copy,
             jail_renamer: FlatJailRenamer::default(),
         },

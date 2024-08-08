@@ -132,11 +132,7 @@ pub enum FcnetError {
 }
 
 impl FcnetConfiguration {
-    pub async fn add(
-        &self,
-        fcnet_path: impl AsRef<Path>,
-        shell_spawner: &impl ShellSpawner,
-    ) -> Result<(), FcnetError> {
+    pub async fn add(&self, fcnet_path: impl AsRef<Path>, shell_spawner: &impl ShellSpawner) -> Result<(), FcnetError> {
         self.exec("--add", fcnet_path, shell_spawner).await
     }
 
@@ -160,11 +156,7 @@ impl FcnetConfiguration {
         format!("ip route add default via {}", self.get_tap_ip_str())
     }
 
-    pub fn get_guest_ip_boot_arg(
-        &self,
-        guest_ip: &IpInet,
-        guest_iface_name: impl AsRef<str>,
-    ) -> String {
+    pub fn get_guest_ip_boot_arg(&self, guest_ip: &IpInet, guest_iface_name: impl AsRef<str>) -> String {
         format!(
             "ip={}::{}:{}::{}:off",
             guest_ip.address().to_string(),
@@ -198,10 +190,7 @@ impl FcnetConfiguration {
         };
 
         if let Some(ref iptables_path) = self.iptables_path {
-            push_arg(
-                "iptables-path",
-                iptables_path.to_string_lossy().to_string().as_str(),
-            );
+            push_arg("iptables-path", iptables_path.to_string_lossy().to_string().as_str());
         }
 
         if let Some(ref iface_name) = self.iface_name {
@@ -248,10 +237,7 @@ impl FcnetConfiguration {
                 }
 
                 if let Some(ref forwarded_guest_ip) = netns_options.forwarded_guest_ip {
-                    push_arg(
-                        "forwarded-guest-ip",
-                        forwarded_guest_ip.to_string().as_str(),
-                    );
+                    push_arg("forwarded-guest-ip", forwarded_guest_ip.to_string().as_str());
                 }
             }
         }
@@ -259,17 +245,11 @@ impl FcnetConfiguration {
         dbg!(&arguments);
 
         let child = shell_spawner
-            .spawn(format!(
-                "{} {arguments}",
-                fcnet_path.as_ref().to_string_lossy()
-            ))
+            .spawn(format!("{} {arguments}", fcnet_path.as_ref().to_string_lossy()))
             .await
             .map_err(FcnetError::ShellSpawnFailed)?;
 
-        let process_output = child
-            .wait_with_output()
-            .await
-            .map_err(FcnetError::ProcessWaitFailed)?;
+        let process_output = child.wait_with_output().await.map_err(FcnetError::ProcessWaitFailed)?;
         if !process_output.status.success() {
             return Err(FcnetError::FcnetReturnedError(process_output));
         }

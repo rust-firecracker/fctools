@@ -99,12 +99,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
         installation: FirecrackerInstallation,
         outer_paths: Vec<PathBuf>,
     ) -> Self {
-        Self::new_arced(
-            executor,
-            Arc::new(shell_spawner),
-            Arc::new(installation),
-            outer_paths,
-        )
+        Self::new_arced(executor, Arc::new(shell_spawner), Arc::new(installation), outer_paths)
     }
 
     /// Create a new process instance without moving in its components, instead using Arc-s. This is recommended over moving in clones in
@@ -146,18 +141,11 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
     }
 
     /// Invoke the VM process. Allowed in AwaitingStart state, will result in Started state.
-    pub async fn invoke(
-        &mut self,
-        config_override: FirecrackerConfigOverride,
-    ) -> Result<(), VmmProcessError> {
+    pub async fn invoke(&mut self, config_override: FirecrackerConfigOverride) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.child = Some(
             self.executor
-                .invoke(
-                    self.shell_spawner.as_ref(),
-                    self.installation.as_ref(),
-                    config_override,
-                )
+                .invoke(self.shell_spawner.as_ref(), self.installation.as_ref(), config_override)
                 .await
                 .map_err(VmmProcessError::ExecutorError)?,
         );
@@ -173,10 +161,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
         mut request: Request<Full<Bytes>>,
     ) -> Result<Response<Incoming>, VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
-        let socket_path = self
-            .socket_path
-            .as_ref()
-            .ok_or(VmmProcessError::SocketWasDisabled)?;
+        let socket_path = self.socket_path.as_ref().ok_or(VmmProcessError::SocketWasDisabled)?;
         let hyper_client = self
             .hyper_client
             .get_or_try_init(|| async {
@@ -187,8 +172,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
             })
             .await?;
 
-        *request.uri_mut() =
-            Uri::unix(socket_path, route).map_err(|_| VmmProcessError::IncorrectSocketUri)?;
+        *request.uri_mut() = Uri::unix(socket_path, route).map_err(|_| VmmProcessError::IncorrectSocketUri)?;
         hyper_client
             .request(request)
             .await
@@ -201,23 +185,10 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
     pub fn take_pipes(&mut self) -> Result<VmmProcessPipes, VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
         let child_ref = self.child.as_mut().expect("No child while running");
-        let stdin = child_ref
-            .stdin
-            .take()
-            .ok_or(VmmProcessError::PipesAlreadyTaken)?;
-        let stdout = child_ref
-            .stdout
-            .take()
-            .ok_or(VmmProcessError::PipesAlreadyTaken)?;
-        let stderr = child_ref
-            .stderr
-            .take()
-            .ok_or(VmmProcessError::PipesAlreadyTaken)?;
-        Ok(VmmProcessPipes {
-            stdin,
-            stdout,
-            stderr,
-        })
+        let stdin = child_ref.stdin.take().ok_or(VmmProcessError::PipesAlreadyTaken)?;
+        let stdout = child_ref.stdout.take().ok_or(VmmProcessError::PipesAlreadyTaken)?;
+        let stderr = child_ref.stderr.take().ok_or(VmmProcessError::PipesAlreadyTaken)?;
+        Ok(VmmProcessPipes { stdin, stdout, stderr })
     }
 
     /// Gets the outer path to the VM process's socket, if one has been configured
@@ -239,9 +210,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
                 "/actions",
                 Request::builder()
                     .method("PUT")
-                    .body(Full::new(Bytes::from(
-                        r#"{"action_type": "SendCtrlAltDel"}"#,
-                    )))
+                    .body(Full::new(Bytes::from(r#"{"action_type": "SendCtrlAltDel"}"#)))
                     .map_err(VmmProcessError::CtrlAltDelRequestNotBuilt)?,
             )
             .await?;
