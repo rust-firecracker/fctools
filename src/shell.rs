@@ -59,9 +59,23 @@ impl ShellSpawner for SameUserShellSpawner {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SuShellSpawner {
     /// The path to the "su" binary on the system, typically: /usr/bin/su.
-    pub su_path: PathBuf,
+    su_path: PathBuf,
     /// The root password to be used for escalation.
-    pub password: String,
+    password: String,
+}
+
+impl SuShellSpawner {
+    pub fn new(password: impl Into<String>) -> Self {
+        Self {
+            su_path: PathBuf::from("/usr/bin/su"),
+            password: password.into(),
+        }
+    }
+
+    pub fn su_path(mut self, su_path: impl Into<PathBuf>) -> Self {
+        self.su_path = su_path.into();
+        self
+    }
 }
 
 #[async_trait]
@@ -94,11 +108,27 @@ impl ShellSpawner for SuShellSpawner {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SudoShellSpawner {
     /// The path to the "sudo" binary on the system, typically: /usr/bin/sudo.
-    pub sudo_path: PathBuf,
+    sudo_path: PathBuf,
     /// Optionally, the password needed to authenticate. Sudo often doesn't prompt for it if the
     /// user has already logged in, but it's recommended to pass it anyway so that authentication
     /// doesn't unexpectedly start failing.
-    pub password: Option<String>,
+    password: Option<String>,
+}
+
+impl SudoShellSpawner {
+    pub fn with_password(password: impl Into<String>) -> Self {
+        Self {
+            sudo_path: PathBuf::from("/usr/bin/sudo"),
+            password: Some(password.into()),
+        }
+    }
+
+    pub fn without_password() -> Self {
+        Self {
+            sudo_path: PathBuf::from("/usr/bin/sudo"),
+            password: None,
+        }
+    }
 }
 
 #[async_trait]

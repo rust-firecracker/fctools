@@ -489,10 +489,10 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
     pub async fn api_create_snapshot(&mut self, create_snapshot: VmCreateSnapshot) -> Result<VmSnapshotPaths, VmError> {
         self.ensure_state(VmState::Paused)?;
         self.send_req("/snapshot/create", "PUT", Some(&create_snapshot)).await?;
-        Ok(VmSnapshotPaths::new(
-            self.vmm_process.inner_to_outer_path(create_snapshot.snapshot_path),
-            self.vmm_process.inner_to_outer_path(create_snapshot.mem_file_path),
-        ))
+        Ok(VmSnapshotPaths {
+            snapshot_path: self.vmm_process.inner_to_outer_path(create_snapshot.snapshot_path),
+            mem_file_path: self.vmm_process.inner_to_outer_path(create_snapshot.mem_file_path),
+        })
     }
 
     pub async fn api_get_firecracker_version(&mut self) -> Result<VmFirecrackerVersion, VmError> {

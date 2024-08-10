@@ -12,6 +12,7 @@ tokio = { version = "1.39.2", features = [
     "fs",
     "time",
     "rt",
+    "sync",
 ] }
 # executor
 libc = { version = "0.2.155", optional = true }
@@ -56,5 +57,5 @@ process = [
     "dep:hyper-util",
 ]
 vm = ["process", "dep:serde", "dep:serde_json", "dep:http"]
-metrics-ext = ["vm"]
-fcnet-ext = ["vm", "dep:cidr"]
+metrics-ext = ["dep:serde", "dep:serde_json"]
+fcnet-ext = ["shell-spawner", "dep:cidr"]

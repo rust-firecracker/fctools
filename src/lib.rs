@@ -1,6 +1,5 @@
 #[cfg(feature = "executor")]
 pub mod executor;
-#[cfg(feature = "vm")]
 pub mod ext;
 #[cfg(feature = "process")]
 pub mod process;

@@ -32,18 +32,11 @@ impl VmStandardPaths {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VmSnapshotPaths {
-    snapshot_path: PathBuf,
-    mem_file_path: PathBuf,
+    pub(crate) snapshot_path: PathBuf,
+    pub(crate) mem_file_path: PathBuf,
 }
 
 impl VmSnapshotPaths {
-    pub(crate) fn new(snapshot_path: PathBuf, mem_file_path: PathBuf) -> Self {
-        Self {
-            snapshot_path,
-            mem_file_path,
-        }
-    }
-
     pub fn get_snapshot_path(&self) -> &PathBuf {
         &self.snapshot_path
     }

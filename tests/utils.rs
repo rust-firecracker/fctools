@@ -45,20 +45,12 @@ async fn same_user_shell_runs_under_correct_uid() {
 
 #[tokio::test]
 async fn su_shell_should_elevate() {
-    elevation_test(|password| SuShellSpawner {
-        su_path: PathBuf::from("/usr/bin/su"),
-        password,
-    })
-    .await;
+    elevation_test(SuShellSpawner::new).await;
 }
 
 #[tokio::test]
 async fn sudo_shell_should_elevate() {
-    elevation_test(|password| SudoShellSpawner {
-        sudo_path: PathBuf::from("/usr/bin/sudo"),
-        password: Some(password),
-    })
-    .await;
+    elevation_test(SudoShellSpawner::with_password).await;
 }
 
 async fn elevation_test<F, S>(closure: F)

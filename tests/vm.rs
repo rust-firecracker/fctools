@@ -1,4 +1,4 @@
-use std::{path::PathBuf, str::FromStr, time::Duration};
+use std::{net::IpAddr, path::PathBuf, str::FromStr, time::Duration};
 
 use cidr::IpInet;
 use fctools::{
@@ -7,7 +7,7 @@ use fctools::{
         installation::FirecrackerInstallation,
         FlatJailRenamer, JailMoveMethod, JailedVmmExecutor,
     },
-    ext::fcnet::FcnetConfiguration,
+    ext::fcnet::{FcnetConfiguration, FcnetNetnsOptions},
     shell::{SuShellSpawner, SudoShellSpawner},
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
@@ -19,12 +19,12 @@ use rand::RngCore;
 
 #[tokio::test]
 async fn t() {
-    let fcnet = FcnetConfiguration::simple().iface_name("wlp1s0");
+    let fcnet = FcnetConfiguration::netns(
+        FcnetNetnsOptions::new().forwarded_guest_ip(IpAddr::from_str("192.168.0.3").unwrap()),
+    )
+    .iface_name("wlp7s0");
     let fcnet_path = PathBuf::from("/home/kanpov/.cargo/bin/fcnet");
-    let shell_spawner = SuShellSpawner {
-        su_path: PathBuf::from("/usr/bin/su"),
-        password: "495762".to_string(),
-    };
+    let shell_spawner = SuShellSpawner::new("495762");
 
     let ip_boot_arg = dbg!(fcnet.get_guest_ip_boot_arg(&IpInet::from_str("172.16.0.2/24").unwrap(), "eth0"));
     fcnet.add(&fcnet_path, &shell_spawner).await.unwrap();
@@ -47,14 +47,12 @@ async fn t() {
             firecracker_arguments: FirecrackerArguments::new(FirecrackerApiSocket::Enabled(PathBuf::from(
                 "/tmp/fc.sock",
             ))),
-            jailer_arguments: JailerArguments::new(1000, 1000, rand::thread_rng().next_u32().to_string()),
+            jailer_arguments: JailerArguments::new(1000, 1000, rand::thread_rng().next_u32().to_string())
+                .network_namespace_path("/var/run/netns/fcnet"),
             jail_move_method: JailMoveMethod::Copy,
             jail_renamer: FlatJailRenamer::default(),
         },
-        SudoShellSpawner {
-            sudo_path: PathBuf::from("/usr/bin/sudo"),
-            password: Some("495762".into()),
-        },
+        SudoShellSpawner::with_password("495762"),
         FirecrackerInstallation {
             firecracker_path: PathBuf::from("/opt/testdata/firecracker"),
             jailer_path: PathBuf::from("/opt/testdata/jailer"),

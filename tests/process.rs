@@ -229,10 +229,7 @@ fn get_processes() -> (TestVmProcess, TestVmProcess) {
         jail_move_method: JailMoveMethod::Copy,
         jail_renamer: FlatJailRenamer::default(),
     };
-    let su_shell_spawner = SuShellSpawner {
-        su_path: PathBuf::from("/usr/bin/su"),
-        password: std::env::var("ROOT_PWD").expect("No ROOT_PWD set"),
-    };
+    let su_shell_spawner = SuShellSpawner::new(std::env::var("ROOT_PWD").expect("No ROOT_PWD set"));
     let same_user_shell_spawner = SameUserShellSpawner {
         shell_path: PathBuf::from("/usr/bin/bash"),
     };
