@@ -11,7 +11,7 @@ use fctools::{
     shell::{SuShellSpawner, SudoShellSpawner},
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
-        models::{VmBalloon, VmBootSource, VmDrive, VmMachineConfiguration, VmMetrics, VmNetworkInterface},
+        models::{VmBalloon, VmBootSource, VmDrive, VmMachineConfiguration, VmMetrics, VmNetworkInterface, VmVsock},
         Vm, VmShutdownMethod,
     },
 };
@@ -39,7 +39,8 @@ async fn t() {
         .balloon(VmBalloon::new(256, false))
         .metrics(VmMetrics::new("/metrics"))
         .network_interface(VmNetworkInterface::new("eth0", "tap0").guest_mac("06:00:AC:10:00:02"))
-        .applier(NewVmConfigurationApplier::ViaApiCalls),
+        .applier(NewVmConfigurationApplier::ViaApiCalls)
+        .vsock(VmVsock::new(5, "/vsock.sock")),
     );
 
     let mut vm = Vm::prepare(
