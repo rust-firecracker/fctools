@@ -34,6 +34,7 @@ serde_json = { version = "1.0.121", optional = true }
 http = { version = "1.1.0", optional = true }
 # extensions
 cidr = { version = "0.2.3", optional = true }
+pin-project-lite = { version = "0.2.14", optional = true }
 
 [dev-dependencies]
 assert_matches = "1.5.0"
@@ -69,4 +70,4 @@ vm = ["vmm-process", "dep:serde", "dep:serde_json", "dep:http"]
 metrics-ext = ["dep:serde", "dep:serde_json"]
 fcnet-ext = ["shell-spawner", "dep:cidr"]
 vsock-http-ext = ["vm", "hyper-client-sockets/firecracker"]
-serial-console-ext = ["vmm-process"]
+serial-console-ext = ["vmm-process", "dep:pin-project-lite"]

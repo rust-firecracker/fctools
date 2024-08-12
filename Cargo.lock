@@ -100,6 +100,7 @@ dependencies = [
  "hyper-client-sockets",
  "hyper-util",
  "libc",
+ "pin-project-lite",
  "rand",
  "run_script",
  "serde",

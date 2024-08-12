@@ -75,6 +75,11 @@ impl NewVmConfiguration {
         self
     }
 
+    pub fn drives(mut self, drives: impl IntoIterator<Item = VmDrive>) -> Self {
+        self.drives.extend(drives);
+        self
+    }
+
     pub fn cpu_template(mut self, cpu_template: VmCpuTemplate) -> Self {
         self.cpu_template = Some(cpu_template);
         self
@@ -82,6 +87,11 @@ impl NewVmConfiguration {
 
     pub fn network_interface(mut self, network_interface: VmNetworkInterface) -> Self {
         self.network_interfaces.push(network_interface);
+        self
+    }
+
+    pub fn network_interfaces(mut self, network_interfaces: impl IntoIterator<Item = VmNetworkInterface>) -> Self {
+        self.network_interfaces.extend(network_interfaces);
         self
     }
 
