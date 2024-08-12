@@ -8,7 +8,7 @@ use fctools::{
         unrestricted::UnrestrictedVmmExecutor,
         FirecrackerExecutorError, VmmExecutor,
     },
-    shell::SameUserShellSpawner,
+    shell_spawner::SameUserShellSpawner,
 };
 use rand::RngCore;
 use tokio::{fs, io::AsyncWriteExt};

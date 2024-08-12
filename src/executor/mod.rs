@@ -11,7 +11,7 @@ use installation::FirecrackerInstallation;
 use jailed::JailRenamerError;
 use tokio::{fs, process::Child, task::JoinError};
 
-use crate::shell::ShellSpawner;
+use crate::shell_spawner::ShellSpawner;
 
 pub mod arguments;
 pub mod command_modifier;

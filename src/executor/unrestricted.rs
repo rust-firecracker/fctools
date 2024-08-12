@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use tokio::{fs, process::Child};
 
-use crate::shell::ShellSpawner;
+use crate::shell_spawner::ShellSpawner;
 
 use super::{
     arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride},
@@ -83,7 +83,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             force_chown(&path, shell_spawner).await?;
         }
 
-        if let FirecrackerApiSocket::Enabled(socket_path) = &self.firecracker_arguments.api_socket {
+        if let FirecrackerApiSocket::Enabled(ref socket_path) = self.firecracker_arguments.api_socket {
             if fs::try_exists(socket_path)
                 .await
                 .map_err(FirecrackerExecutorError::IoError)?
@@ -124,7 +124,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
     }
 
     async fn cleanup(&self, shell_spawner: &impl ShellSpawner) -> Result<(), FirecrackerExecutorError> {
-        if let FirecrackerApiSocket::Enabled(socket_path) = &self.firecracker_arguments.api_socket {
+        if let FirecrackerApiSocket::Enabled(ref socket_path) = self.firecracker_arguments.api_socket {
             if fs::try_exists(socket_path)
                 .await
                 .map_err(FirecrackerExecutorError::IoError)?

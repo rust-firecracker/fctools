@@ -5,7 +5,7 @@ use std::{
 
 use cidr::IpInet;
 
-use crate::shell::ShellSpawner;
+use crate::shell_spawner::ShellSpawner;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FcnetConfiguration {

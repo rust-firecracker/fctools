@@ -9,7 +9,7 @@ use hyper_client_sockets::{FirecrackerUriExt, HyperFirecrackerConnector, HyperFi
 use hyper_util::rt::TokioExecutor;
 use tokio::net::UnixListener;
 
-use crate::{executor::VmmExecutor, shell::ShellSpawner, vm::Vm};
+use crate::{executor::VmmExecutor, shell_spawner::ShellSpawner, vm::Vm};
 
 pub enum VsockError {
     VsockNotConfigured,

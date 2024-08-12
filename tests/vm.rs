@@ -8,10 +8,12 @@ use fctools::{
         jailed::{FlatJailRenamer, JailedVmmExecutor},
     },
     ext::fcnet::{FcnetConfiguration, FcnetNetnsOptions},
-    shell::{SuShellSpawner, SudoShellSpawner},
+    shell_spawner::{SuShellSpawner, SudoShellSpawner},
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
-        models::{VmBalloon, VmBootSource, VmDrive, VmMachineConfiguration, VmMetrics, VmNetworkInterface, VmVsock},
+        models::{
+            VmBalloon, VmBootSource, VmDrive, VmMachineConfiguration, VmMetricsSystem, VmNetworkInterface, VmVsock,
+        },
         Vm, VmShutdownMethod,
     },
 };
@@ -37,7 +39,7 @@ async fn t() {
         )
         .drive(VmDrive::new("rootfs", true).path_on_host("/opt/testdata/ubuntu-22.04.ext4"))
         .balloon(VmBalloon::new(256, false))
-        .metrics(VmMetrics::new("/metrics"))
+        .metrics(VmMetricsSystem::new("/metrics"))
         .network_interface(VmNetworkInterface::new("eth0", "tap0").guest_mac("06:00:AC:10:00:02"))
         .applier(NewVmConfigurationApplier::ViaApiCalls)
         .vsock(VmVsock::new(5, "/vsock.sock")),

@@ -9,7 +9,7 @@ use std::{
 use crate::{
     executor::{arguments::FirecrackerConfigOverride, installation::FirecrackerInstallation, VmmExecutor},
     process::{HyperResponseExt, VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
-    shell::ShellSpawner,
+    shell_spawner::ShellSpawner,
 };
 use bytes::Bytes;
 use configuration::{NewVmConfigurationApplier, VmConfiguration};

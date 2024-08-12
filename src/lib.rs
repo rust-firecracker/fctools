@@ -1,9 +1,9 @@
-#[cfg(feature = "executor")]
+#[cfg(feature = "vmm-executor")]
 pub mod executor;
 pub mod ext;
-#[cfg(feature = "process")]
+#[cfg(feature = "vmm-process")]
 pub mod process;
 #[cfg(feature = "shell-spawner")]
-pub mod shell;
+pub mod shell_spawner;
 #[cfg(feature = "vm")]
 pub mod vm;

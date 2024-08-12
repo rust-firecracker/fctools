@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use tokio::{fs, process::Child};
 
-use crate::shell::ShellSpawner;
+use crate::shell_spawner::ShellSpawner;
 
 use super::{
     arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments},

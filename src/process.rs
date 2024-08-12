@@ -25,7 +25,7 @@ use crate::{
         arguments::FirecrackerConfigOverride, force_chown, installation::FirecrackerInstallation,
         FirecrackerExecutorError, VmmExecutor,
     },
-    shell::ShellSpawner,
+    shell_spawner::ShellSpawner,
 };
 
 /// A VMM process is layer 3 of FCTools: an abstraction that manages a VMM process. It is

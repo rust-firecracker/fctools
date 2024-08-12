@@ -16,7 +16,7 @@ use fctools::{
         FirecrackerExecutorError, VmmExecutor,
     },
     process::{HyperResponseExt, VmmProcess, VmmProcessState},
-    shell::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
+    shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
 };
 use http_body_util::Full;
 use hyper::Request;

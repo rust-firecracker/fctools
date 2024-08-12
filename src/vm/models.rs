@@ -402,11 +402,11 @@ pub enum VmHugePages {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmMetrics {
+pub struct VmMetricsSystem {
     pub(crate) metrics_path: PathBuf,
 }
 
-impl VmMetrics {
+impl VmMetricsSystem {
     pub fn new(metrics_path: impl Into<PathBuf>) -> Self {
         Self {
             metrics_path: metrics_path.into(),
@@ -661,7 +661,7 @@ pub struct VmEffectiveConfiguration {
     pub logger: Option<VmLogger>,
     #[serde(rename = "machine-config")]
     pub machine_configuration: Option<VmMachineConfiguration>,
-    pub metrics: Option<VmMetrics>,
+    pub metrics: Option<VmMetricsSystem>,
     #[serde(rename = "mmds-config")]
     pub mmds_configuration: Option<VmMmdsConfiguration>,
     #[serde(rename = "network-interfaces")]

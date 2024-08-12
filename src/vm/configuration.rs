@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::models::{
     VmBalloon, VmBootSource, VmCpuTemplate, VmDrive, VmEntropy, VmLoadSnapshot, VmLogger, VmMachineConfiguration,
-    VmMetrics, VmMmdsConfiguration, VmNetworkInterface, VmVsock,
+    VmMetricsSystem, VmMmdsConfiguration, VmNetworkInterface, VmVsock,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +29,7 @@ pub struct NewVmConfiguration {
     pub(crate) balloon: Option<VmBalloon>,
     pub(crate) vsock: Option<VmVsock>,
     pub(crate) logger: Option<VmLogger>,
-    pub(crate) metrics: Option<VmMetrics>,
+    pub(crate) metrics: Option<VmMetricsSystem>,
     #[serde(rename = "mmds-config")]
     pub(crate) mmds_configuration: Option<VmMmdsConfiguration>,
     pub(crate) entropy: Option<VmEntropy>,
@@ -100,7 +100,7 @@ impl NewVmConfiguration {
         self
     }
 
-    pub fn metrics(mut self, metrics: VmMetrics) -> Self {
+    pub fn metrics(mut self, metrics: VmMetricsSystem) -> Self {
         self.metrics = Some(metrics);
         self
     }
@@ -143,7 +143,7 @@ impl NewVmConfiguration {
         self.logger.as_ref()
     }
 
-    pub fn get_metrics(&self) -> Option<&VmMetrics> {
+    pub fn get_metrics(&self) -> Option<&VmMetricsSystem> {
         self.metrics.as_ref()
     }
 
@@ -160,7 +160,7 @@ impl NewVmConfiguration {
 pub struct FromSnapshotVmConfiguration {
     pub(crate) load_snapshot: VmLoadSnapshot,
     pub(crate) logger: Option<VmLogger>,
-    pub(crate) metrics: Option<VmMetrics>,
+    pub(crate) metrics: Option<VmMetricsSystem>,
 }
 
 impl FromSnapshotVmConfiguration {
@@ -177,7 +177,7 @@ impl FromSnapshotVmConfiguration {
         self
     }
 
-    pub fn metrics(mut self, metrics: VmMetrics) -> Self {
+    pub fn metrics(mut self, metrics: VmMetricsSystem) -> Self {
         self.metrics = Some(metrics);
         self
     }
@@ -190,7 +190,7 @@ impl FromSnapshotVmConfiguration {
         &self.logger
     }
 
-    pub fn get_metrics(&self) -> &Option<VmMetrics> {
+    pub fn get_metrics(&self) -> &Option<VmMetricsSystem> {
         &self.metrics
     }
 }

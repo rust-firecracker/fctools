@@ -46,19 +46,27 @@ fctools = { path = ".", features = ["full"] }
 
 [features]
 default = []
-full = ["vm", "metrics-ext", "fcnet-ext", "vsock-http-ext"]
-
+full = [
+    "vm",
+    "metrics-ext",
+    "fcnet-ext",
+    "vsock-http-ext",
+    "serial-console-ext",
+]
+# layers
 shell-spawner = []
-executor = ["shell-spawner", "dep:libc"]
-process = [
-    "executor",
+vmm-executor = ["shell-spawner", "dep:libc"]
+vmm-process = [
+    "vmm-executor",
     "dep:hyper",
     "dep:bytes",
     "dep:http-body-util",
     "dep:hyper-client-sockets",
     "dep:hyper-util",
 ]
-vm = ["process", "dep:serde", "dep:serde_json", "dep:http"]
+vm = ["vmm-process", "dep:serde", "dep:serde_json", "dep:http"]
+# extensions
 metrics-ext = ["dep:serde", "dep:serde_json"]
 fcnet-ext = ["shell-spawner", "dep:cidr"]
 vsock-http-ext = ["vm", "hyper-client-sockets/firecracker"]
+serial-console-ext = ["vmm-process"]
