@@ -110,3 +110,59 @@ pub(crate) fn apply_command_modifier_chain(command: &mut String, modifiers: &Vec
         modifier.modify_command(command);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AppendCommandModifier, CommandModifier, NetnsCommandModifier, NoCommandModifier, ReplaceCommandModifier,
+        RewriteCommandModifier,
+    };
+
+    #[test]
+    fn no_command_modifier_does_nothing() {
+        assert_modifier(NoCommandModifier::default(), "something", "something");
+    }
+
+    #[test]
+    fn netns_command_modifier_uses_default_iproute2() {
+        assert_modifier(
+            NetnsCommandModifier::new("test"),
+            "command",
+            "/usr/sbin/ip netns exec test command",
+        );
+    }
+
+    #[test]
+    fn netns_command_modifier_uses_custom_iproute2() {
+        assert_modifier(
+            NetnsCommandModifier::new("test").iproute2_path("/custom/path"),
+            "command",
+            "/custom/path netns exec test command",
+        );
+    }
+
+    #[test]
+    fn append_command_modifier_performs_action() {
+        assert_modifier(AppendCommandModifier::new("appended"), "command", "commandappended");
+    }
+
+    #[test]
+    fn rewrite_command_modifier_performs_action() {
+        assert_modifier(RewriteCommandModifier::new("rewritten"), "original", "rewritten");
+    }
+
+    #[test]
+    fn replace_command_modifier_performs_action() {
+        assert_modifier(
+            ReplaceCommandModifier::new().replace("a", "b").replace("c", "d"),
+            "ac",
+            "bd",
+        );
+    }
+
+    fn assert_modifier(modifier: impl CommandModifier, from: &str, to: &str) {
+        let mut command = from.to_owned();
+        modifier.modify_command(&mut command);
+        assert_eq!(command, to);
+    }
+}

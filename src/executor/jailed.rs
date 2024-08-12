@@ -13,7 +13,7 @@ use super::{
     command_modifier::{apply_command_modifier_chain, CommandModifier},
     create_file_with_tree, force_chown, force_mkdir,
     installation::FirecrackerInstallation,
-    FirecrackerExecutorError, JailJoin, VmmExecutor,
+    FirecrackerExecutorError, VmmExecutor,
 };
 
 /// An executor that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
@@ -301,5 +301,17 @@ impl JailRenamer for MappingJailRenamer {
             .get(outside_path)
             .ok_or_else(|| JailRenamerError::PathIsUnmapped(outside_path.to_owned()))?;
         Ok(jail_path.clone())
+    }
+}
+
+/// Custom extension to PathBuf that allows joining two absolute paths (outside jail and inside jail).
+trait JailJoin {
+    fn jail_join(&self, other_path: &Path) -> PathBuf;
+}
+
+impl JailJoin for PathBuf {
+    fn jail_join(&self, other_path: &Path) -> PathBuf {
+        let other_path = other_path.to_string_lossy();
+        self.join(other_path.trim_start_matches("/"))
     }
 }

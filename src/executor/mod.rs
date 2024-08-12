@@ -122,15 +122,3 @@ async fn create_file_with_tree(path: impl AsRef<Path>) -> Result<(), Firecracker
         .map_err(FirecrackerExecutorError::IoError)?;
     Ok(())
 }
-
-/// Custom extension to PathBuf that allows joining two absolute paths (outside jail and inside jail).
-trait JailJoin {
-    fn jail_join(&self, other_path: &Path) -> PathBuf;
-}
-
-impl JailJoin for PathBuf {
-    fn jail_join(&self, other_path: &Path) -> PathBuf {
-        let other_path = other_path.to_string_lossy();
-        self.join(other_path.trim_start_matches("/"))
-    }
-}

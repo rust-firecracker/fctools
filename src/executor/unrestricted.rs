@@ -23,6 +23,8 @@ pub struct UnrestrictedVmmExecutor {
     /// Arguments passed to the "firecracker" binary
     firecracker_arguments: FirecrackerArguments,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
+    remove_metrics_on_cleanup: bool,
+    remove_logs_on_cleanup: bool,
 }
 
 impl UnrestrictedVmmExecutor {
@@ -30,6 +32,8 @@ impl UnrestrictedVmmExecutor {
         Self {
             firecracker_arguments,
             command_modifier_chain: Vec::new(),
+            remove_metrics_on_cleanup: false,
+            remove_logs_on_cleanup: false,
         }
     }
 
@@ -40,6 +44,16 @@ impl UnrestrictedVmmExecutor {
 
     pub fn command_modifiers(mut self, command_modifiers: impl IntoIterator<Item = Box<dyn CommandModifier>>) -> Self {
         self.command_modifier_chain.extend(command_modifiers);
+        self
+    }
+
+    pub fn remove_metrics_on_cleanup(mut self) -> Self {
+        self.remove_metrics_on_cleanup = true;
+        self
+    }
+
+    pub fn remove_logs_on_cleanup(mut self) -> Self {
+        self.remove_logs_on_cleanup = true;
         self
     }
 }
@@ -122,15 +136,20 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             }
         }
 
-        if let Some(ref log_path) = self.firecracker_arguments.log_path {
-            fs::remove_file(log_path)
-                .await
-                .map_err(FirecrackerExecutorError::IoError)?;
+        if self.remove_logs_on_cleanup {
+            if let Some(ref log_path) = self.firecracker_arguments.log_path {
+                fs::remove_file(log_path)
+                    .await
+                    .map_err(FirecrackerExecutorError::IoError)?;
+            }
         }
-        if let Some(ref metrics_path) = self.firecracker_arguments.metrics_path {
-            fs::remove_file(metrics_path)
-                .await
-                .map_err(FirecrackerExecutorError::IoError)?;
+
+        if self.remove_metrics_on_cleanup {
+            if let Some(ref metrics_path) = self.firecracker_arguments.metrics_path {
+                fs::remove_file(metrics_path)
+                    .await
+                    .map_err(FirecrackerExecutorError::IoError)?;
+            }
         }
 
         Ok(())
