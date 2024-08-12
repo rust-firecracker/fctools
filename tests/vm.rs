@@ -5,7 +5,7 @@ use fctools::{
     executor::{
         arguments::{FirecrackerApiSocket, FirecrackerArguments, JailerArguments},
         installation::FirecrackerInstallation,
-        FlatJailRenamer, JailMoveMethod, JailedVmmExecutor,
+        jailed::{FlatJailRenamer, JailedVmmExecutor},
     },
     ext::fcnet::{FcnetConfiguration, FcnetNetnsOptions},
     shell::{SuShellSpawner, SudoShellSpawner},
@@ -43,16 +43,11 @@ async fn t() {
         .vsock(VmVsock::new(5, "/vsock.sock")),
     );
 
+    let jailer_arguments = JailerArguments::new(1000, 1000, rand::thread_rng().next_u32().to_string())
+        .network_namespace_path("/var/run/netns/fcnet");
+    let firecracker_arguments = FirecrackerArguments::new(FirecrackerApiSocket::Enabled(PathBuf::from("/tmp/fc.sock")));
     let mut vm = Vm::prepare(
-        JailedVmmExecutor {
-            firecracker_arguments: FirecrackerArguments::new(FirecrackerApiSocket::Enabled(PathBuf::from(
-                "/tmp/fc.sock",
-            ))),
-            jailer_arguments: JailerArguments::new(1000, 1000, rand::thread_rng().next_u32().to_string())
-                .network_namespace_path("/var/run/netns/fcnet"),
-            jail_move_method: JailMoveMethod::Copy,
-            jail_renamer: FlatJailRenamer::default(),
-        },
+        JailedVmmExecutor::new(firecracker_arguments, jailer_arguments, FlatJailRenamer::default()),
         SudoShellSpawner::with_password("495762"),
         FirecrackerInstallation {
             firecracker_path: PathBuf::from("/opt/testdata/firecracker"),

@@ -4,7 +4,7 @@ use assert_matches::assert_matches;
 use fctools::{
     executor::{
         installation::{FirecrackerInstallation, FirecrackerInstallationError},
-        FlatJailRenamer, JailRenamer, JailRenamerError, MappingJailRenamer,
+        jailed::{FlatJailRenamer, JailRenamer, JailRenamerError, MappingJailRenamer},
     },
     shell::{SameUserShellSpawner, ShellSpawner, SuShellSpawner, SudoShellSpawner},
 };

@@ -11,8 +11,9 @@ use fctools::{
     executor::{
         arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments},
         installation::FirecrackerInstallation,
-        FirecrackerExecutorError, FlatJailRenamer, JailMoveMethod, JailedVmmExecutor, UnrestrictedVmmExecutor,
-        VmmExecutor,
+        jailed::{FlatJailRenamer, JailedVmmExecutor},
+        unrestricted::UnrestrictedVmmExecutor,
+        FirecrackerExecutorError, VmmExecutor,
     },
     process::{HyperResponseExt, VmmProcess, VmmProcessState},
     shell::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
@@ -220,15 +221,12 @@ fn get_processes() -> (TestVmProcess, TestVmProcess) {
         unsafe { libc::getegid() },
         rand::thread_rng().next_u32().to_string(),
     );
-    let unrestricted_executor = UnrestrictedVmmExecutor {
-        firecracker_arguments: unrestricted_firecracker_arguments,
-    };
-    let jailed_executor = JailedVmmExecutor {
-        firecracker_arguments: jailer_firecracker_arguments,
+    let unrestricted_executor = UnrestrictedVmmExecutor::new(unrestricted_firecracker_arguments);
+    let jailed_executor = JailedVmmExecutor::new(
+        jailer_firecracker_arguments,
         jailer_arguments,
-        jail_move_method: JailMoveMethod::Copy,
-        jail_renamer: FlatJailRenamer::default(),
-    };
+        FlatJailRenamer::default(),
+    );
     let su_shell_spawner = SuShellSpawner::new(std::env::var("ROOT_PWD").expect("No ROOT_PWD set"));
     let same_user_shell_spawner = SameUserShellSpawner {
         shell_path: PathBuf::from("/usr/bin/bash"),
