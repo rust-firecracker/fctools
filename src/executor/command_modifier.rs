@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Debug, path::PathBuf};
 
-pub trait CommandModifier: Debug + Sync {
+pub trait CommandModifier: Debug + Send + Sync {
     fn modify_command(&self, command: &mut String);
 }
 
