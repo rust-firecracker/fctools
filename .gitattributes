@@ -1,0 +1,2 @@
+*.ext4 filter=lfs diff=lfs merge=lfs -text
+vmlinux-6.1 filter=lfs diff=lfs merge=lfs -text
