@@ -164,7 +164,7 @@ async fn vmm_get_socket_path_returns_correct_path() {
 
 #[tokio::test]
 async fn vmm_inner_to_outer_path_performs_transformation() {
-    vmm_test(|process| async move {
+    vmm_test(|mut process| async move {
         let outer_path = process.inner_to_outer_path("/dev/kvm");
 
         if outer_path.to_str().unwrap() != "/dev/kvm"
@@ -173,14 +173,16 @@ async fn vmm_inner_to_outer_path_performs_transformation() {
         {
             panic!("Expected outer path transformation to succeed, instead received: {outer_path:?}");
         }
+
+        shutdown(&mut process).await;
     })
     .await;
 }
 
-async fn shutdown(handle: &mut TestVmmProcess) {
-    handle.send_ctrl_alt_del().await.unwrap();
-    assert!(handle.wait_for_exit().await.unwrap().success());
-    handle.cleanup().await.unwrap();
+async fn shutdown(process: &mut TestVmmProcess) {
+    process.send_ctrl_alt_del().await.unwrap();
+    assert!(process.wait_for_exit().await.unwrap().success());
+    process.cleanup().await.unwrap();
 }
 
 async fn vmm_test<F, Fut>(closure: F)
@@ -235,9 +237,7 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
         FlatJailRenamer::default(),
     );
     let su_shell_spawner = SuShellSpawner::new(std::env::var("ROOT_PWD").expect("No ROOT_PWD set"));
-    let same_user_shell_spawner = SameUserShellSpawner {
-        shell_path: PathBuf::from("/usr/bin/bash"),
-    };
+    let same_user_shell_spawner = SameUserShellSpawner::new(which::which("bash").unwrap());
     let installation = FirecrackerInstallation {
         firecracker_path: env_paths.firecracker,
         jailer_path: env_paths.jailer,

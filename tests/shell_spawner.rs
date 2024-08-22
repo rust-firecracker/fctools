@@ -1,12 +1,8 @@
-use std::path::PathBuf;
-
 use fctools::shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner, SudoShellSpawner};
 
 #[tokio::test]
 async fn same_user_shell_launches_simple_command() {
-    let shell_spawner = SameUserShellSpawner {
-        shell_path: PathBuf::from("/usr/bin/bash"),
-    };
+    let shell_spawner = SameUserShellSpawner::new(which::which("sh").unwrap());
     let child = shell_spawner.spawn("cat --help".into()).await.unwrap();
     let output = child.wait_with_output().await.unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -17,9 +13,7 @@ async fn same_user_shell_launches_simple_command() {
 #[tokio::test]
 async fn same_user_shell_runs_under_correct_uid() {
     let uid = unsafe { libc::geteuid() };
-    let shell_spawner = SameUserShellSpawner {
-        shell_path: PathBuf::from("/usr/bin/sh"),
-    };
+    let shell_spawner = SameUserShellSpawner::new(which::which("sh").unwrap());
     let stdout = String::from_utf8_lossy(
         &shell_spawner
             .spawn("echo $UID".into())

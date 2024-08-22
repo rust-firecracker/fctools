@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     io,
+    os::unix::process::ExitStatusExt,
     path::{Path, PathBuf},
     process::ExitStatus,
 };
@@ -76,7 +77,7 @@ pub(crate) async fn force_chown(
     path: &Path,
     shell_spawner: &impl ShellSpawner,
 ) -> Result<(), FirecrackerExecutorError> {
-    if shell_spawner.belongs_to_process() {
+    if !shell_spawner.increases_privileges() {
         return Ok(());
     }
 
@@ -90,7 +91,9 @@ pub(crate) async fn force_chown(
         .map_err(FirecrackerExecutorError::ShellSpawnFailed)?;
     let exit_status = child.wait().await.map_err(FirecrackerExecutorError::ShellForkFailed)?;
 
-    if !exit_status.success() {
+    // code 256 means that a concurrent chown is being called and the chown will still be applied, so this error can
+    // "safely" be ignored, which is better than inducing the overhead of global locking on chown paths
+    if !exit_status.success() && exit_status.into_raw() != 256 {
         return Err(FirecrackerExecutorError::ChownExitedWithWrongStatus(exit_status));
     }
 
@@ -98,7 +101,7 @@ pub(crate) async fn force_chown(
 }
 
 async fn force_mkdir(path: &Path, shell_spawner: &impl ShellSpawner) -> Result<(), FirecrackerExecutorError> {
-    if shell_spawner.belongs_to_process() {
+    if !shell_spawner.increases_privileges() {
         fs::create_dir_all(path)
             .await
             .map_err(FirecrackerExecutorError::IoError)?;

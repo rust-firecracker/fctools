@@ -55,10 +55,10 @@ pub enum TestShellSpawner {
 
 #[async_trait]
 impl ShellSpawner for TestShellSpawner {
-    fn belongs_to_process(&self) -> bool {
+    fn increases_privileges(&self) -> bool {
         match self {
-            TestShellSpawner::Su(e) => e.belongs_to_process(),
-            TestShellSpawner::SameUser(e) => e.belongs_to_process(),
+            TestShellSpawner::Su(e) => e.increases_privileges(),
+            TestShellSpawner::SameUser(e) => e.increases_privileges(),
         }
     }
 

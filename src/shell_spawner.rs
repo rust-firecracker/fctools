@@ -11,7 +11,9 @@ use tokio::{
 /// processes, or a chown operation used by executors in order to elevate permissions.
 #[async_trait]
 pub trait ShellSpawner: Send + Sync {
-    fn belongs_to_process(&self) -> bool;
+    /// Whether the child processes spawned by this shell spawner have the same user and group ID as that of the
+    /// main process itself (e.g. whether the shell spawner increases privileges for the child process).
+    fn increases_privileges(&self) -> bool;
 
     /// Spawn the shell and enter shell_command in it, with the shell exiting as soon as the command completes.
     /// The returned tokio Child must be the shell's process.
@@ -23,8 +25,15 @@ pub trait ShellSpawner: Send + Sync {
 /// when not using the jailer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SameUserShellSpawner {
-    /// The path to the shell that should be used, typically to sh or bash.
-    pub shell_path: PathBuf,
+    shell_path: PathBuf,
+}
+
+impl SameUserShellSpawner {
+    pub fn new(shell_path: impl Into<PathBuf>) -> Self {
+        Self {
+            shell_path: shell_path.into(),
+        }
+    }
 }
 
 impl Default for SameUserShellSpawner {
@@ -37,8 +46,8 @@ impl Default for SameUserShellSpawner {
 
 #[async_trait]
 impl ShellSpawner for SameUserShellSpawner {
-    fn belongs_to_process(&self) -> bool {
-        true
+    fn increases_privileges(&self) -> bool {
+        false
     }
 
     async fn spawn(&self, shell_command: String) -> Result<Child, io::Error> {
@@ -80,8 +89,8 @@ impl SuShellSpawner {
 
 #[async_trait]
 impl ShellSpawner for SuShellSpawner {
-    fn belongs_to_process(&self) -> bool {
-        false
+    fn increases_privileges(&self) -> bool {
+        true
     }
 
     async fn spawn(&self, shell_command: String) -> Result<Child, io::Error> {
@@ -133,8 +142,8 @@ impl SudoShellSpawner {
 
 #[async_trait]
 impl ShellSpawner for SudoShellSpawner {
-    fn belongs_to_process(&self) -> bool {
-        false
+    fn increases_privileges(&self) -> bool {
+        true
     }
 
     async fn spawn(&self, shell_command: String) -> Result<Child, io::Error> {
@@ -154,7 +163,7 @@ impl ShellSpawner for SudoShellSpawner {
             .stdin
             .as_mut()
             .ok_or_else(|| io::Error::other("Stdin not received"))?;
-        if let Some(password) = &self.password {
+        if let Some(ref password) = self.password {
             stdin_ref.write(format!("{password}\n").as_bytes()).await?;
         } else {
             return Err(io::Error::other(
@@ -164,4 +173,12 @@ impl ShellSpawner for SudoShellSpawner {
 
         Ok(child)
     }
+}
+
+#[cfg(test)]
+#[test]
+fn shell_spawners_have_correct_increases_privileges_flags() {
+    assert!(!SameUserShellSpawner::new(which::which("sh").unwrap()).increases_privileges());
+    assert!(SuShellSpawner::new("password").increases_privileges());
+    assert!(SudoShellSpawner::without_password().increases_privileges());
 }
