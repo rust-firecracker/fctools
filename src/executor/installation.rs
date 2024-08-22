@@ -26,6 +26,7 @@ pub enum FirecrackerInstallationError {
 }
 
 impl FirecrackerInstallation {
+    /// Verify the installation by ensuring all binaries exist, are executable and yield the correct type and version when forked.
     pub async fn verify(&self, expected_version: impl AsRef<str>) -> Result<(), FirecrackerInstallationError> {
         verify_imp(&self.firecracker_path, expected_version.as_ref(), "Firecracker").await?;
         verify_imp(&self.jailer_path, expected_version.as_ref(), "Jailer").await?;

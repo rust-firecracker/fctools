@@ -20,7 +20,6 @@ use super::{
 /// This executor allows rootless execution, given that the user has access to /dev/kvm.
 #[derive(Debug)]
 pub struct UnrestrictedVmmExecutor {
-    /// Arguments passed to the "firecracker" binary
     firecracker_arguments: FirecrackerArguments,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
     remove_metrics_on_cleanup: bool,

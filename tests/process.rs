@@ -1,6 +1,7 @@
 use std::{future::Future, path::PathBuf, time::Duration};
 
 use bytes::Bytes;
+use common::{TestExecutor, TestShellSpawner, TestVmmProcess};
 use fctools::{
     executor::{
         arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments},
@@ -16,11 +17,10 @@ use http_body_util::Full;
 use hyper::Request;
 use hyper_client_sockets::{HyperUnixStream, UnixUriExt};
 use rand::RngCore;
-use test_framework::{TestExecutor, TestShellSpawner, TestVmmProcess};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use uuid::Uuid;
 
-mod test_framework;
+mod common;
 
 #[tokio::test]
 async fn vmm_can_recv_ctrl_alt_del() {
@@ -166,11 +166,10 @@ async fn vmm_get_socket_path_returns_correct_path() {
 async fn vmm_inner_to_outer_path_performs_transformation() {
     vmm_test(|process| async move {
         let outer_path = process.inner_to_outer_path("/dev/kvm");
-        dbg!(&outer_path);
 
         if outer_path.to_str().unwrap() != "/dev/kvm"
             && !outer_path.starts_with("/srv/jailer")
-            && outer_path.ends_with("/dev/kvm")
+            && outer_path.ends_with("/root/dev/kvm")
         {
             panic!("Expected outer path transformation to succeed, instead received: {outer_path:?}");
         }
@@ -217,7 +216,7 @@ where
 
 fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
     let socket_path: PathBuf = format!("/tmp/{}", Uuid::new_v4()).into();
-    let env_paths = test_framework::get_environment_paths();
+    let env_paths = common::get_environment_paths();
 
     let unrestricted_firecracker_arguments =
         FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path.clone())).config_path(&env_paths.config);

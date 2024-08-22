@@ -126,11 +126,11 @@ impl FirecrackerArguments {
     pub(crate) fn join(&self, config_override: FirecrackerConfigOverride) -> String {
         let mut args = HashMap::new();
 
-        match &self.api_socket {
+        match self.api_socket {
             FirecrackerApiSocket::Disabled => {
                 args.insert("no-api".into(), ArgValue::None);
             }
-            FirecrackerApiSocket::Enabled(socket_path) => {
+            FirecrackerApiSocket::Enabled(ref socket_path) => {
                 args.insert(
                     "api-sock".into(),
                     ArgValue::Some(socket_path.to_string_lossy().into_owned()),
@@ -138,13 +138,13 @@ impl FirecrackerArguments {
             }
         }
 
-        if let Some(id) = &self.id {
+        if let Some(ref id) = self.id {
             args.insert("id".into(), ArgValue::Some(id.to_owned()));
         }
 
         match config_override {
             FirecrackerConfigOverride::NoOverride => {
-                if let Some(config_path) = &self.config_path {
+                if let Some(ref config_path) = self.config_path {
                     args.insert(
                         "config-file".into(),
                         ArgValue::Some(config_path.to_string_lossy().into_owned()),
@@ -161,10 +161,10 @@ impl FirecrackerArguments {
         }
 
         if let Some(log_level) = self.log_level {
-            args.insert("level".into(), ArgValue::Some(log_level.into()));
+            args.insert("level".into(), ArgValue::Some(log_level.to_string()));
         }
 
-        if let Some(log_path) = &self.log_path {
+        if let Some(ref log_path) = self.log_path {
             args.insert(
                 "log-path".into(),
                 ArgValue::Some(log_path.to_string_lossy().into_owned()),
@@ -175,8 +175,8 @@ impl FirecrackerArguments {
             args.insert("show-log-origin".into(), ArgValue::None);
         }
 
-        if let Some(module) = &self.log_module {
-            args.insert("module".into(), ArgValue::Some(module.to_owned()));
+        if let Some(ref module) = self.log_module {
+            args.insert("module".into(), ArgValue::SomeBorrowed(module));
         }
 
         if self.show_log_level {
@@ -194,21 +194,21 @@ impl FirecrackerArguments {
             );
         }
 
-        if let Some(metadata_path) = &self.metadata_path {
+        if let Some(ref metadata_path) = self.metadata_path {
             args.insert(
                 "metadata".into(),
                 ArgValue::Some(metadata_path.to_string_lossy().into_owned()),
             );
         }
 
-        if let Some(metrics_path) = &self.metrics_path {
+        if let Some(ref metrics_path) = self.metrics_path {
             args.insert(
                 "metrics-path".into(),
                 ArgValue::Some(metrics_path.to_string_lossy().into_owned()),
             );
         }
 
-        if let Some(limit) = self.mmds_size_limit {
+        if let Some(ref limit) = self.mmds_size_limit {
             args.insert("mmds-size-limit".into(), ArgValue::Some(limit.to_string()));
         }
 
@@ -216,7 +216,7 @@ impl FirecrackerArguments {
             args.insert("no-seccomp".into(), ArgValue::None);
         }
 
-        if let Some(seccomp_path) = &self.seccomp_path {
+        if let Some(ref seccomp_path) = self.seccomp_path {
             args.insert(
                 "seccomp-filter".into(),
                 ArgValue::Some(seccomp_path.to_string_lossy().into_owned()),
@@ -338,7 +338,7 @@ impl JailerArguments {
             );
         }
 
-        if let Some(chroot_base_dir) = &self.chroot_base_dir {
+        if let Some(ref chroot_base_dir) = self.chroot_base_dir {
             args.insert(
                 "chroot-base-dir".into(),
                 ArgValue::Some(chroot_base_dir.to_string_lossy().into_owned()),
@@ -349,7 +349,7 @@ impl JailerArguments {
             args.insert("daemonize".into(), ArgValue::None);
         }
 
-        if let Some(network_namespace_path) = &self.network_namespace_path {
+        if let Some(ref network_namespace_path) = self.network_namespace_path {
             args.insert(
                 "netns".into(),
                 ArgValue::Some(network_namespace_path.to_string_lossy().into_owned()),
@@ -360,8 +360,8 @@ impl JailerArguments {
             args.insert("new-pid-ns".into(), ArgValue::None);
         }
 
-        if let Some(parent_cgroup) = &self.parent_cgroup {
-            args.insert("parent-cgroup".into(), ArgValue::Some(parent_cgroup.to_owned()));
+        if let Some(ref parent_cgroup) = self.parent_cgroup {
+            args.insert("parent-cgroup".into(), ArgValue::SomeBorrowed(parent_cgroup));
         }
 
         if !self.resource_limits.is_empty() {
@@ -395,9 +395,9 @@ pub enum FirecrackerLogLevel {
     Error,
 }
 
-impl From<FirecrackerLogLevel> for String {
-    fn from(value: FirecrackerLogLevel) -> Self {
-        match value {
+impl ToString for FirecrackerLogLevel {
+    fn to_string(&self) -> String {
+        match self {
             FirecrackerLogLevel::Off => "Off",
             FirecrackerLogLevel::Trace => "Trace",
             FirecrackerLogLevel::Debug => "Debug",
@@ -418,8 +418,9 @@ pub enum JailerCgroupVersion {
     V2,
 }
 
-enum ArgValue {
+enum ArgValue<'a> {
     None,
+    SomeBorrowed(&'a str),
     Some(String),
     Many(Vec<String>),
 }
@@ -432,6 +433,7 @@ fn join_args(args: HashMap<String, ArgValue>) -> String {
             match arg_value {
                 ArgValue::None => format!("--{key}"),
                 ArgValue::Some(value) => format!("--{key} {value}"),
+                ArgValue::SomeBorrowed(value) => format!("--{key} {value}"),
                 ArgValue::Many(values) => values
                     .into_iter()
                     .map(|value| format!("--{key} {value}"))

@@ -222,8 +222,8 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
 
 impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
     fn get_jail_path(&self) -> PathBuf {
-        let chroot_base_dir = match &self.jailer_arguments.chroot_base_dir {
-            Some(dir) => dir.clone(),
+        let chroot_base_dir = match self.jailer_arguments.chroot_base_dir {
+            Some(ref path) => path.clone(),
             None => PathBuf::from("/srv/jailer"),
         };
         // example: /srv/jailer/firecracker/1/root
