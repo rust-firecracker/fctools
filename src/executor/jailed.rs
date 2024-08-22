@@ -13,7 +13,7 @@ use super::{
     command_modifier::{apply_command_modifier_chain, CommandModifier},
     create_file_with_tree, force_chown, force_mkdir,
     installation::FirecrackerInstallation,
-    FirecrackerExecutorError, VmmExecutor,
+    VmmExecutorError, VmmExecutor,
 };
 
 /// An executor that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
@@ -88,7 +88,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         &self,
         shell_spawner: &impl ShellSpawner,
         outer_paths: Vec<PathBuf>,
-    ) -> Result<HashMap<PathBuf, PathBuf>, FirecrackerExecutorError> {
+    ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
         // Ensure chroot base dir exists and is accessible
         let chroot_base_dir = match &self.jailer_arguments.chroot_base_dir {
             Some(dir) => &dir,
@@ -96,7 +96,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         };
         if !fs::try_exists(chroot_base_dir)
             .await
-            .map_err(FirecrackerExecutorError::IoError)?
+            .map_err(VmmExecutorError::IoError)?
         {
             force_mkdir(chroot_base_dir, shell_spawner).await?;
         }
@@ -106,22 +106,22 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         let jail_path = self.get_jail_path();
         if fs::try_exists(&jail_path)
             .await
-            .map_err(FirecrackerExecutorError::IoError)?
+            .map_err(VmmExecutorError::IoError)?
         {
             fs::remove_dir_all(&jail_path)
                 .await
-                .map_err(FirecrackerExecutorError::IoError)?;
+                .map_err(VmmExecutorError::IoError)?;
         }
         fs::create_dir_all(&jail_path)
             .await
-            .map_err(FirecrackerExecutorError::IoError)?;
+            .map_err(VmmExecutorError::IoError)?;
 
         // Ensure socket parent directory exists so that the firecracker process can bind inside of it
         if let FirecrackerApiSocket::Enabled(ref socket_path) = self.firecracker_arguments.api_socket {
             if let Some(socket_parent_dir) = socket_path.parent() {
                 fs::create_dir_all(jail_path.jail_join(socket_parent_dir))
                     .await
-                    .map_err(FirecrackerExecutorError::IoError)?;
+                    .map_err(VmmExecutorError::IoError)?;
             }
         }
 
@@ -140,9 +140,9 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         for outer_path in outer_paths {
             if !fs::try_exists(&outer_path)
                 .await
-                .map_err(FirecrackerExecutorError::IoError)?
+                .map_err(VmmExecutorError::IoError)?
             {
-                return Err(FirecrackerExecutorError::ExpectedResourceMissing(outer_path.clone()));
+                return Err(VmmExecutorError::ExpectedResourceMissing(outer_path.clone()));
             }
 
             force_chown(&outer_path, shell_spawner).await?;
@@ -150,7 +150,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             let inner_path = self
                 .jail_renamer
                 .rename_for_jail(&outer_path)
-                .map_err(FirecrackerExecutorError::JailRenamerFailed)?;
+                .map_err(VmmExecutorError::JailRenamerFailed)?;
             let expanded_inner_path = jail_path.jail_join(inner_path.as_ref());
             path_mappings.insert(outer_path.clone(), inner_path);
 
@@ -179,8 +179,8 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         for join_handle in join_handles {
             join_handle
                 .await
-                .map_err(FirecrackerExecutorError::TaskJoinFailed)?
-                .map_err(FirecrackerExecutorError::IoError)?;
+                .map_err(VmmExecutorError::TaskJoinFailed)?
+                .map_err(VmmExecutorError::IoError)?;
         }
 
         Ok(path_mappings)
@@ -191,7 +191,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         shell: &impl ShellSpawner,
         installation: &FirecrackerInstallation,
         config_override: FirecrackerConfigOverride,
-    ) -> Result<Child, FirecrackerExecutorError> {
+    ) -> Result<Child, VmmExecutorError> {
         let jailer_args = self.jailer_arguments.join(&installation.firecracker_path);
         let firecracker_args = self.firecracker_arguments.join(config_override);
         let mut shell_command = format!(
@@ -203,19 +203,19 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         shell
             .spawn(shell_command)
             .await
-            .map_err(FirecrackerExecutorError::ShellSpawnFailed)
+            .map_err(VmmExecutorError::ShellSpawnFailed)
     }
 
-    async fn cleanup(&self, _shell_spawner: &impl ShellSpawner) -> Result<(), FirecrackerExecutorError> {
+    async fn cleanup(&self, _shell_spawner: &impl ShellSpawner) -> Result<(), VmmExecutorError> {
         let jail_path = self.get_jail_path();
         let jail_parent_path = jail_path
             .parent()
-            .ok_or(FirecrackerExecutorError::ExpectedDirectoryParentMissing)?;
+            .ok_or(VmmExecutorError::ExpectedDirectoryParentMissing)?;
 
         // Delete entire jail (../{id}/root) recursively
         fs::remove_dir_all(jail_parent_path)
             .await
-            .map_err(FirecrackerExecutorError::IoError)
+            .map_err(VmmExecutorError::IoError)
     }
 }
 

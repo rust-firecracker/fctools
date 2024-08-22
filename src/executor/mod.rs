@@ -21,7 +21,7 @@ pub mod jailed;
 pub mod unrestricted;
 
 #[derive(Debug, thiserror::Error)]
-pub enum FirecrackerExecutorError {
+pub enum VmmExecutorError {
     #[error("An async I/O error occurred: `{0}`")]
     IoError(io::Error),
     #[error("Forking an auxiliary shell via the spawner to force chown/mkdir failed: `{0}`")]
@@ -59,7 +59,7 @@ pub trait VmmExecutor {
         &self,
         shell_spawner: &impl ShellSpawner,
         outer_paths: Vec<PathBuf>,
-    ) -> Result<HashMap<PathBuf, PathBuf>, FirecrackerExecutorError>;
+    ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError>;
 
     /// Invoke the VM on the given FirecrackerInstallation and return the spawned tokio Child.
     async fn invoke(
@@ -67,16 +67,16 @@ pub trait VmmExecutor {
         shell_spawner: &impl ShellSpawner,
         installation: &FirecrackerInstallation,
         config_override: FirecrackerConfigOverride,
-    ) -> Result<Child, FirecrackerExecutorError>;
+    ) -> Result<Child, VmmExecutorError>;
 
     /// Clean up all transient resources of the VM invocation.
-    async fn cleanup(&self, shell_spawner: &impl ShellSpawner) -> Result<(), FirecrackerExecutorError>;
+    async fn cleanup(&self, shell_spawner: &impl ShellSpawner) -> Result<(), VmmExecutorError>;
 }
 
 pub(crate) async fn force_chown(
     path: &Path,
     shell_spawner: &impl ShellSpawner,
-) -> Result<(), FirecrackerExecutorError> {
+) -> Result<(), VmmExecutorError> {
     if !shell_spawner.increases_privileges() {
         return Ok(());
     }
@@ -88,50 +88,50 @@ pub(crate) async fn force_chown(
     let mut child = shell_spawner
         .spawn(format!("chown -f -R {uid}:{gid} {}", path.to_string_lossy()))
         .await
-        .map_err(FirecrackerExecutorError::ShellSpawnFailed)?;
-    let exit_status = child.wait().await.map_err(FirecrackerExecutorError::ShellForkFailed)?;
+        .map_err(VmmExecutorError::ShellSpawnFailed)?;
+    let exit_status = child.wait().await.map_err(VmmExecutorError::ShellForkFailed)?;
 
     // code 256 means that a concurrent chown is being called and the chown will still be applied, so this error can
     // "safely" be ignored, which is better than inducing the overhead of global locking on chown paths
     if !exit_status.success() && exit_status.into_raw() != 256 {
-        return Err(FirecrackerExecutorError::ChownExitedWithWrongStatus(exit_status));
+        return Err(VmmExecutorError::ChownExitedWithWrongStatus(exit_status));
     }
 
     Ok(())
 }
 
-async fn force_mkdir(path: &Path, shell_spawner: &impl ShellSpawner) -> Result<(), FirecrackerExecutorError> {
+async fn force_mkdir(path: &Path, shell_spawner: &impl ShellSpawner) -> Result<(), VmmExecutorError> {
     if !shell_spawner.increases_privileges() {
         fs::create_dir_all(path)
             .await
-            .map_err(FirecrackerExecutorError::IoError)?;
+            .map_err(VmmExecutorError::IoError)?;
         return Ok(());
     }
 
     let mut child = shell_spawner
         .spawn(format!("mkdir -p {}", path.to_string_lossy()))
         .await
-        .map_err(FirecrackerExecutorError::ShellSpawnFailed)?;
-    let exit_status = child.wait().await.map_err(FirecrackerExecutorError::ShellForkFailed)?;
+        .map_err(VmmExecutorError::ShellSpawnFailed)?;
+    let exit_status = child.wait().await.map_err(VmmExecutorError::ShellForkFailed)?;
 
     if !exit_status.success() {
-        return Err(FirecrackerExecutorError::MkdirExitedWithWrongStatus(exit_status));
+        return Err(VmmExecutorError::MkdirExitedWithWrongStatus(exit_status));
     }
 
     Ok(())
 }
 
-async fn create_file_with_tree(path: impl AsRef<Path>) -> Result<(), FirecrackerExecutorError> {
+async fn create_file_with_tree(path: impl AsRef<Path>) -> Result<(), VmmExecutorError> {
     let path = path.as_ref();
 
     if let Some(parent_path) = path.parent() {
         fs::create_dir_all(parent_path)
             .await
-            .map_err(FirecrackerExecutorError::IoError)?;
+            .map_err(VmmExecutorError::IoError)?;
     }
 
     fs::File::create(path)
         .await
-        .map_err(FirecrackerExecutorError::IoError)?;
+        .map_err(VmmExecutorError::IoError)?;
     Ok(())
 }

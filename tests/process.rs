@@ -1,7 +1,7 @@
-use std::{future::Future, path::PathBuf, time::Duration};
+use std::{future::Future, time::Duration};
 
 use bytes::Bytes;
-use common::{TestExecutor, TestShellSpawner, TestVmmProcess};
+use common::{get_tmp_path, TestExecutor, TestShellSpawner, TestVmmProcess};
 use fctools::{
     executor::{
         arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments},
@@ -18,7 +18,6 @@ use hyper::Request;
 use hyper_client_sockets::{HyperUnixStream, UnixUriExt};
 use rand::RngCore;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use uuid::Uuid;
 
 mod common;
 
@@ -180,7 +179,15 @@ async fn vmm_inner_to_outer_path_performs_transformation() {
 }
 
 async fn shutdown(process: &mut TestVmmProcess) {
-    process.send_ctrl_alt_del().await.unwrap();
+    if tokio::time::timeout(Duration::from_millis(500), async {
+        process.send_ctrl_alt_del().await.unwrap();
+    })
+    .await
+    .is_err()
+    {
+        process.send_sigkill().unwrap();
+    }
+
     assert!(process.wait_for_exit().await.unwrap().success());
     process.cleanup().await.unwrap();
 }
@@ -209,7 +216,7 @@ where
 
     init_process(&mut jailed_process).await;
     init_process(&mut unrestricted_process).await;
-    tokio::time::sleep(Duration::from_millis(2000)).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
     closure(unrestricted_process).await;
     println!("Succeeded with unrestricted VM");
     closure(jailed_process).await;
@@ -217,7 +224,7 @@ where
 }
 
 fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
-    let socket_path: PathBuf = format!("/tmp/{}", Uuid::new_v4()).into();
+    let socket_path = get_tmp_path();
     let env_paths = common::get_environment_paths();
 
     let unrestricted_firecracker_arguments =

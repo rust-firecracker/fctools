@@ -23,7 +23,7 @@ use tokio::{
 use crate::{
     executor::{
         arguments::FirecrackerConfigOverride, force_chown, installation::FirecrackerInstallation,
-        FirecrackerExecutorError, VmmExecutor,
+        VmmExecutorError, VmmExecutor,
     },
     shell_spawner::ShellSpawner,
 };
@@ -111,7 +111,7 @@ pub enum VmmProcessError {
     #[error("The given route to the API socket could not be transformed to a Unix socket URI")]
     IncorrectSocketUri,
     #[error("The underlying VMM executor returned an error: `{0}`")]
-    ExecutorError(FirecrackerExecutorError),
+    ExecutorError(VmmExecutorError),
     #[error("Attempted to take out the process' pipes when they had already been taken")]
     PipesAlreadyTaken,
 }

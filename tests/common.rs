@@ -10,13 +10,46 @@ use fctools::{
         installation::FirecrackerInstallation,
         jailed::{FlatJailRenamer, JailedVmmExecutor},
         unrestricted::UnrestrictedVmmExecutor,
-        FirecrackerExecutorError, VmmExecutor,
+        VmmExecutor, VmmExecutorError,
     },
     process::VmmProcess,
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
 };
 use tokio::process::Child;
+use uuid::Uuid;
 
+#[allow(unused)]
+pub fn get_mock_firecracker_installation() -> FirecrackerInstallation {
+    FirecrackerInstallation {
+        firecracker_path: get_tmp_path(),
+        jailer_path: get_tmp_path(),
+        snapshot_editor_path: get_tmp_path(),
+    }
+}
+
+pub fn get_tmp_path() -> PathBuf {
+    PathBuf::from(format!("/tmp/{}", Uuid::new_v4()))
+}
+
+#[derive(Default)]
+pub struct FailingShellSpawner {}
+
+#[async_trait]
+impl ShellSpawner for FailingShellSpawner {
+    /// Whether the child processes spawned by this shell spawner have the same user and group ID as that of the
+    /// main process itself (e.g. whether the shell spawner increases privileges for the child process).
+    fn increases_privileges(&self) -> bool {
+        true
+    }
+
+    /// Spawn the shell and enter shell_command in it, with the shell exiting as soon as the command completes.
+    /// The returned tokio Child must be the shell's process.
+    async fn spawn(&self, _shell_command: String) -> Result<Child, std::io::Error> {
+        Err(std::io::Error::other("deliberately generated error in test"))
+    }
+}
+
+#[allow(unused)]
 pub struct EnvironmentPaths {
     pub kernel: PathBuf,
     pub rootfs: PathBuf,
@@ -27,8 +60,10 @@ pub struct EnvironmentPaths {
     pub snapshot_editor: PathBuf,
 }
 
+#[allow(unused)]
 pub type TestVmmProcess = VmmProcess<TestExecutor, TestShellSpawner>;
 
+#[allow(unused)]
 pub fn get_environment_paths() -> EnvironmentPaths {
     let path = |s: &str| format!("/opt/testdata/{s}").into();
 
@@ -43,11 +78,13 @@ pub fn get_environment_paths() -> EnvironmentPaths {
     }
 }
 
+#[allow(unused)]
 pub enum TestExecutor {
     Unrestricted(UnrestrictedVmmExecutor),
     Jailed(JailedVmmExecutor<FlatJailRenamer>),
 }
 
+#[allow(unused)]
 pub enum TestShellSpawner {
     Su(SuShellSpawner),
     SameUser(SameUserShellSpawner),
@@ -90,7 +127,7 @@ impl VmmExecutor for TestExecutor {
         &self,
         shell_spawner: &impl ShellSpawner,
         outer_paths: Vec<PathBuf>,
-    ) -> Result<HashMap<PathBuf, PathBuf>, FirecrackerExecutorError> {
+    ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
         match self {
             TestExecutor::Unrestricted(e) => e.prepare(shell_spawner, outer_paths).await,
             TestExecutor::Jailed(e) => e.prepare(shell_spawner, outer_paths).await,
@@ -102,14 +139,14 @@ impl VmmExecutor for TestExecutor {
         shell_spawner: &impl ShellSpawner,
         installation: &FirecrackerInstallation,
         config_override: FirecrackerConfigOverride,
-    ) -> Result<Child, FirecrackerExecutorError> {
+    ) -> Result<Child, VmmExecutorError> {
         match self {
             TestExecutor::Unrestricted(e) => e.invoke(shell_spawner, installation, config_override).await,
             TestExecutor::Jailed(e) => e.invoke(shell_spawner, installation, config_override).await,
         }
     }
 
-    async fn cleanup(&self, shell_spawner: &impl ShellSpawner) -> Result<(), FirecrackerExecutorError> {
+    async fn cleanup(&self, shell_spawner: &impl ShellSpawner) -> Result<(), VmmExecutorError> {
         match self {
             TestExecutor::Unrestricted(e) => e.cleanup(shell_spawner).await,
             TestExecutor::Jailed(e) => e.cleanup(shell_spawner).await,
