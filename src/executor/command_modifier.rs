@@ -114,8 +114,8 @@ pub(crate) fn apply_command_modifier_chain(command: &mut String, modifiers: &Vec
 #[cfg(test)]
 mod tests {
     use super::{
-        AppendCommandModifier, CommandModifier, NetnsCommandModifier, NoCommandModifier, ReplaceCommandModifier,
-        RewriteCommandModifier,
+        apply_command_modifier_chain, AppendCommandModifier, CommandModifier, NetnsCommandModifier, NoCommandModifier,
+        ReplaceCommandModifier, RewriteCommandModifier,
     };
 
     #[test]
@@ -158,6 +158,39 @@ mod tests {
             "ac",
             "bd",
         );
+    }
+
+    #[test]
+    fn apply_command_modifier_chain_performs_chain_of_single_command() {
+        let mut command = String::from("command");
+        apply_command_modifier_chain(&mut command, &vec![Box::new(AppendCommandModifier::new(" appended"))]);
+        assert_eq!(command, "command appended");
+    }
+
+    #[test]
+    fn apply_command_modifier_chain_performs_chain_of_two_commands() {
+        let mut command = String::from("command");
+        apply_command_modifier_chain(
+            &mut command,
+            &vec![
+                Box::new(AppendCommandModifier::new(" appended")),
+                Box::new(ReplaceCommandModifier::new().replace("app", "APP")),
+            ],
+        );
+        assert_eq!(command, "command APPended");
+    }
+
+    #[test]
+    fn apply_command_modifier_chain_performs_destructive_command_chain() {
+        let mut command = String::from("command");
+        apply_command_modifier_chain(
+            &mut command,
+            &vec![
+                Box::new(AppendCommandModifier::new("something")),
+                Box::new(RewriteCommandModifier::new("rewritten")),
+            ],
+        );
+        assert_eq!(command, "rewritten");
     }
 
     fn assert_modifier(modifier: impl CommandModifier, from: &str, to: &str) {
