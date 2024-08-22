@@ -315,3 +315,51 @@ impl JailJoin for PathBuf {
         self.join(other_path.trim_start_matches("/"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::executor::jailed::{JailJoin, JailRenamerError, MappingJailRenamer};
+
+    use super::{FlatJailRenamer, JailRenamer};
+
+    #[test]
+    fn jail_join_performs_correctly() {
+        assert_eq!(
+            PathBuf::from("/jail").jail_join(&PathBuf::from("/inner")),
+            PathBuf::from("/jail/inner")
+        );
+    }
+
+    #[test]
+    fn flat_jail_renamer_moves_correctly() {
+        let renamer = FlatJailRenamer::default();
+        assert_renamer(&renamer, "/opt/file", "/file");
+        assert_renamer(&renamer, "/tmp/some_path.txt", "/some_path.txt");
+        assert_renamer(&renamer, "/some/complex/outside/path/filename.ext4", "/filename.ext4");
+    }
+
+    #[test]
+    fn mapping_jail_renamer_moves_correctly() {
+        let mut renamer = MappingJailRenamer::new();
+        renamer
+            .map("/etc/a", "/tmp/a")
+            .map("/opt/b", "/etc/b")
+            .map("/tmp/c", "/c");
+        assert_renamer(&renamer, "/etc/a", "/tmp/a");
+        assert_renamer(&renamer, "/opt/b", "/etc/b");
+        assert_renamer(&renamer, "/tmp/c", "/c");
+        assert_matches::assert_matches!(
+            renamer.rename_for_jail(PathBuf::from("/tmp/unknown").as_ref()),
+            Err(JailRenamerError::PathIsUnmapped(_))
+        );
+    }
+
+    fn assert_renamer(renamer: &impl JailRenamer, path: &str, expectation: &str) {
+        assert_eq!(
+            renamer.rename_for_jail(&PathBuf::from(path)).unwrap().to_str().unwrap(),
+            expectation
+        );
+    }
+}

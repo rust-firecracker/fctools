@@ -64,3 +64,78 @@ async fn verify_imp(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use uuid::Uuid;
+
+    use crate::executor::installation::{FirecrackerInstallation, FirecrackerInstallationError};
+
+    #[tokio::test]
+    async fn installation_does_not_verify_for_missing_files() {
+        fn random_path() -> PathBuf {
+            PathBuf::from(format!("/tmp/{}", Uuid::new_v4()))
+        }
+
+        let installation = FirecrackerInstallation {
+            firecracker_path: random_path(),
+            jailer_path: random_path(),
+            snapshot_editor_path: random_path(),
+        };
+        assert_matches::assert_matches!(
+            installation.verify("v1.8.0").await,
+            Err(FirecrackerInstallationError::BinaryMissing)
+        );
+    }
+
+    #[tokio::test]
+    async fn installation_does_not_verify_for_non_executable_files() {
+        async fn non_executable_path() -> PathBuf {
+            let path = PathBuf::from(format!("/tmp/{}", Uuid::new_v4()));
+            drop(tokio::fs::File::create(&path).await.unwrap());
+            path
+        }
+
+        let installation = FirecrackerInstallation {
+            firecracker_path: non_executable_path().await,
+            jailer_path: non_executable_path().await,
+            snapshot_editor_path: non_executable_path().await,
+        };
+        assert_matches::assert_matches!(
+            installation.verify("v1.8.0").await,
+            Err(FirecrackerInstallationError::BinaryNotExecutable)
+        );
+    }
+
+    fn testdata(name: &str) -> PathBuf {
+        format!("/opt/testdata/{name}").into()
+    }
+
+    #[tokio::test]
+    async fn installation_does_not_verify_for_incorrect_binary_type() {
+        let installation = FirecrackerInstallation {
+            firecracker_path: testdata("jailer"),
+            jailer_path: testdata("snapshot-editor"),
+            snapshot_editor_path: testdata("firecracker"),
+        };
+        assert_matches::assert_matches!(
+            installation.verify("v1.8.0").await,
+            Err(FirecrackerInstallationError::BinaryIsOfIncorrectType)
+        );
+    }
+
+    #[tokio::test]
+    async fn installation_does_not_verify_for_incorrect_binary_version() {
+        let installation = FirecrackerInstallation {
+            firecracker_path: testdata("firecracker-wrong-version"),
+            jailer_path: testdata("jailer"),
+            snapshot_editor_path: testdata("snapshot-editor"),
+        };
+        assert_matches::assert_matches!(
+            installation.verify("v1.8.0").await,
+            Err(FirecrackerInstallationError::BinaryDoesNotMatchExpectedVersion)
+        );
+    }
+}
