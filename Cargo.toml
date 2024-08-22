@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 # common
 async-trait = "0.1.81"
+thiserror = "1.0.63"
 tokio = { version = "1.39.3", features = [
     "process",
     "io-util",
@@ -16,7 +17,6 @@ tokio = { version = "1.39.3", features = [
 ] }
 # executor
 libc = { version = "0.2.158", optional = true }
-thiserror = { version = "1.0.63", optional = true }
 # process
 hyper = { version = "1.4.1", features = ["client"], optional = true }
 bytes = { version = "1.7.1", optional = true }
@@ -57,7 +57,7 @@ full = [
 ]
 # layers
 shell-spawner = []
-vmm-executor = ["shell-spawner", "dep:libc", "dep:thiserror"]
+vmm-executor = ["shell-spawner", "dep:libc"]
 vmm-process = [
     "vmm-executor",
     "dep:hyper",
