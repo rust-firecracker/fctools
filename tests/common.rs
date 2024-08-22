@@ -36,14 +36,10 @@ pub struct FailingShellSpawner {}
 
 #[async_trait]
 impl ShellSpawner for FailingShellSpawner {
-    /// Whether the child processes spawned by this shell spawner have the same user and group ID as that of the
-    /// main process itself (e.g. whether the shell spawner increases privileges for the child process).
     fn increases_privileges(&self) -> bool {
         true
     }
 
-    /// Spawn the shell and enter shell_command in it, with the shell exiting as soon as the command completes.
-    /// The returned tokio Child must be the shell's process.
     async fn spawn(&self, _shell_command: String) -> Result<Child, std::io::Error> {
         Err(std::io::Error::other("deliberately generated error in test"))
     }
