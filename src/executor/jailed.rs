@@ -21,13 +21,9 @@ use super::{
 /// process itself won't.
 #[derive(Debug)]
 pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
-    /// The arguments passed to the "firecracker" binary
     firecracker_arguments: FirecrackerArguments,
-    /// The arguments passed to the "jailer" binary
     jailer_arguments: JailerArguments,
-    /// The method of how to move VM resources into the jail
     jail_move_method: JailMoveMethod,
-    /// The jail renamer that will be applied to VM resource paths during the move process
     jail_renamer: R,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
 }
@@ -66,9 +62,12 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
 /// The method of moving resources into the jail
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum JailMoveMethod {
+    /// Copy the file/directory
     Copy,
+    /// Hard-link the file/directory (symlinking is incompatible with chroot, thus is not supported)
     HardLink,
-    /// First try to hard link, then resort to copying as a fallback
+    /// First try to hard link the file/directory, then resort to copying as a fallback and
+    /// ignore the error that occurred when hard-linking
     HardLinkWithCopyFallback,
 }
 
@@ -151,7 +150,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             let inner_path = self
                 .jail_renamer
                 .rename_for_jail(&outer_path)
-                .map_err(FirecrackerExecutorError::ToInnerPathFailed)?;
+                .map_err(FirecrackerExecutorError::JailRenamerFailed)?;
             let expanded_inner_path = jail_path.jail_join(inner_path.as_ref());
             path_mappings.insert(outer_path.clone(), inner_path);
 
@@ -234,10 +233,13 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum JailRenamerError {
+    #[error("The given path which is supposed to be a file has no filename")]
     PathHasNoFilename,
+    #[error("A conversion of the outer path `{0}` to an inner path was not configured")]
     PathIsUnmapped(PathBuf),
+    #[error("Another error occurred: `{0}`")]
     Other(Box<dyn std::error::Error + Send>),
 }
 

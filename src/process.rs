@@ -43,11 +43,14 @@ pub struct VmmProcess<E: VmmExecutor, S: ShellSpawner> {
 }
 
 /// Raw Tokio pipes of a VMM process: stdin, stdout and stderr. All must always be redirected
-/// by the respective shell spawner.
+/// by the respective shell spawner implementation.
 #[derive(Debug)]
 pub struct VmmProcessPipes {
+    /// The standard input pipe.
     pub stdin: ChildStdin,
+    /// The standard output pipe.
     pub stdout: ChildStdout,
+    /// The standard error pipe.
     pub stderr: ChildStderr,
 }
 
@@ -69,25 +72,47 @@ pub enum VmmProcessState {
     Crashed(ExitStatus),
 }
 
+impl std::fmt::Display for VmmProcessState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmmProcessState::AwaitingPrepare => write!(f, "Awaiting prepare"),
+            VmmProcessState::AwaitingStart => write!(f, "Awaiting start"),
+            VmmProcessState::Started => write!(f, "Started"),
+            VmmProcessState::Exited => write!(f, "Exited"),
+            VmmProcessState::Crashed(exit_status) => write!(f, "Crashed with {exit_status}"),
+        }
+    }
+}
+
 /// Error caused during a VMM process operation.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum VmmProcessError {
+    #[error("Expected the VMM process to have the `{expected}` state, but it actually had the `{actual}` state")]
     ExpectedState {
         expected: VmmProcessState,
         actual: VmmProcessState,
     },
-    ExpectedExitedOrCrashed {
-        actual: VmmProcessState,
-    },
+    #[error("Expected the VMM process to either have exited or crashed, but it actually had the `{actual}` state")]
+    ExpectedExitedOrCrashed { actual: VmmProcessState },
+    #[error("The VMM process's API socket had been disabled yet a request to the socket was attempted")]
     SocketWasDisabled,
+    #[error("Forcing chown of the API socket via the shell spawner failed: `{0}`")]
     CouldNotChownSocket(io::Error),
+    #[error("An error occurred in the internal hyper-util HTTP connection pool: `{0}`")]
     HyperClientFailed(hyper_util::client::legacy::Error),
+    #[error("Transmitting SIGKILL to the process failed: `{0}`")]
     SigkillFailed(io::Error),
+    #[error("Building the Ctrl+Alt+Del HTTP request failed: `{0}`")]
     CtrlAltDelRequestNotBuilt(hyper::http::Error),
+    #[error("The Ctrl+Alt+Del HTTP request returned an unsuccessful status code: `{0}`")]
     CtrlAltDelRequestFailed(StatusCode),
+    #[error("Awaiting the process' exit failed: `{0}`")]
     WaitFailed(io::Error),
+    #[error("The given route to the API socket could not be transformed to a Unix socket URI")]
     IncorrectSocketUri,
+    #[error("The underlying VMM executor returned an error: `{0}`")]
     ExecutorError(FirecrackerExecutorError),
+    #[error("Attempted to take out the process' pipes when they had already been taken")]
     PipesAlreadyTaken,
 }
 

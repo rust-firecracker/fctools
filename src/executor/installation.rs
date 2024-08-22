@@ -16,12 +16,17 @@ pub struct FirecrackerInstallation {
 }
 
 /// Error caused during installation verification.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum FirecrackerInstallationError {
+    #[error("Accessing a file via tokio I/O failed: `{0}`")]
     FilesystemError(tokio::io::Error),
+    #[error("A binary inside the installation doesn't exist")]
     BinaryMissing,
+    #[error("A binary inside the installation does not have execution permissions")]
     BinaryNotExecutable,
+    #[error("A binary inside the installation is incorrectly labeled as something else")]
     BinaryIsOfIncorrectType,
+    #[error("A binary's version inside the installation does not match the version that was given")]
     BinaryDoesNotMatchExpectedVersion,
 }
 

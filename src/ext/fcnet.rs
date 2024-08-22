@@ -124,10 +124,13 @@ impl FcnetNetnsOptions {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum FcnetError {
+    #[error("Invoking the shell spawner failed: `{0}`")]
     ShellSpawnFailed(tokio::io::Error),
-    ProcessWaitFailed(tokio::io::Error),
+    #[error("Forking the fcnet process failed: `{0}`")]
+    ProcessForkFailed(tokio::io::Error),
+    #[error("Fcnet invocation returned an error in its output")]
     FcnetReturnedError(std::process::Output),
 }
 
@@ -249,7 +252,7 @@ impl FcnetConfiguration {
             .await
             .map_err(FcnetError::ShellSpawnFailed)?;
 
-        let process_output = child.wait_with_output().await.map_err(FcnetError::ProcessWaitFailed)?;
+        let process_output = child.wait_with_output().await.map_err(FcnetError::ProcessForkFailed)?;
         if !process_output.status.success() {
             return Err(FcnetError::FcnetReturnedError(process_output));
         }

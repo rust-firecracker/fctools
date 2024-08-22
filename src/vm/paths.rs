@@ -13,8 +13,8 @@ impl VmStandardPaths {
         &self.drive_sockets
     }
 
-    pub fn get_drive_socket(&self, drive_id: String) -> Option<&PathBuf> {
-        self.drive_sockets.get(&drive_id)
+    pub fn get_drive_socket(&self, drive_id: impl AsRef<str>) -> Option<&PathBuf> {
+        self.drive_sockets.get(drive_id.as_ref())
     }
 
     pub fn get_metrics_path(&self) -> Option<&PathBuf> {

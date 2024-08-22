@@ -46,28 +46,52 @@ pub enum VmState {
     Crashed(ExitStatus),
 }
 
-#[derive(Debug)]
+impl std::fmt::Display for VmState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmState::NotStarted => write!(f, "Not started"),
+            VmState::Running => write!(f, "Running"),
+            VmState::Paused => write!(f, "Paused"),
+            VmState::Exited => write!(f, "Exited"),
+            VmState::Crashed(exit_status) => write!(f, "Crashed with exit status: {exit_status}"),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
 pub enum VmError {
+    #[error("The underlying VMM process returned an error: `{0}`")]
     ProcessError(VmmProcessError),
-    ExpectedState {
-        expected: Vec<VmState>,
-        actual: VmState,
-    },
-    ExpectedExitedOrCrashed {
-        actual: VmState,
-    },
+    #[error("Expected the VM to be in a certain state, but it was actually in the `{actual}` state")]
+    ExpectedState { expected: Vec<VmState>, actual: VmState },
+    #[error("Expected the VM to have exited or crashed, but it was actually in the `{actual}` state")]
+    ExpectedExitedOrCrashed { actual: VmState },
+    #[error("Serde serialization or deserialization failed: `{0}`")]
     SerdeError(serde_json::Error),
+    #[error("An async I/O operation failed: `{0}`")]
     IoError(tokio::io::Error),
+    #[error(
+        "The API socket returned an unsuccessful HTTP response with the `{status_code}` status code: `{fault_message}`"
+    )]
     ApiRespondedWithFault {
         status_code: StatusCode,
         fault_message: String,
     },
+    #[error(
+        "The API HTTP request could not be constructed, likely due to an incorrect URI or HTTP configuration: `{0}`"
+    )]
     ApiRequestNotConstructed(http::Error),
+    #[error("The API HTTP response could not be received from the API socket: `{0}`")]
     ApiResponseCouldNotBeReceived(hyper::Error),
-    ApiResponseExpectedEmpty,
+    #[error("Expected the API response to be empty, but it contained the following response body: `{0}`")]
+    ApiResponseExpectedEmpty(String),
+    #[error("No shutdown methods were specified for the VM shutdown operation")]
     NoShutdownMethodsSpecified,
+    #[error("A future timed out according to the given timeout duration")]
     Timeout,
+    #[error("Attempted to use a VM configuration with a disabled API socket, which is not supported")]
     DisabledApiSocketIsUnsupported,
+    #[error("A path mapping was expected to be constructed by the executor, but was not returned")]
     MissingPathMapping,
 }
 
@@ -608,7 +632,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         if response_json.trim().is_empty() {
             Ok(())
         } else {
-            Err(VmError::ApiResponseExpectedEmpty)
+            Err(VmError::ApiResponseExpectedEmpty(response_json))
         }
     }
 

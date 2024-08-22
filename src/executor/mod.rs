@@ -19,17 +19,27 @@ pub mod installation;
 pub mod jailed;
 pub mod unrestricted;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum FirecrackerExecutorError {
+    #[error("An async I/O error occurred: `{0}`")]
     IoError(io::Error),
-    ShellWaitFailed(io::Error),
+    #[error("Forking an auxiliary shell via the spawner to force chown/mkdir failed: `{0}`")]
+    ShellForkFailed(io::Error),
+    #[error("A forced shell chown command exited with a non-zero exit status: `{0}`")]
     ChownExitedWithWrongStatus(ExitStatus),
+    #[error("A forced shell mkdir command exited with a non-zero exit status: `{0}`")]
     MkdirExitedWithWrongStatus(ExitStatus),
+    #[error("Joining on a spawned async task failed: `{0}`")]
     TaskJoinFailed(JoinError),
+    #[error("Spawning an auxiliary or primary shell via the spawner failed: `{0}`")]
     ShellSpawnFailed(io::Error),
+    #[error("A passed-in resource at the path `{0}` was expected but doesn't exist or isn't accessible")]
     ExpectedResourceMissing(PathBuf),
+    #[error("A directory that is supposed to have a parent in the filesystem has none")]
     ExpectedDirectoryParentMissing,
-    ToInnerPathFailed(JailRenamerError),
+    #[error("Invoking the jail renamer to produce an inner path failed: `{0}`")]
+    JailRenamerFailed(JailRenamerError),
+    #[error("Another error occurred: `{0}`")]
     Other(Box<dyn std::error::Error + Send>),
 }
 
@@ -78,7 +88,7 @@ pub(crate) async fn force_chown(
         .spawn(format!("chown -f -R {uid}:{gid} {}", path.to_string_lossy()))
         .await
         .map_err(FirecrackerExecutorError::ShellSpawnFailed)?;
-    let exit_status = child.wait().await.map_err(FirecrackerExecutorError::ShellWaitFailed)?;
+    let exit_status = child.wait().await.map_err(FirecrackerExecutorError::ShellForkFailed)?;
 
     if !exit_status.success() {
         return Err(FirecrackerExecutorError::ChownExitedWithWrongStatus(exit_status));
@@ -99,7 +109,7 @@ async fn force_mkdir(path: &Path, shell_spawner: &impl ShellSpawner) -> Result<(
         .spawn(format!("mkdir -p {}", path.to_string_lossy()))
         .await
         .map_err(FirecrackerExecutorError::ShellSpawnFailed)?;
-    let exit_status = child.wait().await.map_err(FirecrackerExecutorError::ShellWaitFailed)?;
+    let exit_status = child.wait().await.map_err(FirecrackerExecutorError::ShellForkFailed)?;
 
     if !exit_status.success() {
         return Err(FirecrackerExecutorError::MkdirExitedWithWrongStatus(exit_status));
