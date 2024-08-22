@@ -92,14 +92,14 @@ impl SerialIo {
         }
     }
 
-    pub async fn expect(&mut self, function: impl Fn(String) -> bool) -> String {
+    pub async fn expect(&mut self, function: impl Fn(&str) -> bool) -> String {
         loop {
             let line = match self.data_recv.recv().await {
                 Some(line) => line,
                 None => continue,
             };
 
-            if function(line.clone()) {
+            if function(&line) {
                 return line;
             }
         }
