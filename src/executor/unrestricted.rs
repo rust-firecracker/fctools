@@ -60,7 +60,7 @@ impl UnrestrictedVmmExecutor {
 
 #[async_trait]
 impl VmmExecutor for UnrestrictedVmmExecutor {
-    fn get_outer_socket_path(&self) -> Option<PathBuf> {
+    fn get_socket_path(&self) -> Option<PathBuf> {
         match &self.firecracker_arguments.api_socket {
             FirecrackerApiSocket::Disabled => None,
             FirecrackerApiSocket::Enabled(path) => Some(path.clone()),

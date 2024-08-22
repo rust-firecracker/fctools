@@ -74,7 +74,7 @@ pub enum JailMoveMethod {
 
 #[async_trait]
 impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
-    fn get_outer_socket_path(&self) -> Option<PathBuf> {
+    fn get_socket_path(&self) -> Option<PathBuf> {
         match &self.firecracker_arguments.api_socket {
             FirecrackerApiSocket::Disabled => None,
             FirecrackerApiSocket::Enabled(socket_path) => Some(self.get_jail_path().jail_join(&socket_path)),

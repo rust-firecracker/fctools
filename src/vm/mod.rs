@@ -95,7 +95,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         installation_arc: Arc<FirecrackerInstallation>,
         mut configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
-        if executor.get_outer_socket_path().is_none() {
+        if executor.get_socket_path().is_none() {
             return Err(VmError::DisabledApiSocketIsUnsupported);
         }
 

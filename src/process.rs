@@ -110,7 +110,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
         installation_arc: Arc<FirecrackerInstallation>,
         outer_paths: Vec<PathBuf>,
     ) -> Self {
-        let socket_path = executor.get_outer_socket_path();
+        let socket_path = executor.get_socket_path();
         Self {
             executor,
             shell_spawner: shell_spawner_arc,
@@ -191,12 +191,12 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
         Ok(VmmProcessPipes { stdin, stdout, stderr })
     }
 
-    /// Gets the outer path to the VM process's socket, if one has been configured
+    /// Gets the outer path to the VM process's socket, if one has been configured, via the executor.
     pub fn get_socket_path(&self) -> Option<PathBuf> {
-        self.executor.get_outer_socket_path()
+        self.executor.get_socket_path()
     }
 
-    /// Converts a given inner path to an outer path via the executor
+    /// Converts a given inner path to an outer path via the executor.
     pub fn inner_to_outer_path(&self, inner_path: impl AsRef<Path>) -> PathBuf {
         self.executor.inner_to_outer_path(inner_path.as_ref())
     }

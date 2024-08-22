@@ -49,12 +49,12 @@ fn unrestricted_executor_gets_socket_path() {
         PathBuf::from("/tmp/socket.sock"),
     )));
     assert_eq!(
-        enabled_socket.get_outer_socket_path(),
+        enabled_socket.get_socket_path(),
         Some(PathBuf::from("/tmp/socket.sock"))
     );
 
     let disabled_socket = get_unrestricted_executor();
-    assert_eq!(disabled_socket.get_outer_socket_path(), None);
+    assert_eq!(disabled_socket.get_socket_path(), None);
 }
 
 #[tokio::test]

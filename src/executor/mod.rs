@@ -38,7 +38,7 @@ pub enum FirecrackerExecutorError {
 #[async_trait]
 pub trait VmmExecutor {
     /// Get the host location of the VMM socket, if one exists.
-    fn get_outer_socket_path(&self) -> Option<PathBuf>;
+    fn get_socket_path(&self) -> Option<PathBuf>;
 
     /// Resolves an inner path into an outer path.
     fn inner_to_outer_path(&self, inner_path: &Path) -> PathBuf;
@@ -75,7 +75,7 @@ pub(crate) async fn force_chown(
     let gid = unsafe { libc::getegid() };
 
     let mut child = shell_spawner
-        .spawn(format!("chown -R {uid}:{gid} {}", path.to_string_lossy()))
+        .spawn(format!("chown -f -R {uid}:{gid} {}", path.to_string_lossy()))
         .await
         .map_err(FirecrackerExecutorError::ShellSpawnFailed)?;
     let exit_status = child.wait().await.map_err(FirecrackerExecutorError::ShellWaitFailed)?;

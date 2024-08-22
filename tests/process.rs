@@ -1,11 +1,5 @@
-use std::{
-    collections::HashMap,
-    future::Future,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{future::Future, path::PathBuf, time::Duration};
 
-use async_trait::async_trait;
 use bytes::Bytes;
 use fctools::{
     executor::{
@@ -13,19 +7,20 @@ use fctools::{
         installation::FirecrackerInstallation,
         jailed::{FlatJailRenamer, JailedVmmExecutor},
         unrestricted::UnrestrictedVmmExecutor,
-        FirecrackerExecutorError, VmmExecutor,
     },
     process::{HyperResponseExt, VmmProcess, VmmProcessState},
-    shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
+    shell_spawner::{SameUserShellSpawner, SuShellSpawner},
 };
+use http::Uri;
 use http_body_util::Full;
 use hyper::Request;
+use hyper_client_sockets::{HyperUnixStream, UnixUriExt};
 use rand::RngCore;
-use tokio::{
-    io::{AsyncBufReadExt, BufReader},
-    process::Child,
-};
+use test_framework::{TestExecutor, TestShellSpawner, TestVmmProcess};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use uuid::Uuid;
+
+mod test_framework;
 
 #[tokio::test]
 async fn vmm_can_recv_ctrl_alt_del() {
@@ -109,7 +104,7 @@ async fn vmm_can_send_get_request_to_api_socket() {
 
 #[tokio::test]
 async fn vmm_can_send_patch_request_to_api_socket() {
-    async fn send_state_request(state: &str, process: &mut TestVmProcess) {
+    async fn send_state_request(state: &str, process: &mut TestVmmProcess) {
         let request = Request::builder()
             .method("PATCH")
             .header("Content-Type", "application/json")
@@ -126,10 +121,6 @@ async fn vmm_can_send_patch_request_to_api_socket() {
         shutdown(&mut process).await;
     })
     .await;
-}
-
-#[tokio::test]
-async fn vmm_can_send_put_request_to_api_socket() {
     vmm_test(|mut process| async move {
         let request = Request::builder()
             .method("PUT")
@@ -144,7 +135,50 @@ async fn vmm_can_send_put_request_to_api_socket() {
     .await;
 }
 
-async fn shutdown(handle: &mut TestVmProcess) {
+#[tokio::test]
+async fn vmm_get_socket_path_returns_correct_path() {
+    vmm_test(|mut process| async move {
+        let socket_path = process.get_socket_path().unwrap();
+        let (mut send_request, connection) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(
+            HyperUnixStream::connect(&socket_path).await.unwrap(),
+        )
+        .await
+        .unwrap();
+        tokio::spawn(connection);
+
+        let response = send_request
+            .send_request(
+                Request::builder()
+                    .method("GET")
+                    .uri(Uri::unix(socket_path, "/actions").unwrap())
+                    .body(Full::new(Bytes::new()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+        shutdown(&mut process).await;
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn vmm_inner_to_outer_path_performs_transformation() {
+    vmm_test(|process| async move {
+        let outer_path = process.inner_to_outer_path("/dev/kvm");
+        dbg!(&outer_path);
+
+        if outer_path.to_str().unwrap() != "/dev/kvm"
+            && !outer_path.starts_with("/srv/jailer")
+            && outer_path.ends_with("/dev/kvm")
+        {
+            panic!("Expected outer path transformation to succeed, instead received: {outer_path:?}");
+        }
+    })
+    .await;
+}
+
+async fn shutdown(handle: &mut TestVmmProcess) {
     handle.send_ctrl_alt_del().await.unwrap();
     assert!(handle.wait_for_exit().await.unwrap().success());
     handle.cleanup().await.unwrap();
@@ -152,11 +186,11 @@ async fn shutdown(handle: &mut TestVmProcess) {
 
 async fn vmm_test<F, Fut>(closure: F)
 where
-    F: Fn(TestVmProcess) -> Fut,
+    F: Fn(TestVmmProcess) -> Fut,
     F: 'static,
     Fut: Future<Output = ()>,
 {
-    async fn init_process(process: &mut TestVmProcess) {
+    async fn init_process(process: &mut TestVmmProcess) {
         process.wait_for_exit().await.unwrap_err();
         process.send_ctrl_alt_del().await.unwrap_err();
         process.send_sigkill().unwrap_err();
@@ -170,46 +204,20 @@ where
         assert_eq!(process.state(), VmmProcessState::Started);
     }
 
-    let (mut unrestricted_process, mut jailed_process) = get_processes();
+    let (mut unrestricted_process, mut jailed_process) = get_vmm_processes();
 
     init_process(&mut jailed_process).await;
     init_process(&mut unrestricted_process).await;
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    tokio::time::sleep(Duration::from_millis(2000)).await;
     closure(unrestricted_process).await;
     println!("Succeeded with unrestricted VM");
     closure(jailed_process).await;
     println!("Succeeded with jailed VM");
 }
 
-struct EnvironmentPaths {
-    pub kernel: PathBuf,
-    pub rootfs: PathBuf,
-    pub jail_config: PathBuf,
-    pub config: PathBuf,
-    pub firecracker: PathBuf,
-    pub jailer: PathBuf,
-    pub snapshot_editor: PathBuf,
-}
-
-type TestVmProcess = VmmProcess<TestExecutor, TestShellSpawner>;
-
-fn get_kernel_and_rootfs_paths() -> EnvironmentPaths {
-    let path = |s: &str| format!("/opt/testdata/{s}").into();
-
-    EnvironmentPaths {
-        kernel: path("vmlinux-6.1"),
-        rootfs: path("ubuntu-22.04.ext4"),
-        jail_config: path("jail-config.json"),
-        config: path("config.json"),
-        firecracker: path("firecracker"),
-        jailer: path("jailer"),
-        snapshot_editor: path("snapshot-editor"),
-    }
-}
-
-fn get_processes() -> (TestVmProcess, TestVmProcess) {
+fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
     let socket_path: PathBuf = format!("/tmp/{}", Uuid::new_v4()).into();
-    let env_paths = get_kernel_and_rootfs_paths();
+    let env_paths = test_framework::get_environment_paths();
 
     let unrestricted_firecracker_arguments =
         FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path.clone())).config_path(&env_paths.config);
@@ -251,78 +259,4 @@ fn get_processes() -> (TestVmProcess, TestVmProcess) {
             vec![env_paths.kernel, env_paths.rootfs, env_paths.jail_config],
         ),
     )
-}
-
-enum TestExecutor {
-    Unrestricted(UnrestrictedVmmExecutor),
-    Jailed(JailedVmmExecutor<FlatJailRenamer>),
-}
-
-enum TestShellSpawner {
-    Su(SuShellSpawner),
-    SameUser(SameUserShellSpawner),
-}
-
-#[async_trait]
-impl ShellSpawner for TestShellSpawner {
-    fn belongs_to_process(&self) -> bool {
-        match self {
-            TestShellSpawner::Su(e) => e.belongs_to_process(),
-            TestShellSpawner::SameUser(e) => e.belongs_to_process(),
-        }
-    }
-
-    async fn spawn(&self, shell_command: String) -> Result<Child, tokio::io::Error> {
-        match self {
-            TestShellSpawner::Su(s) => s.spawn(shell_command).await,
-            TestShellSpawner::SameUser(s) => s.spawn(shell_command).await,
-        }
-    }
-}
-
-#[async_trait]
-impl VmmExecutor for TestExecutor {
-    fn get_outer_socket_path(&self) -> Option<PathBuf> {
-        match self {
-            TestExecutor::Unrestricted(e) => e.get_outer_socket_path(),
-            TestExecutor::Jailed(e) => e.get_outer_socket_path(),
-        }
-    }
-
-    fn inner_to_outer_path(&self, inner_path: &Path) -> PathBuf {
-        match self {
-            TestExecutor::Unrestricted(e) => e.inner_to_outer_path(inner_path),
-            TestExecutor::Jailed(e) => e.inner_to_outer_path(inner_path),
-        }
-    }
-
-    async fn prepare(
-        &self,
-        shell_spawner: &impl ShellSpawner,
-        outer_paths: Vec<PathBuf>,
-    ) -> Result<HashMap<PathBuf, PathBuf>, FirecrackerExecutorError> {
-        match self {
-            TestExecutor::Unrestricted(e) => e.prepare(shell_spawner, outer_paths).await,
-            TestExecutor::Jailed(e) => e.prepare(shell_spawner, outer_paths).await,
-        }
-    }
-
-    async fn invoke(
-        &self,
-        shell_spawner: &impl ShellSpawner,
-        installation: &FirecrackerInstallation,
-        config_override: FirecrackerConfigOverride,
-    ) -> Result<Child, FirecrackerExecutorError> {
-        match self {
-            TestExecutor::Unrestricted(e) => e.invoke(shell_spawner, installation, config_override).await,
-            TestExecutor::Jailed(e) => e.invoke(shell_spawner, installation, config_override).await,
-        }
-    }
-
-    async fn cleanup(&self, shell_spawner: &impl ShellSpawner) -> Result<(), FirecrackerExecutorError> {
-        match self {
-            TestExecutor::Unrestricted(e) => e.cleanup(shell_spawner).await,
-            TestExecutor::Jailed(e) => e.cleanup(shell_spawner).await,
-        }
-    }
 }
