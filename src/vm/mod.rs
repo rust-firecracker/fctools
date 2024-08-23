@@ -8,23 +8,16 @@ use std::{
 
 use crate::{
     executor::{arguments::FirecrackerConfigOverride, installation::FirecrackerInstallation, VmmExecutor},
-    process::{HyperResponseExt, VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
+    process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
     shell_spawner::ShellSpawner,
 };
-use bytes::Bytes;
+use api::VmApi;
 use configuration::{NewVmConfigurationApplier, VmConfiguration};
-use http::{Response, StatusCode};
-use http_body_util::Full;
-use hyper::{body::Incoming, Request};
-use models::{
-    VmAction, VmActionType, VmApiError, VmBalloon, VmBalloonStatistics, VmCreateSnapshot, VmEffectiveConfiguration,
-    VmFirecrackerVersion, VmInfo, VmMachineConfiguration, VmStateForUpdate, VmUpdateBalloon, VmUpdateBalloonStatistics,
-    VmUpdateDrive, VmUpdateNetworkInterface, VmUpdateState,
-};
-use paths::{VmSnapshotPaths, VmStandardPaths};
-use serde::{de::DeserializeOwned, Serialize};
+use http::StatusCode;
+use paths::VmStandardPaths;
 use tokio::{fs, io::AsyncWriteExt, process::ChildStdin};
 
+pub mod api;
 pub mod configuration;
 pub mod models;
 pub mod paths;
@@ -337,75 +330,12 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
 
         match &configuration {
             VmConfiguration::New(config) => {
-                if no_api_calls {
-                    return Ok(());
+                if !no_api_calls {
+                    api::init_new(self, config).await?;
                 }
-
-                self.send_req("/boot-source", "PUT", Some(&config.boot_source)).await?;
-
-                for drive in &config.drives {
-                    self.send_req(format!("/drives/{}", drive.drive_id).as_str(), "PUT", Some(drive))
-                        .await?;
-                }
-
-                self.send_req("/machine-config", "PUT", Some(&config.machine_configuration))
-                    .await?;
-
-                if let Some(cpu_template) = &config.cpu_template {
-                    self.send_req("/cpu-config", "PUT", Some(cpu_template)).await?;
-                }
-
-                for network_interface in &config.network_interfaces {
-                    self.send_req(
-                        format!("/network-interfaces/{}", network_interface.iface_id).as_str(),
-                        "PUT",
-                        Some(network_interface),
-                    )
-                    .await?;
-                }
-
-                if let Some(balloon) = &config.balloon {
-                    self.send_req("/balloon", "PUT", Some(balloon)).await?;
-                }
-
-                if let Some(vsock) = &config.vsock {
-                    self.send_req("/vsock", "PUT", Some(vsock)).await?;
-                }
-
-                if let Some(logger) = &config.logger {
-                    self.send_req("/logger", "PUT", Some(logger)).await?;
-                }
-
-                if let Some(metrics) = &config.metrics {
-                    self.send_req("/metrics", "PUT", Some(metrics)).await?;
-                }
-
-                if let Some(mmds_configuration) = &config.mmds_configuration {
-                    self.send_req("/mmds/config", "PUT", Some(mmds_configuration)).await?;
-                }
-
-                if let Some(entropy) = &config.entropy {
-                    self.send_req("/entropy", "PUT", Some(entropy)).await?;
-                }
-
-                self.send_req(
-                    "/actions",
-                    "PUT",
-                    Some(VmAction {
-                        action_type: VmActionType::InstanceStart,
-                    }),
-                )
-                .await?;
             }
             VmConfiguration::FromSnapshot(config) => {
-                if let Some(logger) = &config.logger {
-                    self.send_req("/logger", "PUT", Some(logger)).await?;
-                }
-                if let Some(metrics) = &config.metrics {
-                    self.send_req("/metrics", "PUT", Some(metrics)).await?;
-                }
-                self.send_req("/snapshot/load", "PUT", Some(&config.load_snapshot))
-                    .await?;
+                api::init_from_snapshot(self, config).await?;
             }
         }
 
@@ -427,16 +357,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                     .send_ctrl_alt_del()
                     .await
                     .map_err(VmError::ProcessError),
-                VmShutdownMethod::PauseThenKill => {
-                    self.send_req(
-                        "/vm",
-                        "PATCH",
-                        Some(VmUpdateState {
-                            state: VmStateForUpdate::Paused,
-                        }),
-                    )
-                    .await
-                }
+                VmShutdownMethod::PauseThenKill => self.api_pause().await,
                 VmShutdownMethod::WriteRebootToStdin(mut stdin) => {
                     stdin.write_all(b"reboot\n").await.map_err(VmError::IoError)?;
                     stdin.flush().await.map_err(VmError::IoError)
@@ -511,162 +432,11 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         self.vmm_process.inner_to_outer_path(inner_path)
     }
 
-    pub async fn api_get_info(&mut self) -> Result<VmInfo, VmError> {
-        self.ensure_paused_or_running()?;
-        self.send_req_with_resp("/", "GET", None::<i32>).await
-    }
-
-    pub async fn api_flush_metrics(&mut self) -> Result<(), VmError> {
-        self.ensure_paused_or_running()?;
-        self.send_req(
-            "/actions",
-            "PUT",
-            Some(VmAction {
-                action_type: VmActionType::FlushMetrics,
-            }),
-        )
-        .await
-    }
-
-    pub async fn api_get_balloon(&mut self) -> Result<VmBalloon, VmError> {
-        self.ensure_paused_or_running()?;
-        self.send_req_with_resp("/balloon", "GET", None::<i32>).await
-    }
-
-    pub async fn api_update_balloon(&mut self, update_balloon: VmUpdateBalloon) -> Result<(), VmError> {
-        self.ensure_paused_or_running()?;
-        self.send_req("/balloon", "PATCH", Some(update_balloon)).await
-    }
-
-    pub async fn api_get_balloon_statistics(&mut self) -> Result<VmBalloonStatistics, VmError> {
-        self.ensure_state(VmState::Running)?;
-        self.send_req_with_resp("/balloon/statistics", "GET", None::<i32>).await
-    }
-
-    pub async fn api_update_balloon_statistics(
-        &mut self,
-        update_balloon_statistics: VmUpdateBalloonStatistics,
-    ) -> Result<(), VmError> {
-        self.ensure_paused_or_running()?;
-        self.send_req("/balloon/statistics", "PATCH", Some(update_balloon_statistics))
-            .await
-    }
-
-    pub async fn api_update_drive(&mut self, update_drive: VmUpdateDrive) -> Result<(), VmError> {
-        self.ensure_paused_or_running()?;
-        self.send_req(
-            format!("/drives/{}", update_drive.drive_id).as_str(),
-            "PATCH",
-            Some(update_drive),
-        )
-        .await
-    }
-
-    pub async fn api_update_network_interface(
-        &mut self,
-        update_network_interface: VmUpdateNetworkInterface,
-    ) -> Result<(), VmError> {
-        self.ensure_paused_or_running()?;
-        self.send_req(
-            format!("/network-interfaces/{}", update_network_interface.iface_id).as_str(),
-            "PATCH",
-            Some(update_network_interface),
-        )
-        .await
-    }
-
-    pub async fn api_get_machine_configuration(&mut self) -> Result<VmMachineConfiguration, VmError> {
-        self.ensure_paused_or_running()?;
-        self.send_req_with_resp("/machine-config", "GET", None::<i32>).await
-    }
-
-    pub async fn api_create_snapshot(&mut self, create_snapshot: VmCreateSnapshot) -> Result<VmSnapshotPaths, VmError> {
-        self.ensure_state(VmState::Paused)?;
-        self.send_req("/snapshot/create", "PUT", Some(&create_snapshot)).await?;
-        Ok(VmSnapshotPaths {
-            snapshot_path: self.vmm_process.inner_to_outer_path(create_snapshot.snapshot_path),
-            mem_file_path: self.vmm_process.inner_to_outer_path(create_snapshot.mem_file_path),
-        })
-    }
-
-    pub async fn api_get_firecracker_version(&mut self) -> Result<VmFirecrackerVersion, VmError> {
-        self.ensure_paused_or_running()?;
-        self.send_req_with_resp("/version", "GET", None::<i32>).await
-    }
-
-    pub async fn api_get_effective_configuration(&mut self) -> Result<VmEffectiveConfiguration, VmError> {
-        self.ensure_paused_or_running()?;
-        let fetched_configuration = self.send_req_with_resp("/vm/config", "GET", None::<i32>).await?;
-        self.is_paused = false;
-        Ok(fetched_configuration)
-    }
-
-    pub async fn api_pause(&mut self) -> Result<(), VmError> {
-        self.ensure_state(VmState::Running)?;
-        self.send_req(
-            "/vm",
-            "PATCH",
-            Some(VmUpdateState {
-                state: VmStateForUpdate::Paused,
-            }),
-        )
-        .await?;
-        self.is_paused = true;
-        Ok(())
-    }
-
-    pub async fn api_resume(&mut self) -> Result<(), VmError> {
-        self.ensure_state(VmState::Paused)?;
-        self.send_req(
-            "/vm",
-            "PATCH",
-            Some(VmUpdateState {
-                state: VmStateForUpdate::Resumed,
-            }),
-        )
-        .await?;
-        self.is_paused = false;
-        Ok(())
-    }
-
-    pub async fn api_create_mmds(&mut self, value: &serde_json::Value) -> Result<(), VmError> {
-        self.ensure_paused_or_running()?;
-        self.send_req("/mmds", "PUT", Some(value)).await
-    }
-
-    pub async fn api_update_mmds(&mut self, value: &serde_json::Value) -> Result<(), VmError> {
-        self.ensure_paused_or_running()?;
-        self.send_req("/mmds", "PATCH", Some(value)).await
-    }
-
-    pub async fn api_get_mmds(&mut self) -> Result<serde_json::Value, VmError> {
-        self.ensure_paused_or_running()?;
-        self.send_req_with_resp("/mmds", "GET", None::<i32>).await
-    }
-
-    pub async fn api_custom_request(
-        &mut self,
-        route: impl AsRef<str>,
-        request: Request<Full<Bytes>>,
-        new_is_paused: Option<bool>,
-    ) -> Result<Response<Incoming>, VmError> {
-        self.ensure_paused_or_running()?;
-        let response = self
-            .vmm_process
-            .send_api_request(route, request)
-            .await
-            .map_err(VmError::ProcessError)?;
-        if let Some(new_is_paused) = new_is_paused {
-            self.is_paused = new_is_paused;
-        }
-        Ok(response)
-    }
-
-    fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmError> {
+    pub(super) fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmError> {
         self.ensure_states(vec![expected_state])
     }
 
-    fn ensure_paused_or_running(&mut self) -> Result<(), VmError> {
+    pub(super) fn ensure_paused_or_running(&mut self) -> Result<(), VmError> {
         self.ensure_states(vec![VmState::Running, VmState::Paused])
     }
 
@@ -690,68 +460,6 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             return Ok(());
         }
         Err(VmError::ExpectedExitedOrCrashed { actual: state })
-    }
-
-    async fn send_req(
-        &mut self,
-        route: &str,
-        method: &str,
-        request_body: Option<impl Serialize>,
-    ) -> Result<(), VmError> {
-        let response_json: String = self.send_req_core(route, method, request_body).await?;
-        if response_json.trim().is_empty() {
-            Ok(())
-        } else {
-            Err(VmError::ApiResponseExpectedEmpty(response_json))
-        }
-    }
-
-    async fn send_req_with_resp<Resp: DeserializeOwned>(
-        &mut self,
-        route: &str,
-        method: &str,
-        request_body: Option<impl Serialize>,
-    ) -> Result<Resp, VmError> {
-        let response_json = self.send_req_core(route, method, request_body).await?;
-        serde_json::from_str(&response_json).map_err(VmError::SerdeError)
-    }
-
-    async fn send_req_core(
-        &mut self,
-        route: &str,
-        method: &str,
-        request_body: Option<impl Serialize>,
-    ) -> Result<String, VmError> {
-        let request_builder = Request::builder().method(method);
-        let request = match request_body {
-            Some(body) => {
-                let request_json = serde_json::to_string(&body).map_err(VmError::SerdeError)?;
-                request_builder
-                    .header("Content-Type", "application/json")
-                    .body(Full::new(Bytes::from(request_json)))
-            }
-            None => request_builder.body(Full::new(Bytes::new())),
-        }
-        .map_err(VmError::ApiRequestNotConstructed)?;
-        let mut response = self
-            .vmm_process
-            .send_api_request(route, request)
-            .await
-            .map_err(VmError::ProcessError)?;
-        let response_json = response
-            .recv_to_string()
-            .await
-            .map_err(VmError::ApiResponseCouldNotBeReceived)?;
-
-        if !response.status().is_success() {
-            let api_error: VmApiError = serde_json::from_str(&response_json).map_err(VmError::SerdeError)?;
-            return Err(VmError::ApiRespondedWithFault {
-                status_code: response.status(),
-                fault_message: api_error.fault_message,
-            });
-        }
-
-        Ok(response_json)
     }
 }
 
