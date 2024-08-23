@@ -22,8 +22,8 @@ use tokio::{
 
 use crate::{
     executor::{
-        arguments::FirecrackerConfigOverride, force_chown, installation::FirecrackerInstallation,
-        VmmExecutorError, VmmExecutor,
+        arguments::FirecrackerConfigOverride, force_chown, installation::FirecrackerInstallation, VmmExecutor,
+        VmmExecutorError,
     },
     shell_spawner::ShellSpawner,
 };

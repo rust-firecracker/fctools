@@ -1,14 +1,12 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use assert_matches::assert_matches;
-use common::{get_mock_firecracker_installation, get_tmp_path, FailingShellSpawner};
-use fctools::{
-    executor::{
-        arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride},
-        unrestricted::UnrestrictedVmmExecutor,
-        VmmExecutor, VmmExecutorError,
-    },
-    shell_spawner::{SameUserShellSpawner, ShellSpawner},
+use common::{get_mock_firecracker_installation, get_shell_spawner, get_tmp_path, FailingShellSpawner};
+use fctools::executor::{
+    arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride},
+    command_modifier::{AppendCommandModifier, RewriteCommandModifier},
+    unrestricted::UnrestrictedVmmExecutor,
+    VmmExecutor, VmmExecutorError,
 };
 use tokio::fs::{remove_file, try_exists, File};
 
@@ -106,6 +104,25 @@ async fn unrestricted_executor_invoke_reports_shell_spawner_error() {
 }
 
 #[tokio::test]
+async fn unrestricted_executor_invoke_applies_command_modifier_chain() {
+    let executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Disabled))
+        .command_modifier(RewriteCommandModifier::new("echo"))
+        .command_modifier(AppendCommandModifier::new(" test"));
+    let child = executor
+        .invoke(
+            &get_shell_spawner(),
+            &get_mock_firecracker_installation(),
+            FirecrackerConfigOverride::NoOverride,
+        )
+        .await
+        .unwrap();
+    let output = child.wait_with_output().await.unwrap();
+    assert!(output.status.success());
+    let stdout_str = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout_str, "test\n");
+}
+
+#[tokio::test]
 async fn unrestricted_executor_cleanup_removes_api_socket() {
     let socket_path = get_tmp_path();
     File::create_new(&socket_path).await.unwrap();
@@ -153,8 +170,4 @@ async fn unrestricted_executor_cleanup_does_not_remove_log_and_metrics_files() {
     assert!(try_exists(&metrics_path).await.unwrap());
     remove_file(log_path).await.unwrap();
     remove_file(metrics_path).await.unwrap();
-}
-
-fn get_shell_spawner() -> impl ShellSpawner {
-    SameUserShellSpawner::new(which::which("bash").unwrap())
 }

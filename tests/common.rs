@@ -31,6 +31,18 @@ pub fn get_tmp_path() -> PathBuf {
     PathBuf::from(format!("/tmp/{}", Uuid::new_v4()))
 }
 
+#[allow(unused)]
+pub fn jail_join(path1: impl AsRef<Path>, path2: impl Into<PathBuf>) -> PathBuf {
+    path1
+        .as_ref()
+        .join(path2.into().to_string_lossy().trim_start_matches("/"))
+}
+
+#[allow(unused)]
+pub fn get_shell_spawner() -> impl ShellSpawner {
+    SameUserShellSpawner::new(which::which("bash").unwrap())
+}
+
 #[derive(Default)]
 pub struct FailingShellSpawner {}
 

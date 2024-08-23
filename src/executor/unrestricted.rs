@@ -36,8 +36,8 @@ impl UnrestrictedVmmExecutor {
         }
     }
 
-    pub fn command_modifier(mut self, command_modifier: impl Into<Box<dyn CommandModifier>>) -> Self {
-        self.command_modifier_chain.push(command_modifier.into());
+    pub fn command_modifier(mut self, command_modifier: impl CommandModifier + 'static) -> Self {
+        self.command_modifier_chain.push(Box::new(command_modifier));
         self
     }
 
