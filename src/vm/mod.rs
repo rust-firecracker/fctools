@@ -359,8 +359,10 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                     .map_err(VmError::ProcessError),
                 VmShutdownMethod::PauseThenKill => self.api_pause().await,
                 VmShutdownMethod::WriteRebootToStdin(mut stdin) => {
-                    stdin.write_all(b"reboot\n").await.map_err(VmError::IoError)?;
-                    stdin.flush().await.map_err(VmError::IoError)
+                    match stdin.write_all(b"reboot\n").await.map_err(VmError::IoError) {
+                        Ok(()) => stdin.flush().await.map_err(VmError::IoError),
+                        Err(err) => Err(err),
+                    }
                 }
                 VmShutdownMethod::Kill => self.vmm_process.send_sigkill().map_err(VmError::ProcessError),
             };
