@@ -103,6 +103,45 @@ pub enum VmShutdownMethod {
     Kill,
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
+pub struct VmCleanupOptions {
+    remove_logs: bool,
+    remove_metrics: bool,
+    remove_vsock: bool,
+}
+
+impl VmCleanupOptions {
+    pub fn new() -> Self {
+        Self {
+            remove_logs: false,
+            remove_metrics: false,
+            remove_vsock: false,
+        }
+    }
+
+    pub fn remove_all(mut self) -> Self {
+        self.remove_logs = true;
+        self.remove_metrics = true;
+        self.remove_vsock = true;
+        self
+    }
+
+    pub fn remove_logs(mut self) -> Self {
+        self.remove_logs = true;
+        self
+    }
+
+    pub fn remove_metrics(mut self) -> Self {
+        self.remove_metrics = true;
+        self
+    }
+
+    pub fn remove_vsock(mut self) -> Self {
+        self.remove_vsock = true;
+        self
+    }
+}
+
 impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
     pub async fn prepare(
         executor: E,
@@ -182,7 +221,8 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             drive_sockets: HashMap::new(),
             metrics_path: None,
             log_path: None,
-            vsock_uds_path: None,
+            vsock_multiplexer_path: None,
+            vsock_listener_paths: Vec::new(),
         };
         match configuration {
             VmConfiguration::New(ref config) => {
@@ -211,7 +251,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                 if let Some(ref vsock) = config.vsock {
                     let new_uds_path = vm_process.inner_to_outer_path(&vsock.uds_path);
                     prepare_file(&new_uds_path, true).await?;
-                    accessible_paths.vsock_uds_path = Some(new_uds_path);
+                    accessible_paths.vsock_multiplexer_path = Some(new_uds_path);
                 }
             }
             VmConfiguration::FromSnapshot(ref config) => {
@@ -423,9 +463,35 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         Ok(())
     }
 
-    pub async fn cleanup(&mut self) -> Result<(), VmError> {
+    pub async fn cleanup(&mut self, cleanup_options: VmCleanupOptions) -> Result<(), VmError> {
         self.ensure_exited_or_crashed()?;
-        self.vmm_process.cleanup().await.map_err(VmError::ProcessError)
+        self.vmm_process.cleanup().await.map_err(VmError::ProcessError)?;
+
+        if let Some(ref log_path) = self.standard_paths.log_path {
+            if cleanup_options.remove_logs {
+                tokio::fs::remove_file(log_path).await.map_err(VmError::IoError)?;
+            }
+        }
+
+        if let Some(ref metrics_path) = self.standard_paths.metrics_path {
+            if cleanup_options.remove_metrics {
+                tokio::fs::remove_file(metrics_path).await.map_err(VmError::IoError)?;
+            }
+        }
+
+        if let Some(ref multiplexer_path) = self.standard_paths.vsock_multiplexer_path {
+            if cleanup_options.remove_vsock {
+                tokio::fs::remove_file(multiplexer_path)
+                    .await
+                    .map_err(VmError::IoError)?;
+
+                for listener_path in &self.standard_paths.vsock_listener_paths {
+                    tokio::fs::remove_file(listener_path).await.map_err(VmError::IoError)?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn take_pipes(&mut self) -> Result<VmmProcessPipes, VmError> {
@@ -433,11 +499,15 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         self.vmm_process.take_pipes().map_err(VmError::ProcessError)
     }
 
-    pub fn get_standard_paths(&self) -> &VmStandardPaths {
+    pub fn standard_paths(&self) -> &VmStandardPaths {
         &self.standard_paths
     }
 
-    pub fn get_path(&self, inner_path: impl AsRef<Path>) -> PathBuf {
+    pub fn standard_paths_mut(&mut self) -> &mut VmStandardPaths {
+        &mut self.standard_paths
+    }
+
+    pub fn inner_to_outer_path(&self, inner_path: impl AsRef<Path>) -> PathBuf {
         self.vmm_process.inner_to_outer_path(inner_path)
     }
 

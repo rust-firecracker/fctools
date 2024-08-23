@@ -59,15 +59,15 @@ pub trait VsockExt {
 
     fn vsock_connect_with_pool(&self, guest_port: u32) -> Result<VsockConnectionPool, VsockError>;
 
-    fn vsock_listen(&self, host_port: u32) -> Result<UnixListener, VsockError>;
+    fn vsock_listen(&mut self, host_port: u32) -> Result<UnixListener, VsockError>;
 }
 
 #[async_trait]
 impl<E: VmmExecutor + Sync, S: ShellSpawner> VsockExt for Vm<E, S> {
     async fn vsock_connect(&self, guest_port: u32) -> Result<SendRequest<Full<Bytes>>, VsockError> {
         let uds_path = self
-            .get_standard_paths()
-            .get_vsock_uds_path()
+            .standard_paths()
+            .get_vsock_multiplexer_path()
             .ok_or(VsockError::VsockNotConfigured)?;
         let stream = HyperFirecrackerStream::connect(uds_path, guest_port)
             .await
@@ -83,8 +83,8 @@ impl<E: VmmExecutor + Sync, S: ShellSpawner> VsockExt for Vm<E, S> {
     fn vsock_connect_with_pool(&self, guest_port: u32) -> Result<VsockConnectionPool, VsockError> {
         let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build(HyperFirecrackerConnector);
         let socket_path = self
-            .get_standard_paths()
-            .get_vsock_uds_path()
+            .standard_paths()
+            .get_vsock_multiplexer_path()
             .ok_or(VsockError::VsockNotConfigured)?
             .clone();
         Ok(VsockConnectionPool {
@@ -94,13 +94,14 @@ impl<E: VmmExecutor + Sync, S: ShellSpawner> VsockExt for Vm<E, S> {
         })
     }
 
-    fn vsock_listen(&self, host_port: u32) -> Result<UnixListener, VsockError> {
+    fn vsock_listen(&mut self, host_port: u32) -> Result<UnixListener, VsockError> {
         let mut socket_path = self
-            .get_standard_paths()
-            .get_vsock_uds_path()
+            .standard_paths()
+            .get_vsock_multiplexer_path()
             .ok_or(VsockError::VsockNotConfigured)?
             .clone();
         socket_path.push(format!("_{host_port}"));
+        self.standard_paths_mut().add_vsock_listener_path(socket_path.clone());
         UnixListener::bind(socket_path).map_err(VsockError::CannotBind)
     }
 }

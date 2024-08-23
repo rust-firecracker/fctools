@@ -5,10 +5,15 @@ pub struct VmStandardPaths {
     pub(crate) drive_sockets: HashMap<String, PathBuf>,
     pub(crate) metrics_path: Option<PathBuf>,
     pub(crate) log_path: Option<PathBuf>,
-    pub(crate) vsock_uds_path: Option<PathBuf>,
+    pub(crate) vsock_multiplexer_path: Option<PathBuf>,
+    pub(crate) vsock_listener_paths: Vec<PathBuf>,
 }
 
 impl VmStandardPaths {
+    pub fn add_vsock_listener_path(&mut self, socket_path: impl Into<PathBuf>) {
+        self.vsock_listener_paths.push(socket_path.into());
+    }
+
     pub fn get_drive_sockets(&self) -> &HashMap<String, PathBuf> {
         &self.drive_sockets
     }
@@ -25,8 +30,12 @@ impl VmStandardPaths {
         self.log_path.as_ref()
     }
 
-    pub fn get_vsock_uds_path(&self) -> Option<&PathBuf> {
-        self.vsock_uds_path.as_ref()
+    pub fn get_vsock_multiplexer_path(&self) -> Option<&PathBuf> {
+        self.vsock_multiplexer_path.as_ref()
+    }
+
+    pub fn get_vsock_listener_paths(&self) -> &Vec<PathBuf> {
+        &self.vsock_listener_paths
     }
 }
 
