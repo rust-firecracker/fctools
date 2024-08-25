@@ -26,8 +26,10 @@ use rand::RngCore;
 use tokio::{process::Child, task::JoinSet};
 use uuid::Uuid;
 
+// MISC UTILITIES
+
 #[allow(unused)]
-pub fn get_mock_firecracker_installation() -> FirecrackerInstallation {
+pub fn get_fake_firecracker_installation() -> FirecrackerInstallation {
     FirecrackerInstallation {
         firecracker_path: get_tmp_path(),
         jailer_path: get_tmp_path(),
@@ -74,7 +76,7 @@ pub struct FailingShellSpawner {}
 #[async_trait]
 impl ShellSpawner for FailingShellSpawner {
     fn increases_privileges(&self) -> bool {
-        true
+        false
     }
 
     async fn spawn(&self, _shell_command: String) -> Result<Child, std::io::Error> {
@@ -161,10 +163,10 @@ impl VmmExecutor for TestExecutor {
     }
 }
 
-/// VMM TESTING
+// VMM TEST FRAMEWORK
 
 #[allow(unused)]
-pub async fn vmm_test<F, Fut>(closure: F)
+pub async fn run_vmm_process_test<F, Fut>(closure: F)
 where
     F: Fn(TestVmmProcess) -> Fut,
     F: 'static,
@@ -238,7 +240,7 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
     )
 }
 
-/// VM TESTING
+// VM TEST FRAMEWORK
 
 #[allow(unused)]
 pub struct NewVmBuilder {

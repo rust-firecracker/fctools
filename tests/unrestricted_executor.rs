@@ -7,7 +7,7 @@ use fctools::executor::{
     unrestricted::UnrestrictedVmmExecutor,
     VmmExecutor, VmmExecutorError,
 };
-use test_framework::{get_mock_firecracker_installation, get_shell_spawner, get_tmp_path, FailingShellSpawner};
+use test_framework::{get_fake_firecracker_installation, get_shell_spawner, get_tmp_path, FailingShellSpawner};
 use tokio::fs::{remove_file, try_exists, File};
 
 mod test_framework;
@@ -95,7 +95,7 @@ async fn unrestricted_executor_invoke_reports_shell_spawner_error() {
         executor
             .invoke(
                 &FailingShellSpawner::default(),
-                &get_mock_firecracker_installation(),
+                &get_fake_firecracker_installation(),
                 FirecrackerConfigOverride::NoOverride,
             )
             .await,
@@ -111,7 +111,7 @@ async fn unrestricted_executor_invoke_applies_command_modifier_chain() {
     let child = executor
         .invoke(
             &get_shell_spawner(),
-            &get_mock_firecracker_installation(),
+            &get_fake_firecracker_installation(),
             FirecrackerConfigOverride::NoOverride,
         )
         .await

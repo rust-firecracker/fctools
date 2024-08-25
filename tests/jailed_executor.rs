@@ -8,7 +8,7 @@ use fctools::executor::{
     VmmExecutor, VmmExecutorError,
 };
 use rand::RngCore;
-use test_framework::{get_mock_firecracker_installation, get_shell_spawner, get_tmp_path, jail_join};
+use test_framework::{get_fake_firecracker_installation, get_shell_spawner, get_tmp_path, jail_join};
 use tokio::fs::{create_dir_all, metadata, read_to_string, remove_dir_all, try_exists, write, File};
 
 mod test_framework;
@@ -121,7 +121,7 @@ async fn jailed_executor_invoke_applies_command_modifier_chain() {
     let child = executor
         .invoke(
             &get_shell_spawner(),
-            &get_mock_firecracker_installation(),
+            &get_fake_firecracker_installation(),
             FirecrackerConfigOverride::NoOverride,
         )
         .await
