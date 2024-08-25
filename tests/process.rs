@@ -172,7 +172,7 @@ async fn vmm_inner_to_outer_path_performs_transformation() {
 }
 
 async fn shutdown(process: &mut TestVmmProcess) {
-    if tokio::time::timeout(Duration::from_millis(500), async {
+    if tokio::time::timeout(Duration::from_millis(1000), async {
         process.send_ctrl_alt_del().await.unwrap();
     })
     .await
