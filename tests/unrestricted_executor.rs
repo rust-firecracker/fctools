@@ -1,16 +1,16 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use assert_matches::assert_matches;
-use common::{get_mock_firecracker_installation, get_shell_spawner, get_tmp_path, FailingShellSpawner};
 use fctools::executor::{
     arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride},
     command_modifier::{AppendCommandModifier, RewriteCommandModifier},
     unrestricted::UnrestrictedVmmExecutor,
     VmmExecutor, VmmExecutorError,
 };
+use test_framework::{get_mock_firecracker_installation, get_shell_spawner, get_tmp_path, FailingShellSpawner};
 use tokio::fs::{remove_file, try_exists, File};
 
-mod common;
+mod test_framework;
 
 #[test]
 fn unrestricted_executor_returns_socket_path_according_to_configuration() {

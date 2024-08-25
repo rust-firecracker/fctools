@@ -1,25 +1,18 @@
-use std::{future::Future, time::Duration};
+use std::time::Duration;
 
 use bytes::Bytes;
-use common::{get_tmp_path, TestExecutor, TestShellSpawner, TestVmmProcess};
 use fctools::{
-    executor::{
-        arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments},
-        installation::FirecrackerInstallation,
-        jailed::{FlatJailRenamer, JailedVmmExecutor},
-        unrestricted::UnrestrictedVmmExecutor,
-    },
-    process::{HyperResponseExt, VmmProcess, VmmProcessState},
-    shell_spawner::{SameUserShellSpawner, SuShellSpawner},
+    executor::arguments::FirecrackerConfigOverride,
+    process::{HyperResponseExt, VmmProcessState},
 };
 use http::Uri;
 use http_body_util::Full;
 use hyper::Request;
 use hyper_client_sockets::{HyperUnixStream, UnixUriExt};
-use rand::RngCore;
+use test_framework::{vmm_test, TestVmmProcess};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-mod common;
+mod test_framework;
 
 #[tokio::test]
 async fn vmm_can_recv_ctrl_alt_del() {
@@ -190,79 +183,4 @@ async fn shutdown(process: &mut TestVmmProcess) {
 
     assert!(process.wait_for_exit().await.unwrap().success());
     process.cleanup().await.unwrap();
-}
-
-async fn vmm_test<F, Fut>(closure: F)
-where
-    F: Fn(TestVmmProcess) -> Fut,
-    F: 'static,
-    Fut: Future<Output = ()>,
-{
-    async fn init_process(process: &mut TestVmmProcess) {
-        process.wait_for_exit().await.unwrap_err();
-        process.send_ctrl_alt_del().await.unwrap_err();
-        process.send_sigkill().unwrap_err();
-        process.take_pipes().unwrap_err();
-        process.cleanup().await.unwrap_err();
-
-        assert_eq!(process.state(), VmmProcessState::AwaitingPrepare);
-        process.prepare().await.unwrap();
-        assert_eq!(process.state(), VmmProcessState::AwaitingStart);
-        process.invoke(FirecrackerConfigOverride::NoOverride).await.unwrap();
-        assert_eq!(process.state(), VmmProcessState::Started);
-    }
-
-    let (mut unrestricted_process, mut jailed_process) = get_vmm_processes();
-
-    init_process(&mut jailed_process).await;
-    init_process(&mut unrestricted_process).await;
-    tokio::time::sleep(Duration::from_millis(1500)).await;
-    closure(unrestricted_process).await;
-    println!("Succeeded with unrestricted VM");
-    closure(jailed_process).await;
-    println!("Succeeded with jailed VM");
-}
-
-fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
-    let socket_path = get_tmp_path();
-    let env_paths = common::get_environment_paths();
-
-    let unrestricted_firecracker_arguments =
-        FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path.clone())).config_path(&env_paths.config);
-    let jailer_firecracker_arguments =
-        FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path)).config_path("jail-config.json");
-
-    let jailer_arguments = JailerArguments::new(
-        unsafe { libc::geteuid() },
-        unsafe { libc::getegid() },
-        rand::thread_rng().next_u32().to_string(),
-    );
-    let unrestricted_executor = UnrestrictedVmmExecutor::new(unrestricted_firecracker_arguments);
-    let jailed_executor = JailedVmmExecutor::new(
-        jailer_firecracker_arguments,
-        jailer_arguments,
-        FlatJailRenamer::default(),
-    );
-    let su_shell_spawner = SuShellSpawner::new(std::env::var("ROOT_PWD").expect("No ROOT_PWD set"));
-    let same_user_shell_spawner = SameUserShellSpawner::new(which::which("bash").unwrap());
-    let installation = FirecrackerInstallation {
-        firecracker_path: env_paths.firecracker,
-        jailer_path: env_paths.jailer,
-        snapshot_editor_path: env_paths.snapshot_editor,
-    };
-
-    (
-        VmmProcess::new(
-            TestExecutor::Unrestricted(unrestricted_executor),
-            TestShellSpawner::SameUser(same_user_shell_spawner),
-            installation.clone(),
-            vec![env_paths.kernel.clone(), env_paths.rootfs.clone(), env_paths.config],
-        ),
-        VmmProcess::new(
-            TestExecutor::Jailed(jailed_executor),
-            TestShellSpawner::Su(su_shell_spawner),
-            installation,
-            vec![env_paths.kernel, env_paths.rootfs, env_paths.jail_config],
-        ),
-    )
 }

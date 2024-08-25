@@ -115,16 +115,21 @@ mod tests {
         );
     }
 
-    fn testdata(name: &str) -> PathBuf {
-        format!("/opt/testdata/{name}").into()
+    fn test_path(path: &str) -> PathBuf {
+        let testdata_path: PathBuf = match std::env::var("FCTOOLS_TESTDATA_PATH") {
+            Ok(path) => path,
+            Err(_) => "/opt/testdata".to_string(),
+        }
+        .into();
+        testdata_path.join(path)
     }
 
     #[tokio::test]
     async fn installation_does_not_verify_for_incorrect_binary_type() {
         let installation = FirecrackerInstallation {
-            firecracker_path: testdata("jailer"),
-            jailer_path: testdata("snapshot-editor"),
-            snapshot_editor_path: testdata("firecracker"),
+            firecracker_path: test_path("jailer"),
+            jailer_path: test_path("snapshot-editor"),
+            snapshot_editor_path: test_path("firecracker"),
         };
         assert_matches::assert_matches!(
             installation.verify("v1.8.0").await,
@@ -135,9 +140,9 @@ mod tests {
     #[tokio::test]
     async fn installation_does_not_verify_for_incorrect_binary_version() {
         let installation = FirecrackerInstallation {
-            firecracker_path: testdata("firecracker-wrong-version"),
-            jailer_path: testdata("jailer"),
-            snapshot_editor_path: testdata("snapshot-editor"),
+            firecracker_path: test_path("firecracker-wrong-version"),
+            jailer_path: test_path("jailer"),
+            snapshot_editor_path: test_path("snapshot-editor"),
         };
         assert_matches::assert_matches!(
             installation.verify("v1.8.0").await,

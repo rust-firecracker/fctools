@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use assert_matches::assert_matches;
-use common::{get_mock_firecracker_installation, get_shell_spawner, get_tmp_path, jail_join};
 use fctools::executor::{
     arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments},
     command_modifier::{AppendCommandModifier, RewriteCommandModifier},
@@ -9,9 +8,10 @@ use fctools::executor::{
     VmmExecutor, VmmExecutorError,
 };
 use rand::RngCore;
+use test_framework::{get_mock_firecracker_installation, get_shell_spawner, get_tmp_path, jail_join};
 use tokio::fs::{create_dir_all, metadata, read_to_string, remove_dir_all, try_exists, write, File};
 
-mod common;
+mod test_framework;
 
 #[test]
 fn jailed_executor_get_socket_path_returns_valid_path() {
