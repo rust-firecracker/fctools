@@ -14,16 +14,15 @@ use fctools::{
         unrestricted::UnrestrictedVmmExecutor,
         VmmExecutor, VmmExecutorError,
     },
-    process::{VmmProcess, VmmProcessState},
+    process::VmmProcessState,
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
         models::{VmBootSource, VmDrive, VmMachineConfiguration},
-        Vm,
     },
 };
 use rand::RngCore;
-use tokio::{process::Child, task::JoinSet};
+use tokio::process::Child;
 use uuid::Uuid;
 
 // MISC UTILITIES
@@ -163,7 +162,7 @@ impl VmmExecutor for TestExecutor {
 // VMM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVmmProcess = VmmProcess<TestExecutor, TestShellSpawner>;
+pub type TestVmmProcess = fctools::process::VmmProcess<TestExecutor, TestShellSpawner>;
 
 #[allow(unused)]
 pub async fn run_vmm_process_test<F, Fut>(closure: F)
@@ -221,13 +220,13 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
     let same_user_shell_spawner = SameUserShellSpawner::new(which::which("bash").unwrap());
 
     (
-        VmmProcess::new(
+        TestVmmProcess::new(
             TestExecutor::Unrestricted(unrestricted_executor),
             TestShellSpawner::SameUser(same_user_shell_spawner),
             get_real_firecracker_installation(),
             vec![],
         ),
-        VmmProcess::new(
+        TestVmmProcess::new(
             TestExecutor::Jailed(jailed_executor),
             TestShellSpawner::Su(su_shell_spawner),
             get_real_firecracker_installation(),
@@ -243,12 +242,10 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
 // VM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVm = Vm<TestExecutor, TestShellSpawner>;
+pub type TestVm = fctools::vm::Vm<TestExecutor, TestShellSpawner>;
 
 #[allow(unused)]
 pub struct NewVmBuilder {
-    vcpu_count: u8,
-    mem_size_mib: usize,
     applier: NewVmConfigurationApplier,
 }
 
@@ -256,20 +253,8 @@ pub struct NewVmBuilder {
 impl NewVmBuilder {
     pub fn new() -> Self {
         Self {
-            vcpu_count: 1,
-            mem_size_mib: 128,
             applier: NewVmConfigurationApplier::ViaApiCalls,
         }
-    }
-
-    pub fn vcpu_count(mut self, vcpu_count: u8) -> Self {
-        self.vcpu_count = vcpu_count;
-        self
-    }
-
-    pub fn mem_size_mib(mut self, mem_size_mib: usize) -> Self {
-        self.mem_size_mib = mem_size_mib;
-        self
     }
 
     pub fn applier(mut self, applier: NewVmConfigurationApplier) -> Self {
@@ -288,7 +273,7 @@ impl NewVmBuilder {
         let unrestricted_configuration = VmConfiguration::New(
             NewVmConfiguration::new(
                 VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args("console=ttyS0 reboot=k panic=1 pci=off"),
-                VmMachineConfiguration::new(self.vcpu_count, self.mem_size_mib),
+                VmMachineConfiguration::new(1, 128),
             )
             .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")))
             .applier(self.applier.clone()),
@@ -302,7 +287,7 @@ impl NewVmBuilder {
         let jailed_configuration = VmConfiguration::New(
             NewVmConfiguration::new(
                 VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args("console=ttyS0 reboot=k panic=1 pci=off"),
-                VmMachineConfiguration::new(self.vcpu_count, self.mem_size_mib),
+                VmMachineConfiguration::new(1, 128),
             )
             .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")))
             .applier(self.applier),
@@ -325,45 +310,37 @@ impl NewVmBuilder {
             .build()
             .unwrap()
             .block_on(async {
-                let mut join_set = JoinSet::new();
-                join_set.spawn(test_worker(
-                    unrestricted_configuration,
-                    unrestricted_executor,
-                    unrestricted_shell_spawner,
-                    function.clone(),
-                ));
-                join_set.spawn(test_worker(
-                    jailed_configuration,
-                    jailed_executor,
-                    jailed_shell_spawner,
-                    function,
-                ));
-
-                while let Some(result) = join_set.join_next().await {
-                    result.unwrap();
-                }
+                tokio::join!(
+                    Self::test_worker(
+                        unrestricted_configuration,
+                        unrestricted_executor,
+                        unrestricted_shell_spawner,
+                        function.clone(),
+                    ),
+                    Self::test_worker(jailed_configuration, jailed_executor, jailed_shell_spawner, function,)
+                );
             });
     }
-}
 
-async fn test_worker<F, Fut>(
-    configuration: VmConfiguration,
-    executor: TestExecutor,
-    shell_spawner: TestShellSpawner,
-    function: F,
-) where
-    F: Fn(TestVm) -> Fut + Send,
-    Fut: Future<Output = ()> + Send + 'static,
-{
-    let mut vm = Vm::prepare(
-        executor,
-        shell_spawner,
-        get_real_firecracker_installation(),
-        configuration,
-    )
-    .await
-    .unwrap();
-    vm.start(Duration::from_secs(1)).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(750)).await;
-    function(vm).await;
+    async fn test_worker<F, Fut>(
+        configuration: VmConfiguration,
+        executor: TestExecutor,
+        shell_spawner: TestShellSpawner,
+        function: F,
+    ) where
+        F: Fn(TestVm) -> Fut + Send,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let mut vm = TestVm::prepare(
+            executor,
+            shell_spawner,
+            get_real_firecracker_installation(),
+            configuration,
+        )
+        .await
+        .unwrap();
+        vm.start(Duration::from_secs(1)).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(750)).await;
+        function(vm).await;
+    }
 }
