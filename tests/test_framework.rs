@@ -85,9 +85,6 @@ impl ShellSpawner for FailingShellSpawner {
 }
 
 #[allow(unused)]
-pub type TestVmmProcess = VmmProcess<TestExecutor, TestShellSpawner>;
-
-#[allow(unused)]
 pub enum TestExecutor {
     Unrestricted(UnrestrictedVmmExecutor),
     Jailed(JailedVmmExecutor<FlatJailRenamer>),
@@ -164,6 +161,9 @@ impl VmmExecutor for TestExecutor {
 }
 
 // VMM TEST FRAMEWORK
+
+#[allow(unused)]
+pub type TestVmmProcess = VmmProcess<TestExecutor, TestShellSpawner>;
 
 #[allow(unused)]
 pub async fn run_vmm_process_test<F, Fut>(closure: F)
@@ -243,6 +243,9 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
 // VM TEST FRAMEWORK
 
 #[allow(unused)]
+pub type TestVm = Vm<TestExecutor, TestShellSpawner>;
+
+#[allow(unused)]
 pub struct NewVmBuilder {
     vcpu_count: u8,
     mem_size_mib: usize,
@@ -276,7 +279,7 @@ impl NewVmBuilder {
 
     pub fn run<F, Fut>(self, function: F)
     where
-        F: Fn(Vm<TestExecutor, TestShellSpawner>) -> Fut + Send,
+        F: Fn(TestVm) -> Fut + Send,
         F: Clone + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
@@ -349,7 +352,7 @@ async fn test_worker<F, Fut>(
     shell_spawner: TestShellSpawner,
     function: F,
 ) where
-    F: Fn(Vm<TestExecutor, TestShellSpawner>) -> Fut + Send,
+    F: Fn(TestVm) -> Fut + Send,
     Fut: Future<Output = ()> + Send + 'static,
 {
     let mut vm = Vm::prepare(
