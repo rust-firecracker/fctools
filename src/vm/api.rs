@@ -236,7 +236,7 @@ pub(super) async fn init_new<E: VmmExecutor, S: ShellSpawner>(
 
     send_api_request(vm, "/machine-config", "PUT", Some(&configuration.machine_configuration)).await?;
 
-    if let Some(cpu_template) = &configuration.cpu_template {
+    if let Some(ref cpu_template) = configuration.cpu_template {
         send_api_request(vm, "/cpu-config", "PUT", Some(cpu_template)).await?;
     }
 
@@ -250,27 +250,27 @@ pub(super) async fn init_new<E: VmmExecutor, S: ShellSpawner>(
         .await?;
     }
 
-    if let Some(balloon) = &configuration.balloon {
+    if let Some(ref balloon) = configuration.balloon {
         send_api_request(vm, "/balloon", "PUT", Some(balloon)).await?;
     }
 
-    if let Some(vsock) = &configuration.vsock {
+    if let Some(ref vsock) = configuration.vsock {
         send_api_request(vm, "/vsock", "PUT", Some(vsock)).await?;
     }
 
-    if let Some(logger) = &configuration.logger {
+    if let Some(ref logger) = configuration.logger {
         send_api_request(vm, "/logger", "PUT", Some(logger)).await?;
     }
 
-    if let Some(metrics) = &configuration.metrics {
+    if let Some(ref metrics) = configuration.metrics {
         send_api_request(vm, "/metrics", "PUT", Some(metrics)).await?;
     }
 
-    if let Some(mmds_configuration) = &configuration.mmds_configuration {
+    if let Some(ref mmds_configuration) = configuration.mmds_configuration {
         send_api_request(vm, "/mmds/config", "PUT", Some(mmds_configuration)).await?;
     }
 
-    if let Some(entropy) = &configuration.entropy {
+    if let Some(ref entropy) = configuration.entropy {
         send_api_request(vm, "/entropy", "PUT", Some(entropy)).await?;
     }
 
@@ -289,11 +289,11 @@ pub(super) async fn init_from_snapshot<E: VmmExecutor, S: ShellSpawner>(
     vm: &mut Vm<E, S>,
     configuration: &FromSnapshotVmConfiguration,
 ) -> Result<(), VmError> {
-    if let Some(logger) = &configuration.logger {
+    if let Some(ref logger) = configuration.logger {
         send_api_request(vm, "/logger", "PUT", Some(logger)).await?;
     }
 
-    if let Some(metrics) = &configuration.metrics {
+    if let Some(ref metrics) = configuration.metrics {
         send_api_request(vm, "/metrics", "PUT", Some(metrics)).await?;
     }
 

@@ -55,10 +55,12 @@ impl std::fmt::Display for VmState {
 pub enum VmError {
     #[error("The underlying VMM process returned an error: `{0}`")]
     ProcessError(VmmProcessError),
-    #[error("Expected the VM to be in a certain state, but it was actually in the `{actual}` state")]
-    ExpectedState { expected: Vec<VmState>, actual: VmState },
+    #[error("Expected the VM to be in the `{expected}` state, but it was actually in the `{actual}` state")]
+    ExpectedState { expected: VmState, actual: VmState },
     #[error("Expected the VM to have exited or crashed, but it was actually in the `{actual}` state")]
     ExpectedExitedOrCrashed { actual: VmState },
+    #[error("Expected the VM to be either paused or running, but it was actually in the `{actual}` state")]
+    ExpectedPausedOrRunning { actual: VmState },
     #[error("Serde serialization or deserialization failed: `{0}`")]
     SerdeError(serde_json::Error),
     #[error("An async I/O operation failed: `{0}`")]
@@ -435,33 +437,35 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
     }
 
     pub(super) fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmError> {
-        self.ensure_states(vec![expected_state])
+        let current_state = self.state();
+        if current_state != expected_state {
+            Err(VmError::ExpectedState {
+                expected: expected_state,
+                actual: current_state,
+            })
+        } else {
+            Ok(())
+        }
     }
 
     pub(super) fn ensure_paused_or_running(&mut self) -> Result<(), VmError> {
-        self.ensure_states(vec![VmState::Running, VmState::Paused])
-    }
-
-    fn ensure_states(&mut self, expected_states: Vec<VmState>) -> Result<(), VmError> {
-        let state = self.state();
-        if !expected_states.contains(&state) {
-            return Err(VmError::ExpectedState {
-                expected: expected_states,
-                actual: state,
-            });
+        let current_state = self.state();
+        if current_state != VmState::Running && current_state != VmState::Paused {
+            Err(VmError::ExpectedPausedOrRunning { actual: current_state })
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     fn ensure_exited_or_crashed(&mut self) -> Result<(), VmError> {
-        let state = self.state();
-        if let VmState::Crashed(_) = state {
+        let current_state = self.state();
+        if let VmState::Crashed(_) = current_state {
             return Ok(());
         }
-        if state == VmState::Exited {
+        if current_state == VmState::Exited {
             return Ok(());
         }
-        Err(VmError::ExpectedExitedOrCrashed { actual: state })
+        Err(VmError::ExpectedExitedOrCrashed { actual: current_state })
     }
 }
 
