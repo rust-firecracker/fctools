@@ -1,16 +1,31 @@
+use std::sync::Arc;
+
 use assert_matches::assert_matches;
 use bytes::Bytes;
 use fctools::{
+    executor::{
+        arguments::{FirecrackerApiSocket, FirecrackerArguments, JailerArguments},
+        jailed::{FlatJailRenamer, JailedVmmExecutor},
+        unrestricted::UnrestrictedVmmExecutor,
+    },
     process::HyperResponseExt,
     vm::{
         api::VmApi,
-        models::{VmBalloon, VmInfo, VmMetricsSystem, VmReturnedState, VmUpdateBalloon, VmUpdateBalloonStatistics},
+        models::{
+            VmBalloon, VmCreateSnapshot, VmInfo, VmMetricsSystem, VmReturnedState, VmUpdateBalloon,
+            VmUpdateBalloonStatistics,
+        },
+        paths::VmSnapshotResult,
         VmError, VmShutdownMethod, VmState,
     },
 };
 use http::{Request, StatusCode};
 use http_body_util::Full;
-use test_framework::{get_tmp_path, shutdown_test_vm, NewVmBuilder};
+use rand::RngCore;
+use test_framework::{
+    env_get_boot_socket_wait, env_get_boot_wait, get_real_firecracker_installation, get_tmp_path, shutdown_test_vm,
+    NewVmBuilder, SnapshottingContext, TestExecutor, TestVm,
+};
 
 mod test_framework;
 
@@ -174,21 +189,49 @@ fn vm_api_can_pause_and_resume() {
     });
 }
 
-// #[test]
-// fn vm_api_can_create_restoreable_snapshot() {
-//     NewVmBuilder::new().run(|mut model_vm| async move {
-//         model_vm.api_pause().await.unwrap();
-//         let snapshot_paths = model_vm
-//             .api_create_snapshot(VmCreateSnapshot::new(get_tmp_path(), get_tmp_path()))
-//             .await
-//             .unwrap();
+#[test]
+fn vm_api_can_create_restoreable_snapshot() {
+    NewVmBuilder::new().run_with_snapshotting_context(|mut model_vm, snapshotting_context| async move {
+        model_vm.api_pause().await.unwrap();
+        let snapshot_paths = model_vm
+            .api_create_snapshot(VmCreateSnapshot::new(get_tmp_path(), get_tmp_path()))
+            .await
+            .unwrap();
 
-//         with_snapshot_restored_vm(snapshot_paths, |mut restored_vm| async move {
-//             restored_vm.api_get_info().await.unwrap();
-//             shutdown_test_vm(&mut restored_vm, VmShutdownMethod::CtrlAltDel).await;
-//         })
-//         .await;
+        restore_vm_from_snapshot(snapshot_paths, snapshotting_context).await;
 
-//         shutdown_test_vm(&mut model_vm, VmShutdownMethod::CtrlAltDel).await;
-//     });
-// }
+        model_vm.api_resume().await.unwrap();
+        shutdown_test_vm(&mut model_vm, VmShutdownMethod::CtrlAltDel).await;
+    });
+}
+
+async fn restore_vm_from_snapshot(snapshot_result: VmSnapshotResult, snapshotting_context: SnapshottingContext) {
+    let executor = match snapshotting_context.is_jailed {
+        true => TestExecutor::Jailed(JailedVmmExecutor::new(
+            FirecrackerArguments::new(FirecrackerApiSocket::Enabled(get_tmp_path())),
+            JailerArguments::new(
+                unsafe { libc::geteuid() },
+                unsafe { libc::getegid() },
+                rand::thread_rng().next_u32().to_string(),
+            ),
+            FlatJailRenamer::default(),
+        )),
+        false => TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(FirecrackerArguments::new(
+            FirecrackerApiSocket::Enabled(get_tmp_path()),
+        ))),
+    };
+
+    let mut vm = TestVm::prepare_arced(
+        Arc::new(executor),
+        snapshotting_context.shell_spawner,
+        Arc::new(get_real_firecracker_installation()),
+        snapshot_result.into_configuration(true),
+    )
+    .await
+    .unwrap();
+    vm.start(env_get_boot_socket_wait()).await.unwrap();
+    tokio::time::sleep(env_get_boot_wait()).await;
+
+    vm.api_get_info().await.unwrap();
+    shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
+}

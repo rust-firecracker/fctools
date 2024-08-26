@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     future::Future,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -19,7 +20,6 @@ use fctools::{
     vm::{
         configuration::{NewVmBootMethod, VmConfiguration, VmConfigurationData},
         models::{VmBalloon, VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem, VmVsock},
-        paths::VmSnapshotResult,
         VmShutdownMethod,
     },
 };
@@ -179,14 +179,16 @@ pub fn env_get_shutdown_timeout() -> Duration {
     })
 }
 
-fn env_get_boot_wait() -> Duration {
+#[allow(unused)]
+pub fn env_get_boot_wait() -> Duration {
     Duration::from_millis(match std::env::var("FCTOOLS_VM_BOOT_WAIT") {
         Ok(value) => value.parse::<u64>().expect("Boot wait from env var is not a u64"),
         Err(_) => 2500,
     })
 }
 
-fn env_get_boot_socket_wait() -> Duration {
+#[allow(unused)]
+pub fn env_get_boot_socket_wait() -> Duration {
     Duration::from_millis(match std::env::var("FCTOOLS_VM_BOOT_SOCKET_WAIT") {
         Ok(value) => value
             .parse::<u64>()
@@ -293,6 +295,21 @@ pub struct NewVmBuilder {
 }
 
 #[allow(unused)]
+pub struct SnapshottingContext {
+    pub is_jailed: bool,
+    pub shell_spawner: Arc<TestShellSpawner>,
+}
+
+impl SnapshottingContext {
+    fn new(is_jailed: bool, shell_spawner: TestShellSpawner) -> Self {
+        Self {
+            is_jailed,
+            shell_spawner: Arc::new(shell_spawner),
+        }
+    }
+}
+
+#[allow(unused)]
 impl NewVmBuilder {
     pub fn new() -> Self {
         Self {
@@ -338,6 +355,15 @@ impl NewVmBuilder {
     pub fn run<F, Fut>(self, function: F)
     where
         F: Fn(TestVm) -> Fut + Send,
+        F: Clone + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        self.run_with_snapshotting_context(move |vm, _| function(vm));
+    }
+
+    pub fn run_with_snapshotting_context<F, Fut>(self, function: F)
+    where
+        F: Fn(TestVm, SnapshottingContext) -> Fut + Send,
         F: Clone + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
@@ -407,8 +433,8 @@ impl NewVmBuilder {
                             boot_method: self.boot_method.clone(),
                             data: unrestricted_data
                         },
+                        SnapshottingContext::new(false, unrestricted_shell_spawner),
                         unrestricted_executor,
-                        unrestricted_shell_spawner,
                         pre_start_hook1,
                         function.clone(),
                     ),
@@ -417,8 +443,8 @@ impl NewVmBuilder {
                             boot_method: self.boot_method,
                             data: jailed_data
                         },
+                        SnapshottingContext::new(true, jailed_shell_spawner),
                         jailed_executor,
-                        jailed_shell_spawner,
                         pre_start_hook2,
                         function
                     ),
@@ -428,18 +454,18 @@ impl NewVmBuilder {
 
     async fn test_worker<F, Fut>(
         configuration: VmConfiguration,
+        run_context: SnapshottingContext,
         executor: TestExecutor,
-        shell_spawner: TestShellSpawner,
         pre_start_hook: Option<PreStartHook>,
         function: F,
     ) where
-        F: Fn(TestVm) -> Fut + Send,
+        F: Fn(TestVm, SnapshottingContext) -> Fut + Send,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        let mut vm = TestVm::prepare(
-            executor,
-            shell_spawner,
-            get_real_firecracker_installation(),
+        let mut vm: fctools::vm::Vm<TestExecutor, TestShellSpawner> = TestVm::prepare_arced(
+            Arc::new(executor),
+            run_context.shell_spawner.clone(),
+            get_real_firecracker_installation().into(),
             configuration,
         )
         .await
@@ -449,7 +475,7 @@ impl NewVmBuilder {
         }
         vm.start(env_get_boot_socket_wait()).await.unwrap();
         tokio::time::sleep(env_get_boot_wait()).await;
-        function(vm).await;
+        function(vm, run_context).await;
     }
 }
 
@@ -459,28 +485,4 @@ pub async fn shutdown_test_vm(vm: &mut TestVm, shutdown_method: VmShutdownMethod
         .await
         .unwrap();
     vm.cleanup().await.unwrap();
-}
-
-#[allow(unused)]
-pub async fn with_snapshot_restored_vm<F, Fut>(snapshot_result: VmSnapshotResult, function: F)
-where
-    F: FnOnce(TestVm) -> Fut + Send,
-    Fut: Future<Output = ()> + Send,
-{
-    let shell_spawner = TestShellSpawner::SameUser(SameUserShellSpawner::new(which::which("bash").unwrap()));
-    let executor = TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(FirecrackerArguments::new(
-        FirecrackerApiSocket::Enabled(get_tmp_path()),
-    )));
-
-    let mut vm = TestVm::prepare(
-        executor,
-        shell_spawner,
-        get_real_firecracker_installation(),
-        snapshot_result.into_configuration(true),
-    )
-    .await
-    .unwrap();
-    vm.start(env_get_boot_socket_wait()).await.unwrap();
-    tokio::time::sleep(env_get_boot_wait()).await;
-    function(vm).await;
 }

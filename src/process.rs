@@ -32,7 +32,7 @@ use crate::{
 /// tied to the given VMM executor E and shell spawner S.
 #[derive(Debug)]
 pub struct VmmProcess<E: VmmExecutor, S: ShellSpawner> {
-    executor: E,
+    executor: Arc<E>,
     shell_spawner: Arc<S>,
     installation: Arc<FirecrackerInstallation>,
     child: Option<Child>,
@@ -124,20 +124,25 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
         installation: FirecrackerInstallation,
         outer_paths: Vec<PathBuf>,
     ) -> Self {
-        Self::new_arced(executor, Arc::new(shell_spawner), Arc::new(installation), outer_paths)
+        Self::new_arced(
+            Arc::new(executor),
+            Arc::new(shell_spawner),
+            Arc::new(installation),
+            outer_paths,
+        )
     }
 
     /// Create a new process instance without moving in its components, instead using Arc-s. This is recommended over moving in clones in
     /// all scenarios.
     pub fn new_arced(
-        executor: E,
+        executor_arc: Arc<E>,
         shell_spawner_arc: Arc<S>,
         installation_arc: Arc<FirecrackerInstallation>,
         outer_paths: Vec<PathBuf>,
     ) -> Self {
-        let socket_path = executor.get_socket_path();
+        let socket_path = executor_arc.get_socket_path();
         Self {
-            executor,
+            executor: executor_arc,
             shell_spawner: shell_spawner_arc,
             installation: installation_arc,
             child: None,

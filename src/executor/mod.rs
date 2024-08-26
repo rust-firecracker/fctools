@@ -47,7 +47,7 @@ pub enum VmmExecutorError {
 /// A VMM executor is layer 2 of FCTools: manages a VMM process by setting up the environment, correctly invoking
 /// the process and cleaning up the environment. This allows modularity between different modes of VMM execution.
 #[async_trait]
-pub trait VmmExecutor: Send {
+pub trait VmmExecutor: Send + Sync {
     /// Get the host location of the VMM socket, if one exists.
     fn get_socket_path(&self) -> Option<PathBuf>;
 

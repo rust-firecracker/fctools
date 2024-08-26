@@ -107,11 +107,17 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         installation: FirecrackerInstallation,
         configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
-        Self::prepare_arced(executor, Arc::new(shell_spawner), Arc::new(installation), configuration).await
+        Self::prepare_arced(
+            Arc::new(executor),
+            Arc::new(shell_spawner),
+            Arc::new(installation),
+            configuration,
+        )
+        .await
     }
 
     pub async fn prepare_arced(
-        executor: E,
+        executor: Arc<E>,
         shell_spawner_arc: Arc<S>,
         installation_arc: Arc<FirecrackerInstallation>,
         mut configuration: VmConfiguration,
@@ -155,6 +161,8 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         let mut path_mappings = vm_process.prepare().await.map_err(VmError::ProcessError)?;
 
         // transform data according to returned mappings
+        let snapshot_configuration_data = configuration.data().clone();
+
         configuration.data_mut().boot_source.kernel_image_path = path_mappings
             .remove(&configuration.data().boot_source.kernel_image_path)
             .ok_or(VmError::MissingPathMapping)?;
@@ -236,7 +244,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         Ok(Self {
             vmm_process: vm_process,
             is_paused: false,
-            owned_configuration_data: configuration.data().clone(),
+            owned_configuration_data: snapshot_configuration_data,
             transformed_configuration: Some(configuration),
             standard_paths: accessible_paths,
             executor_traceless: traceless,

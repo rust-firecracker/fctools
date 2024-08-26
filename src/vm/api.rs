@@ -340,7 +340,6 @@ async fn send_api_request_internal<E: VmmExecutor, S: ShellSpawner>(
     let request = match request_body {
         Some(body) => {
             let request_json = serde_json::to_string(&body).map_err(VmError::SerdeError)?;
-            println!("To \"{route}\" with: {request_json}");
             request_builder
                 .header("Content-Type", "application/json")
                 .body(Full::new(Bytes::from(request_json)))
