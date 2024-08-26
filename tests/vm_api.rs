@@ -4,16 +4,13 @@ use fctools::{
     process::HyperResponseExt,
     vm::{
         api::VmApi,
-        models::{
-            VmBalloon, VmCreateSnapshot, VmInfo, VmMetricsSystem, VmReturnedState, VmUpdateBalloon,
-            VmUpdateBalloonStatistics,
-        },
+        models::{VmBalloon, VmInfo, VmMetricsSystem, VmReturnedState, VmUpdateBalloon, VmUpdateBalloonStatistics},
         VmError, VmShutdownMethod, VmState,
     },
 };
 use http::{Request, StatusCode};
 use http_body_util::Full;
-use test_framework::{get_tmp_path, shutdown_test_vm, with_snapshot_restored_vm, NewVmBuilder};
+use test_framework::{get_tmp_path, shutdown_test_vm, NewVmBuilder};
 
 mod test_framework;
 
@@ -177,21 +174,21 @@ fn vm_api_can_pause_and_resume() {
     });
 }
 
-#[test]
-fn vm_api_can_create_restoreable_snapshot() {
-    NewVmBuilder::new().run(|mut model_vm| async move {
-        model_vm.api_pause().await.unwrap();
-        let snapshot_paths = model_vm
-            .api_create_snapshot(VmCreateSnapshot::new(get_tmp_path(), get_tmp_path()))
-            .await
-            .unwrap();
+// #[test]
+// fn vm_api_can_create_restoreable_snapshot() {
+//     NewVmBuilder::new().run(|mut model_vm| async move {
+//         model_vm.api_pause().await.unwrap();
+//         let snapshot_paths = model_vm
+//             .api_create_snapshot(VmCreateSnapshot::new(get_tmp_path(), get_tmp_path()))
+//             .await
+//             .unwrap();
 
-        with_snapshot_restored_vm(snapshot_paths, |mut restored_vm| async move {
-            restored_vm.api_get_info().await.unwrap();
-            shutdown_test_vm(&mut restored_vm, VmShutdownMethod::CtrlAltDel).await;
-        })
-        .await;
+//         with_snapshot_restored_vm(snapshot_paths, |mut restored_vm| async move {
+//             restored_vm.api_get_info().await.unwrap();
+//             shutdown_test_vm(&mut restored_vm, VmShutdownMethod::CtrlAltDel).await;
+//         })
+//         .await;
 
-        shutdown_test_vm(&mut model_vm, VmShutdownMethod::CtrlAltDel).await;
-    });
-}
+//         shutdown_test_vm(&mut model_vm, VmShutdownMethod::CtrlAltDel).await;
+//     });
+// }

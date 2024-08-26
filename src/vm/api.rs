@@ -8,13 +8,13 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::{executor::VmmExecutor, process::HyperResponseExt, shell_spawner::ShellSpawner};
 
 use super::{
-    configuration::{FromSnapshotVmConfiguration, NewVmConfiguration},
+    configuration::VmConfigurationData,
     models::{
         VmAction, VmActionType, VmApiError, VmBalloon, VmBalloonStatistics, VmCreateSnapshot, VmEffectiveConfiguration,
-        VmFirecrackerVersion, VmInfo, VmMachineConfiguration, VmUpdateBalloon, VmUpdateBalloonStatistics,
-        VmUpdateDrive, VmUpdateNetworkInterface, VmUpdateState, VmUpdatedState,
+        VmFirecrackerVersion, VmInfo, VmLoadSnapshot, VmMachineConfiguration, VmUpdateBalloon,
+        VmUpdateBalloonStatistics, VmUpdateDrive, VmUpdateNetworkInterface, VmUpdateState, VmUpdatedState,
     },
-    paths::VmSnapshotPaths,
+    paths::VmSnapshotResult,
     Vm, VmError, VmState,
 };
 
@@ -51,7 +51,7 @@ pub trait VmApi {
 
     async fn api_get_machine_configuration(&mut self) -> Result<VmMachineConfiguration, VmError>;
 
-    async fn api_create_snapshot(&mut self, create_snapshot: VmCreateSnapshot) -> Result<VmSnapshotPaths, VmError>;
+    async fn api_create_snapshot(&mut self, create_snapshot: VmCreateSnapshot) -> Result<VmSnapshotResult, VmError>;
 
     async fn api_get_firecracker_version(&mut self) -> Result<String, VmError>;
 
@@ -159,12 +159,13 @@ impl<E: VmmExecutor, S: ShellSpawner> VmApi for Vm<E, S> {
         send_api_request_with_response(self, "/machine-config", "GET", None::<i32>).await
     }
 
-    async fn api_create_snapshot(&mut self, create_snapshot: VmCreateSnapshot) -> Result<VmSnapshotPaths, VmError> {
+    async fn api_create_snapshot(&mut self, create_snapshot: VmCreateSnapshot) -> Result<VmSnapshotResult, VmError> {
         self.ensure_state(VmState::Paused)?;
         send_api_request(self, "/snapshot/create", "PUT", Some(&create_snapshot)).await?;
-        Ok(VmSnapshotPaths {
+        Ok(VmSnapshotResult {
             snapshot_path: self.vmm_process.inner_to_outer_path(create_snapshot.snapshot_path),
             mem_file_path: self.vmm_process.inner_to_outer_path(create_snapshot.mem_file_path),
+            configuration_data: self.owned_configuration_data.clone(),
         })
     }
 
@@ -230,21 +231,21 @@ impl<E: VmmExecutor, S: ShellSpawner> VmApi for Vm<E, S> {
 
 pub(super) async fn init_new<E: VmmExecutor, S: ShellSpawner>(
     vm: &mut Vm<E, S>,
-    configuration: &NewVmConfiguration,
+    data: VmConfigurationData,
 ) -> Result<(), VmError> {
-    send_api_request(vm, "/boot-source", "PUT", Some(&configuration.boot_source)).await?;
+    send_api_request(vm, "/boot-source", "PUT", Some(&data.boot_source)).await?;
 
-    for drive in &configuration.drives {
+    for drive in &data.drives {
         send_api_request(vm, format!("/drives/{}", drive.drive_id).as_str(), "PUT", Some(drive)).await?;
     }
 
-    send_api_request(vm, "/machine-config", "PUT", Some(&configuration.machine_configuration)).await?;
+    send_api_request(vm, "/machine-config", "PUT", Some(&data.machine_configuration)).await?;
 
-    if let Some(ref cpu_template) = configuration.cpu_template {
+    if let Some(ref cpu_template) = data.cpu_template {
         send_api_request(vm, "/cpu-config", "PUT", Some(cpu_template)).await?;
     }
 
-    for network_interface in &configuration.network_interfaces {
+    for network_interface in &data.network_interfaces {
         send_api_request(
             vm,
             format!("/network-interfaces/{}", network_interface.iface_id).as_str(),
@@ -254,27 +255,27 @@ pub(super) async fn init_new<E: VmmExecutor, S: ShellSpawner>(
         .await?;
     }
 
-    if let Some(ref balloon) = configuration.balloon {
+    if let Some(ref balloon) = data.balloon {
         send_api_request(vm, "/balloon", "PUT", Some(balloon)).await?;
     }
 
-    if let Some(ref vsock) = configuration.vsock {
+    if let Some(ref vsock) = data.vsock {
         send_api_request(vm, "/vsock", "PUT", Some(vsock)).await?;
     }
 
-    if let Some(ref logger) = configuration.logger {
+    if let Some(ref logger) = data.logger {
         send_api_request(vm, "/logger", "PUT", Some(logger)).await?;
     }
 
-    if let Some(ref metrics) = configuration.metrics_system {
+    if let Some(ref metrics) = data.metrics_system {
         send_api_request(vm, "/metrics", "PUT", Some(metrics)).await?;
     }
 
-    if let Some(ref mmds_configuration) = configuration.mmds_configuration {
+    if let Some(ref mmds_configuration) = data.mmds_configuration {
         send_api_request(vm, "/mmds/config", "PUT", Some(mmds_configuration)).await?;
     }
 
-    if let Some(ref entropy) = configuration.entropy {
+    if let Some(ref entropy) = data.entropy {
         send_api_request(vm, "/entropy", "PUT", Some(entropy)).await?;
     }
 
@@ -289,19 +290,20 @@ pub(super) async fn init_new<E: VmmExecutor, S: ShellSpawner>(
     .await
 }
 
-pub(super) async fn init_from_snapshot<E: VmmExecutor, S: ShellSpawner>(
+pub(super) async fn init_restored_from_snapshot<E: VmmExecutor, S: ShellSpawner>(
     vm: &mut Vm<E, S>,
-    configuration: &FromSnapshotVmConfiguration,
+    data: VmConfigurationData,
+    load_snapshot: VmLoadSnapshot,
 ) -> Result<(), VmError> {
-    if let Some(ref logger) = configuration.logger {
+    if let Some(ref logger) = data.logger {
         send_api_request(vm, "/logger", "PUT", Some(logger)).await?;
     }
 
-    if let Some(ref metrics) = configuration.metrics {
-        send_api_request(vm, "/metrics", "PUT", Some(metrics)).await?;
+    if let Some(ref metrics_system) = data.metrics_system {
+        send_api_request(vm, "/metrics", "PUT", Some(metrics_system)).await?;
     }
 
-    send_api_request(vm, "/snapshot/load", "PUT", Some(&configuration.load_snapshot)).await
+    send_api_request(vm, "/snapshot/load", "PUT", Some(&load_snapshot)).await
 }
 
 async fn send_api_request<E: VmmExecutor, S: ShellSpawner>(

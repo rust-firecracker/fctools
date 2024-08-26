@@ -1,7 +1,7 @@
 use std::os::unix::fs::FileTypeExt;
 
 use fctools::vm::{
-    configuration::NewVmConfigurationApplier,
+    configuration::NewVmBootMethod,
     models::{VmLogger, VmMetricsSystem, VmVsock},
     VmShutdownMethod, VmState,
 };
@@ -18,7 +18,7 @@ mod test_framework;
 #[test]
 fn vm_can_boot_via_api_calls() {
     NewVmBuilder::new()
-        .applier(NewVmConfigurationApplier::ViaApiCalls)
+        .boot_method(NewVmBootMethod::ViaApiCalls)
         .run(|mut vm| async move {
             shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
         });
@@ -27,7 +27,7 @@ fn vm_can_boot_via_api_calls() {
 #[test]
 fn vm_can_boot_via_json() {
     NewVmBuilder::new()
-        .applier(NewVmConfigurationApplier::ViaJsonConfiguration(get_tmp_path()))
+        .boot_method(NewVmBootMethod::ViaJsonConfiguration(get_tmp_path()))
         .run(|mut vm| async move {
             shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
         });

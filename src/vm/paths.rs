@@ -1,6 +1,9 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use super::models::{VmLoadSnapshot, VmMemoryBackend, VmMemoryBackendType};
+use super::{
+    configuration::{VmConfiguration, VmConfigurationData},
+    models::{VmLoadSnapshot, VmMemoryBackend, VmMemoryBackendType},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VmStandardPaths {
@@ -41,27 +44,22 @@ impl VmStandardPaths {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct VmSnapshotPaths {
-    pub(crate) snapshot_path: PathBuf,
-    pub(crate) mem_file_path: PathBuf,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmSnapshotResult {
+    pub snapshot_path: PathBuf,
+    pub mem_file_path: PathBuf,
+    pub configuration_data: VmConfigurationData,
 }
 
-impl VmSnapshotPaths {
-    pub fn get_snapshot_path(&self) -> &PathBuf {
-        &self.snapshot_path
-    }
-
-    pub fn get_mem_file_path(&self) -> &PathBuf {
-        &self.mem_file_path
-    }
-}
-
-impl From<VmSnapshotPaths> for VmLoadSnapshot {
-    fn from(value: VmSnapshotPaths) -> Self {
-        Self::new(
-            value.snapshot_path,
-            VmMemoryBackend::new(VmMemoryBackendType::File, value.mem_file_path),
-        )
+impl VmSnapshotResult {
+    pub fn into_configuration(self, resume_vm: bool) -> VmConfiguration {
+        VmConfiguration::RestoredFromSnapshot {
+            load_snapshot: VmLoadSnapshot::new(
+                self.snapshot_path,
+                VmMemoryBackend::new(VmMemoryBackendType::File, self.mem_file_path),
+            )
+            .resume_vm(resume_vm),
+            data: self.configuration_data,
+        }
     }
 }

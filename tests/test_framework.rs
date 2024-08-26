@@ -17,12 +17,9 @@ use fctools::{
     process::VmmProcessState,
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
     vm::{
-        configuration::{FromSnapshotVmConfiguration, NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
-        models::{
-            VmBalloon, VmBootSource, VmDrive, VmLoadSnapshot, VmLogger, VmMachineConfiguration, VmMetricsSystem,
-            VmVsock,
-        },
-        paths::VmSnapshotPaths,
+        configuration::{NewVmBootMethod, VmConfiguration, VmConfigurationData},
+        models::{VmBalloon, VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem, VmVsock},
+        paths::VmSnapshotResult,
         VmShutdownMethod,
     },
 };
@@ -287,7 +284,7 @@ type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> BoxFuture<()>>;
 
 #[allow(unused)]
 pub struct NewVmBuilder {
-    applier: NewVmConfigurationApplier,
+    boot_method: NewVmBootMethod,
     logger: Option<VmLogger>,
     metrics_system: Option<VmMetricsSystem>,
     vsock: Option<VmVsock>,
@@ -299,7 +296,7 @@ pub struct NewVmBuilder {
 impl NewVmBuilder {
     pub fn new() -> Self {
         Self {
-            applier: NewVmConfigurationApplier::ViaApiCalls,
+            boot_method: NewVmBootMethod::ViaApiCalls,
             logger: None,
             metrics_system: None,
             vsock: None,
@@ -308,8 +305,8 @@ impl NewVmBuilder {
         }
     }
 
-    pub fn applier(mut self, applier: NewVmConfigurationApplier) -> Self {
-        self.applier = applier;
+    pub fn boot_method(mut self, applier: NewVmBootMethod) -> Self {
+        self.boot_method = applier;
         self
     }
 
@@ -346,24 +343,22 @@ impl NewVmBuilder {
     {
         let socket_path = get_tmp_path();
 
-        let mut unrestricted_configuration = NewVmConfiguration::new(
+        let mut unrestricted_data = VmConfigurationData::new(
             VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args("console=ttyS0 reboot=k panic=1 pci=off"),
             VmMachineConfiguration::new(1, 128),
         )
-        .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")))
-        .applier(self.applier.clone());
+        .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")));
         let unrestricted_executor = TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(
             FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path.clone())),
         ));
         let unrestricted_shell_spawner =
             TestShellSpawner::SameUser(SameUserShellSpawner::new(which::which("bash").unwrap()));
 
-        let mut jailed_configuration = NewVmConfiguration::new(
+        let mut jailed_data = VmConfigurationData::new(
             VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args("console=ttyS0 reboot=k panic=1 pci=off"),
             VmMachineConfiguration::new(1, 128),
         )
-        .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")))
-        .applier(self.applier);
+        .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")));
         let jailed_executor = TestExecutor::Jailed(JailedVmmExecutor::new(
             FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path)),
             JailerArguments::new(
@@ -377,23 +372,23 @@ impl NewVmBuilder {
             TestShellSpawner::Su(SuShellSpawner::new(std::env::var("ROOT_PWD").expect("No ROOT_PWD set")));
 
         if let Some(logger) = self.logger {
-            unrestricted_configuration = unrestricted_configuration.logger(logger.clone());
-            jailed_configuration = jailed_configuration.logger(logger);
+            unrestricted_data = unrestricted_data.logger(logger.clone());
+            jailed_data = jailed_data.logger(logger);
         }
 
         if let Some(metrics_system) = self.metrics_system {
-            unrestricted_configuration = unrestricted_configuration.metrics_system(metrics_system.clone());
-            jailed_configuration = jailed_configuration.metrics_system(metrics_system);
+            unrestricted_data = unrestricted_data.metrics_system(metrics_system.clone());
+            jailed_data = jailed_data.metrics_system(metrics_system);
         }
 
         if let Some(vsock) = self.vsock {
-            unrestricted_configuration = unrestricted_configuration.vsock(vsock.clone());
-            jailed_configuration = jailed_configuration.vsock(vsock);
+            unrestricted_data = unrestricted_data.vsock(vsock.clone());
+            jailed_data = jailed_data.vsock(vsock);
         }
 
         if let Some(balloon) = self.balloon {
-            unrestricted_configuration = unrestricted_configuration.balloon(balloon.clone());
-            jailed_configuration = jailed_configuration.balloon(balloon);
+            unrestricted_data = unrestricted_data.balloon(balloon.clone());
+            jailed_data = jailed_data.balloon(balloon);
         }
 
         let (pre_start_hook1, pre_start_hook2) = match self.pre_start_hook {
@@ -408,14 +403,20 @@ impl NewVmBuilder {
             .block_on(async {
                 tokio::join!(
                     Self::test_worker(
-                        unrestricted_configuration,
+                        VmConfiguration::New {
+                            boot_method: self.boot_method.clone(),
+                            data: unrestricted_data
+                        },
                         unrestricted_executor,
                         unrestricted_shell_spawner,
                         pre_start_hook1,
                         function.clone(),
                     ),
                     Self::test_worker(
-                        jailed_configuration,
+                        VmConfiguration::New {
+                            boot_method: self.boot_method,
+                            data: jailed_data
+                        },
                         jailed_executor,
                         jailed_shell_spawner,
                         pre_start_hook2,
@@ -426,7 +427,7 @@ impl NewVmBuilder {
     }
 
     async fn test_worker<F, Fut>(
-        configuration: NewVmConfiguration,
+        configuration: VmConfiguration,
         executor: TestExecutor,
         shell_spawner: TestShellSpawner,
         pre_start_hook: Option<PreStartHook>,
@@ -439,7 +440,7 @@ impl NewVmBuilder {
             executor,
             shell_spawner,
             get_real_firecracker_installation(),
-            VmConfiguration::New(configuration),
+            configuration,
         )
         .await
         .unwrap();
@@ -461,7 +462,7 @@ pub async fn shutdown_test_vm(vm: &mut TestVm, shutdown_method: VmShutdownMethod
 }
 
 #[allow(unused)]
-pub async fn with_snapshot_restored_vm<F, Fut>(snapshot_paths: VmSnapshotPaths, function: F)
+pub async fn with_snapshot_restored_vm<F, Fut>(snapshot_result: VmSnapshotResult, function: F)
 where
     F: FnOnce(TestVm) -> Fut + Send,
     Fut: Future<Output = ()> + Send,
@@ -470,14 +471,12 @@ where
     let executor = TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(FirecrackerArguments::new(
         FirecrackerApiSocket::Enabled(get_tmp_path()),
     )));
-    let mut load_snapshot: VmLoadSnapshot = snapshot_paths.into();
-    load_snapshot = load_snapshot.resume_vm(true);
-    let configuration = VmConfiguration::FromSnapshot(FromSnapshotVmConfiguration::new(load_snapshot));
+
     let mut vm = TestVm::prepare(
         executor,
         shell_spawner,
         get_real_firecracker_installation(),
-        configuration,
+        snapshot_result.into_configuration(true),
     )
     .await
     .unwrap();

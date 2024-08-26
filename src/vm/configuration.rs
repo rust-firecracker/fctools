@@ -9,14 +9,46 @@ use super::models::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VmConfiguration {
-    New(NewVmConfiguration),
-    FromSnapshot(FromSnapshotVmConfiguration),
+    New {
+        boot_method: NewVmBootMethod,
+        data: VmConfigurationData,
+    },
+    RestoredFromSnapshot {
+        load_snapshot: VmLoadSnapshot,
+        data: VmConfigurationData,
+    },
+}
+
+impl VmConfiguration {
+    pub fn data_mut(&mut self) -> &mut VmConfigurationData {
+        match self {
+            VmConfiguration::New {
+                boot_method: _,
+                ref mut data,
+            } => data,
+            VmConfiguration::RestoredFromSnapshot {
+                load_snapshot: _,
+                ref mut data,
+            } => data,
+        }
+    }
+
+    pub fn data(&self) -> &VmConfigurationData {
+        match self {
+            VmConfiguration::New {
+                boot_method: _,
+                ref data,
+            } => data,
+            VmConfiguration::RestoredFromSnapshot {
+                load_snapshot: _,
+                ref data,
+            } => data,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct NewVmConfiguration {
-    #[serde(skip)]
-    pub(crate) applier: NewVmConfigurationApplier,
+pub struct VmConfigurationData {
     #[serde(rename = "boot-source")]
     pub(crate) boot_source: VmBootSource,
     pub(crate) drives: Vec<VmDrive>,
@@ -36,21 +68,20 @@ pub struct NewVmConfiguration {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum NewVmConfigurationApplier {
+pub enum NewVmBootMethod {
     ViaApiCalls,
     ViaJsonConfiguration(PathBuf),
 }
 
-impl Default for NewVmConfigurationApplier {
+impl Default for NewVmBootMethod {
     fn default() -> Self {
-        NewVmConfigurationApplier::ViaApiCalls
+        NewVmBootMethod::ViaApiCalls
     }
 }
 
-impl NewVmConfiguration {
+impl VmConfigurationData {
     pub fn new(boot_source: VmBootSource, machine_configuration: VmMachineConfiguration) -> Self {
         Self {
-            applier: NewVmConfigurationApplier::ViaApiCalls,
             boot_source,
             drives: vec![],
             machine_configuration,
@@ -63,11 +94,6 @@ impl NewVmConfiguration {
             mmds_configuration: None,
             entropy: None,
         }
-    }
-
-    pub fn applier(mut self, applier: NewVmConfigurationApplier) -> Self {
-        self.applier = applier;
-        self
     }
 
     pub fn drive(mut self, drive: VmDrive) -> Self {
@@ -125,10 +151,6 @@ impl NewVmConfiguration {
         self
     }
 
-    pub fn get_applier(&self) -> &NewVmConfigurationApplier {
-        &self.applier
-    }
-
     pub fn get_cpu_template(&self) -> Option<&VmCpuTemplate> {
         self.cpu_template.as_ref()
     }
@@ -163,44 +185,5 @@ impl NewVmConfiguration {
 
     pub fn get_entropy(&self) -> Option<&VmEntropy> {
         self.entropy.as_ref()
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct FromSnapshotVmConfiguration {
-    pub(crate) load_snapshot: VmLoadSnapshot,
-    pub(crate) logger: Option<VmLogger>,
-    pub(crate) metrics: Option<VmMetricsSystem>,
-}
-
-impl FromSnapshotVmConfiguration {
-    pub fn new(load_snapshot: VmLoadSnapshot) -> Self {
-        Self {
-            load_snapshot,
-            logger: None,
-            metrics: None,
-        }
-    }
-
-    pub fn logger(mut self, logger: VmLogger) -> Self {
-        self.logger = Some(logger);
-        self
-    }
-
-    pub fn metrics(mut self, metrics: VmMetricsSystem) -> Self {
-        self.metrics = Some(metrics);
-        self
-    }
-
-    pub fn get_load_snapshot(&self) -> &VmLoadSnapshot {
-        &self.load_snapshot
-    }
-
-    pub fn get_logger(&self) -> &Option<VmLogger> {
-        &self.logger
-    }
-
-    pub fn get_metrics(&self) -> &Option<VmMetricsSystem> {
-        &self.metrics
     }
 }
