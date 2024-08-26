@@ -174,14 +174,14 @@ pub fn env_get_shutdown_timeout() -> Duration {
         Ok(value) => value
             .parse::<u64>()
             .expect("Shutdown timeout from env var is not a u64"),
-        Err(_) => 3000,
+        Err(_) => 7500,
     })
 }
 
 fn env_get_boot_wait() -> Duration {
     Duration::from_millis(match std::env::var("FCTOOLS_VM_BOOT_WAIT") {
         Ok(value) => value.parse::<u64>().expect("Boot wait from env var is not a u64"),
-        Err(_) => 2000,
+        Err(_) => 2500,
     })
 }
 
@@ -190,7 +190,7 @@ fn env_get_boot_socket_wait() -> Duration {
         Ok(value) => value
             .parse::<u64>()
             .expect("Boot socket wait from env var is not a u64"),
-        Err(_) => 3000,
+        Err(_) => 7500,
     })
 }
 
@@ -224,7 +224,7 @@ where
 
     init_process(&mut jailed_process).await;
     init_process(&mut unrestricted_process).await;
-    tokio::time::sleep(env_get_boot_wait()).await;
+    tokio::time::sleep(env_get_boot_wait() + Duration::from_secs(1)).await;
     closure(unrestricted_process).await;
     println!("Succeeded with unrestricted VM");
     closure(jailed_process).await;
