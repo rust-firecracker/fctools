@@ -229,8 +229,8 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                 .ok_or(VmError::MissingPathMapping)?;
         }
 
-        // generate accessible paths, ensure paths exist
-        let mut accessible_paths = VmStandardPaths {
+        // generate standard paths, ensure paths exist
+        let mut standard_paths = VmStandardPaths {
             drive_sockets: HashMap::new(),
             metrics_path: None,
             log_path: None,
@@ -240,7 +240,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
 
         for drive in &configuration.data().drives {
             if let Some(ref socket) = drive.socket {
-                accessible_paths
+                standard_paths
                     .drive_sockets
                     .insert(drive.drive_id.clone(), vm_process.inner_to_outer_path(&socket));
             }
@@ -250,33 +250,33 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             if let Some(ref log_path) = logger.log_path {
                 let new_log_path = vm_process.inner_to_outer_path(log_path);
                 prepare_file(&new_log_path, false).await?;
-                accessible_paths.log_path = Some(new_log_path);
+                standard_paths.log_path = Some(new_log_path);
             }
         }
 
         if let Some(ref metrics_system) = configuration.data().metrics_system {
             let new_metrics_path = vm_process.inner_to_outer_path(&metrics_system.metrics_path);
             prepare_file(&new_metrics_path, false).await?;
-            accessible_paths.metrics_path = Some(new_metrics_path);
+            standard_paths.metrics_path = Some(new_metrics_path);
         }
 
         if let Some(ref vsock) = configuration.data().vsock {
             let new_uds_path = vm_process.inner_to_outer_path(&vsock.uds_path);
             prepare_file(&new_uds_path, true).await?;
-            accessible_paths.vsock_multiplexer_path = Some(new_uds_path);
+            standard_paths.vsock_multiplexer_path = Some(new_uds_path);
         }
         if let Some(ref logger) = configuration.data().logger {
             if let Some(ref log_path) = logger.log_path {
                 let new_log_path = vm_process.inner_to_outer_path(log_path);
                 prepare_file(&new_log_path, false).await?;
-                accessible_paths.log_path = Some(new_log_path);
+                standard_paths.log_path = Some(new_log_path);
             }
         }
 
         if let Some(ref metrics) = configuration.data().metrics_system {
             let new_metrics_path = vm_process.inner_to_outer_path(&metrics.metrics_path);
             prepare_file(&new_metrics_path, false).await?;
-            accessible_paths.metrics_path = Some(new_metrics_path);
+            standard_paths.metrics_path = Some(new_metrics_path);
         }
 
         Ok(Self {
@@ -284,7 +284,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             is_paused: false,
             original_configuration_data,
             configuration: Some(configuration),
-            standard_paths: accessible_paths,
+            standard_paths,
             executor_traceless: traceless,
             snapshot_traces: Vec::new(),
         })
