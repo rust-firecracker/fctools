@@ -608,17 +608,17 @@ pub enum VmMemoryBackendType {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmFirecrackerVersion {
+pub(crate) struct VmFirecrackerVersion {
     pub firecracker_version: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VmUpdateState {
-    pub state: VmStateForUpdate,
+    pub state: VmUpdatedState,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum VmStateForUpdate {
+pub(crate) enum VmUpdatedState {
     Paused,
     Resumed,
 }
@@ -641,13 +641,13 @@ impl VmVsock {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct VmInfo {
     pub id: String,
-    pub state: VmState,
+    pub state: VmReturnedState,
     pub vmm_version: String,
     pub app_name: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VmState {
+pub enum VmReturnedState {
     Running,
     Paused,
 }

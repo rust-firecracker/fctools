@@ -174,7 +174,7 @@ pub fn env_get_shutdown_timeout() -> Duration {
         Ok(value) => value
             .parse::<u64>()
             .expect("Shutdown timeout from env var is not a u64"),
-        Err(_) => 2000,
+        Err(_) => 2500,
     })
 }
 

@@ -11,8 +11,8 @@ use super::{
     configuration::{FromSnapshotVmConfiguration, NewVmConfiguration},
     models::{
         VmAction, VmActionType, VmApiError, VmBalloon, VmBalloonStatistics, VmCreateSnapshot, VmEffectiveConfiguration,
-        VmFirecrackerVersion, VmInfo, VmMachineConfiguration, VmStateForUpdate, VmUpdateBalloon,
-        VmUpdateBalloonStatistics, VmUpdateDrive, VmUpdateNetworkInterface, VmUpdateState,
+        VmFirecrackerVersion, VmInfo, VmMachineConfiguration, VmUpdateBalloon, VmUpdateBalloonStatistics,
+        VmUpdateDrive, VmUpdateNetworkInterface, VmUpdateState, VmUpdatedState,
     },
     paths::VmSnapshotPaths,
     Vm, VmError, VmState,
@@ -53,7 +53,7 @@ pub trait VmApi {
 
     async fn api_create_snapshot(&mut self, create_snapshot: VmCreateSnapshot) -> Result<VmSnapshotPaths, VmError>;
 
-    async fn api_get_firecracker_version(&mut self) -> Result<VmFirecrackerVersion, VmError>;
+    async fn api_get_firecracker_version(&mut self) -> Result<String, VmError>;
 
     async fn api_get_effective_configuration(&mut self) -> Result<VmEffectiveConfiguration, VmError>;
 
@@ -168,9 +168,13 @@ impl<E: VmmExecutor, S: ShellSpawner> VmApi for Vm<E, S> {
         })
     }
 
-    async fn api_get_firecracker_version(&mut self) -> Result<VmFirecrackerVersion, VmError> {
+    async fn api_get_firecracker_version(&mut self) -> Result<String, VmError> {
         self.ensure_paused_or_running()?;
-        send_api_request_with_response(self, "/version", "GET", None::<i32>).await
+        Ok(
+            send_api_request_with_response::<VmFirecrackerVersion, _, _>(self, "/version", "GET", None::<i32>)
+                .await?
+                .firecracker_version,
+        )
     }
 
     async fn api_get_effective_configuration(&mut self) -> Result<VmEffectiveConfiguration, VmError> {
@@ -185,7 +189,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmApi for Vm<E, S> {
             "/vm",
             "PATCH",
             Some(VmUpdateState {
-                state: VmStateForUpdate::Paused,
+                state: VmUpdatedState::Paused,
             }),
         )
         .await?;
@@ -200,7 +204,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmApi for Vm<E, S> {
             "/vm",
             "PATCH",
             Some(VmUpdateState {
-                state: VmStateForUpdate::Resumed,
+                state: VmUpdatedState::Resumed,
             }),
         )
         .await?;
