@@ -28,6 +28,7 @@ pub struct Vm<E: VmmExecutor, S: ShellSpawner> {
     is_paused: bool,
     configuration: Option<VmConfiguration>,
     standard_paths: VmStandardPaths,
+    traceless: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,45 +99,6 @@ pub enum VmShutdownMethod {
     Kill,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Hash)]
-pub struct VmCleanupOptions {
-    remove_logs: bool,
-    remove_metrics: bool,
-    remove_vsock: bool,
-}
-
-impl VmCleanupOptions {
-    pub fn new() -> Self {
-        Self {
-            remove_logs: false,
-            remove_metrics: false,
-            remove_vsock: false,
-        }
-    }
-
-    pub fn remove_all(mut self) -> Self {
-        self.remove_logs = true;
-        self.remove_metrics = true;
-        self.remove_vsock = true;
-        self
-    }
-
-    pub fn remove_logs(mut self) -> Self {
-        self.remove_logs = true;
-        self
-    }
-
-    pub fn remove_metrics(mut self) -> Self {
-        self.remove_metrics = true;
-        self
-    }
-
-    pub fn remove_vsock(mut self) -> Self {
-        self.remove_vsock = true;
-        self
-    }
-}
-
 impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
     pub async fn prepare(
         executor: E,
@@ -180,6 +142,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         }
 
         // prepare
+        let traceless = executor.traceless();
         let mut vm_process = VmmProcess::new_arced(executor, shell_spawner_arc, installation_arc, outer_paths);
         let mut path_mappings = vm_process.prepare().await.map_err(VmError::ProcessError)?;
 
@@ -237,7 +200,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                     }
                 }
 
-                if let Some(ref metrics) = config.metrics {
+                if let Some(ref metrics) = config.metrics_system {
                     let new_metrics_path = vm_process.inner_to_outer_path(&metrics.metrics_path);
                     prepare_file(&new_metrics_path, false).await?;
                     accessible_paths.metrics_path = Some(new_metrics_path);
@@ -271,6 +234,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             is_paused: false,
             configuration: Some(configuration),
             standard_paths: accessible_paths,
+            traceless,
         })
     }
 
@@ -391,31 +355,29 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         Ok(())
     }
 
-    pub async fn cleanup(&mut self, cleanup_options: VmCleanupOptions) -> Result<(), VmError> {
+    pub async fn cleanup(&mut self) -> Result<(), VmError> {
         self.ensure_exited_or_crashed()?;
         self.vmm_process.cleanup().await.map_err(VmError::ProcessError)?;
 
+        if self.traceless {
+            return Ok(());
+        }
+
         if let Some(ref log_path) = self.standard_paths.log_path {
-            if cleanup_options.remove_logs {
-                tokio::fs::remove_file(log_path).await.map_err(VmError::IoError)?;
-            }
+            tokio::fs::remove_file(log_path).await.map_err(VmError::IoError)?;
         }
 
         if let Some(ref metrics_path) = self.standard_paths.metrics_path {
-            if cleanup_options.remove_metrics {
-                tokio::fs::remove_file(metrics_path).await.map_err(VmError::IoError)?;
-            }
+            tokio::fs::remove_file(metrics_path).await.map_err(VmError::IoError)?;
         }
 
         if let Some(ref multiplexer_path) = self.standard_paths.vsock_multiplexer_path {
-            if cleanup_options.remove_vsock {
-                tokio::fs::remove_file(multiplexer_path)
-                    .await
-                    .map_err(VmError::IoError)?;
+            tokio::fs::remove_file(multiplexer_path)
+                .await
+                .map_err(VmError::IoError)?;
 
-                for listener_path in &self.standard_paths.vsock_listener_paths {
-                    tokio::fs::remove_file(listener_path).await.map_err(VmError::IoError)?;
-                }
+            for listener_path in &self.standard_paths.vsock_listener_paths {
+                tokio::fs::remove_file(listener_path).await.map_err(VmError::IoError)?;
             }
         }
 

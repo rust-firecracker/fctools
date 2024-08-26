@@ -84,6 +84,10 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         self.get_jail_path().jail_join(inner_path)
     }
 
+    fn traceless(&self) -> bool {
+        true
+    }
+
     async fn prepare(
         &self,
         shell_spawner: &impl ShellSpawner,

@@ -70,6 +70,10 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         inner_path.to_owned()
     }
 
+    fn traceless(&self) -> bool {
+        false
+    }
+
     async fn prepare(
         &self,
         shell_spawner: &impl ShellSpawner,

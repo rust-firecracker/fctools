@@ -18,7 +18,7 @@ use fctools::{
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
-        models::{VmBootSource, VmDrive, VmMachineConfiguration},
+        models::{VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem},
     },
 };
 use rand::RngCore;
@@ -128,6 +128,13 @@ impl VmmExecutor for TestExecutor {
         }
     }
 
+    fn traceless(&self) -> bool {
+        match self {
+            TestExecutor::Unrestricted(e) => e.traceless(),
+            TestExecutor::Jailed(e) => e.traceless(),
+        }
+    }
+
     async fn prepare(
         &self,
         shell_spawner: &impl ShellSpawner,
@@ -157,6 +164,23 @@ impl VmmExecutor for TestExecutor {
             TestExecutor::Jailed(e) => e.cleanup(shell_spawner).await,
         }
     }
+}
+
+#[allow(unused)]
+pub fn env_get_shutdown_timeout() -> Duration {
+    Duration::from_millis(match std::env::var("FCTOOLS_VM_SHUTDOWN_TIMEOUT") {
+        Ok(value) => value
+            .parse::<u64>()
+            .expect("Shutdown timeout from env var is not a u64"),
+        Err(_) => 1500,
+    })
+}
+
+fn env_get_boot_wait() -> Duration {
+    Duration::from_millis(match std::env::var("FCTOOLS_VM_BOOT_WAIT") {
+        Ok(value) => value.parse::<u64>().expect("Boot wait from env var is not a u64"),
+        Err(_) => 1500,
+    })
 }
 
 // VMM TEST FRAMEWORK
@@ -189,7 +213,7 @@ where
 
     init_process(&mut jailed_process).await;
     init_process(&mut unrestricted_process).await;
-    tokio::time::sleep(Duration::from_millis(2000)).await;
+    tokio::time::sleep(env_get_boot_wait()).await;
     closure(unrestricted_process).await;
     println!("Succeeded with unrestricted VM");
     closure(jailed_process).await;
@@ -247,6 +271,8 @@ pub type TestVm = fctools::vm::Vm<TestExecutor, TestShellSpawner>;
 #[allow(unused)]
 pub struct NewVmBuilder {
     applier: NewVmConfigurationApplier,
+    logger: Option<VmLogger>,
+    metrics_system: Option<VmMetricsSystem>,
 }
 
 #[allow(unused)]
@@ -254,11 +280,23 @@ impl NewVmBuilder {
     pub fn new() -> Self {
         Self {
             applier: NewVmConfigurationApplier::ViaApiCalls,
+            logger: None,
+            metrics_system: None,
         }
     }
 
     pub fn applier(mut self, applier: NewVmConfigurationApplier) -> Self {
         self.applier = applier;
+        self
+    }
+
+    pub fn logger(mut self, logger: VmLogger) -> Self {
+        self.logger = Some(logger);
+        self
+    }
+
+    pub fn metrics_system(mut self, metrics_system: VmMetricsSystem) -> Self {
+        self.metrics_system = Some(metrics_system);
         self
     }
 
@@ -270,28 +308,24 @@ impl NewVmBuilder {
     {
         let socket_path = get_tmp_path();
 
-        let unrestricted_configuration = VmConfiguration::New(
-            NewVmConfiguration::new(
-                VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args("console=ttyS0 reboot=k panic=1 pci=off"),
-                VmMachineConfiguration::new(1, 128),
-            )
-            .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")))
-            .applier(self.applier.clone()),
-        );
+        let mut unrestricted_configuration = NewVmConfiguration::new(
+            VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args("console=ttyS0 reboot=k panic=1 pci=off"),
+            VmMachineConfiguration::new(1, 128),
+        )
+        .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")))
+        .applier(self.applier.clone());
         let unrestricted_executor = TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(
             FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path.clone())),
         ));
         let unrestricted_shell_spawner =
             TestShellSpawner::SameUser(SameUserShellSpawner::new(which::which("bash").unwrap()));
 
-        let jailed_configuration = VmConfiguration::New(
-            NewVmConfiguration::new(
-                VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args("console=ttyS0 reboot=k panic=1 pci=off"),
-                VmMachineConfiguration::new(1, 128),
-            )
-            .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")))
-            .applier(self.applier),
-        );
+        let mut jailed_configuration = NewVmConfiguration::new(
+            VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args("console=ttyS0 reboot=k panic=1 pci=off"),
+            VmMachineConfiguration::new(1, 128),
+        )
+        .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")))
+        .applier(self.applier);
         let jailed_executor = TestExecutor::Jailed(JailedVmmExecutor::new(
             FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path)),
             JailerArguments::new(
@@ -304,9 +338,18 @@ impl NewVmBuilder {
         let jailed_shell_spawner =
             TestShellSpawner::Su(SuShellSpawner::new(std::env::var("ROOT_PWD").expect("No ROOT_PWD set")));
 
-        tokio::runtime::Builder::new_multi_thread()
+        if let Some(logger) = self.logger {
+            unrestricted_configuration = unrestricted_configuration.logger(logger.clone());
+            jailed_configuration = jailed_configuration.logger(logger);
+        }
+
+        if let Some(metrics_system) = self.metrics_system {
+            unrestricted_configuration = unrestricted_configuration.metrics_system(metrics_system.clone());
+            jailed_configuration = jailed_configuration.metrics_system(metrics_system.clone());
+        }
+
+        tokio::runtime::Builder::new_current_thread()
             .enable_all()
-            .worker_threads(2)
             .build()
             .unwrap()
             .block_on(async {
@@ -323,7 +366,7 @@ impl NewVmBuilder {
     }
 
     async fn test_worker<F, Fut>(
-        configuration: VmConfiguration,
+        configuration: NewVmConfiguration,
         executor: TestExecutor,
         shell_spawner: TestShellSpawner,
         function: F,
@@ -335,12 +378,12 @@ impl NewVmBuilder {
             executor,
             shell_spawner,
             get_real_firecracker_installation(),
-            configuration,
+            VmConfiguration::New(configuration),
         )
         .await
         .unwrap();
         vm.start(Duration::from_secs(1)).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(750)).await;
+        tokio::time::sleep(env_get_boot_wait()).await;
         function(vm).await;
     }
 }

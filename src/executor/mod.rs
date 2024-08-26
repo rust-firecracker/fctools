@@ -54,6 +54,9 @@ pub trait VmmExecutor: Send {
     /// Resolves an inner path into an outer path.
     fn inner_to_outer_path(&self, inner_path: &Path) -> PathBuf;
 
+    // Returns a boolean determining whether this executor leaves any traces on the host filesystem after cleanup.
+    fn traceless(&self) -> bool;
+
     /// Prepare all transient resources for the VM invocation.
     async fn prepare(
         &self,

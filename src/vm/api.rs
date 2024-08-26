@@ -262,7 +262,7 @@ pub(super) async fn init_new<E: VmmExecutor, S: ShellSpawner>(
         send_api_request(vm, "/logger", "PUT", Some(logger)).await?;
     }
 
-    if let Some(ref metrics) = configuration.metrics {
+    if let Some(ref metrics) = configuration.metrics_system {
         send_api_request(vm, "/metrics", "PUT", Some(metrics)).await?;
     }
 

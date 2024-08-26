@@ -29,7 +29,7 @@ pub struct NewVmConfiguration {
     pub(crate) balloon: Option<VmBalloon>,
     pub(crate) vsock: Option<VmVsock>,
     pub(crate) logger: Option<VmLogger>,
-    pub(crate) metrics: Option<VmMetricsSystem>,
+    pub(crate) metrics_system: Option<VmMetricsSystem>,
     #[serde(rename = "mmds-config")]
     pub(crate) mmds_configuration: Option<VmMmdsConfiguration>,
     pub(crate) entropy: Option<VmEntropy>,
@@ -59,7 +59,7 @@ impl NewVmConfiguration {
             balloon: None,
             vsock: None,
             logger: None,
-            metrics: None,
+            metrics_system: None,
             mmds_configuration: None,
             entropy: None,
         }
@@ -110,8 +110,8 @@ impl NewVmConfiguration {
         self
     }
 
-    pub fn metrics(mut self, metrics: VmMetricsSystem) -> Self {
-        self.metrics = Some(metrics);
+    pub fn metrics_system(mut self, metrics_system: VmMetricsSystem) -> Self {
+        self.metrics_system = Some(metrics_system);
         self
     }
 
@@ -154,7 +154,7 @@ impl NewVmConfiguration {
     }
 
     pub fn get_metrics(&self) -> Option<&VmMetricsSystem> {
-        self.metrics.as_ref()
+        self.metrics_system.as_ref()
     }
 
     pub fn get_mmds_configuration(&self) -> Option<&VmMmdsConfiguration> {
