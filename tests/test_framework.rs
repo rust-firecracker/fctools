@@ -174,7 +174,7 @@ pub fn env_get_shutdown_timeout() -> Duration {
         Ok(value) => value
             .parse::<u64>()
             .expect("Shutdown timeout from env var is not a u64"),
-        Err(_) => 2500,
+        Err(_) => 3000,
     })
 }
 
@@ -182,6 +182,15 @@ fn env_get_boot_wait() -> Duration {
     Duration::from_millis(match std::env::var("FCTOOLS_VM_BOOT_WAIT") {
         Ok(value) => value.parse::<u64>().expect("Boot wait from env var is not a u64"),
         Err(_) => 2000,
+    })
+}
+
+fn env_get_boot_socket_wait() -> Duration {
+    Duration::from_millis(match std::env::var("FCTOOLS_VM_BOOT_SOCKET_WAIT") {
+        Ok(value) => value
+            .parse::<u64>()
+            .expect("Boot socket wait from env var is not a u64"),
+        Err(_) => 3000,
     })
 }
 
@@ -433,7 +442,7 @@ impl NewVmBuilder {
         if let Some(pre_start_hook) = pre_start_hook {
             pre_start_hook(&mut vm).await;
         }
-        vm.start(Duration::from_secs(1)).await.unwrap();
+        vm.start(env_get_boot_socket_wait()).await.unwrap();
         tokio::time::sleep(env_get_boot_wait()).await;
         function(vm).await;
     }
