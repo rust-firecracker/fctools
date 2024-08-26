@@ -428,16 +428,16 @@ impl NewVmBuilder {
             .unwrap()
             .block_on(async {
                 tokio::join!(
-                    // Self::test_worker(
-                    //     VmConfiguration::New {
-                    //         boot_method: self.boot_method.clone(),
-                    //         data: unrestricted_data
-                    //     },
-                    //     SnapshottingContext::new(false, unrestricted_shell_spawner),
-                    //     unrestricted_executor,
-                    //     pre_start_hook1,
-                    //     function.clone(),
-                    // ),
+                    Self::test_worker(
+                        VmConfiguration::New {
+                            boot_method: self.boot_method.clone(),
+                            data: unrestricted_data
+                        },
+                        SnapshottingContext::new(false, unrestricted_shell_spawner),
+                        unrestricted_executor,
+                        pre_start_hook1,
+                        function.clone(),
+                    ),
                     Self::test_worker(
                         VmConfiguration::New {
                             boot_method: self.boot_method,
