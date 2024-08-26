@@ -5,9 +5,13 @@ use fctools::vm::{
     models::{VmLogger, VmMetricsSystem, VmVsock},
     VmShutdownMethod,
 };
+use futures_util::FutureExt;
 use rand::RngCore;
 use test_framework::{env_get_shutdown_timeout, get_tmp_path, NewVmBuilder, TestVm};
-use tokio::fs::{metadata, try_exists};
+use tokio::{
+    fs::{metadata, try_exists},
+    io::{AsyncBufReadExt, BufReader},
+};
 
 mod test_framework;
 
@@ -98,6 +102,31 @@ fn vm_translates_inner_to_outer_paths() {
         assert!(inner_path == outer_path || outer_path.to_str().unwrap().ends_with(inner_path.to_str().unwrap()));
         shutdown(&mut vm, VmShutdownMethod::CtrlAltDel).await;
     });
+}
+
+#[test]
+fn vm_can_take_pipes() {
+    NewVmBuilder::new()
+        .pre_start_hook(|vm| {
+            async {
+                vm.take_pipes().unwrap_err(); // cannot take out pipes before start
+            }
+            .boxed()
+        })
+        .run(|mut vm| async move {
+            let pipes = vm.take_pipes().unwrap();
+            vm.take_pipes().unwrap_err(); // cannot take out pipes twice
+            let mut buf = String::new();
+            let mut buf_reader = BufReader::new(pipes.stdout).lines();
+            shutdown(&mut vm, VmShutdownMethod::CtrlAltDel).await;
+
+            while let Ok(Some(line)) = buf_reader.next_line().await {
+                buf.push_str(&line);
+            }
+
+            assert!(buf.contains("Artificially kick devices."));
+            assert!(buf.contains("Firecracker exiting successfully. exit_code=0"));
+        });
 }
 
 async fn shutdown(vm: &mut TestVm, shutdown_method: VmShutdownMethod) {

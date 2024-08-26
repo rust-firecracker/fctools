@@ -21,6 +21,7 @@ use fctools::{
         models::{VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem, VmVsock},
     },
 };
+use futures_util::future::BoxFuture;
 use rand::RngCore;
 use tokio::process::Child;
 use uuid::Uuid;
@@ -268,12 +269,15 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
 #[allow(unused)]
 pub type TestVm = fctools::vm::Vm<TestExecutor, TestShellSpawner>;
 
+type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> BoxFuture<()>>;
+
 #[allow(unused)]
 pub struct NewVmBuilder {
     applier: NewVmConfigurationApplier,
     logger: Option<VmLogger>,
     metrics_system: Option<VmMetricsSystem>,
     vsock: Option<VmVsock>,
+    pre_start_hook: Option<(PreStartHook, PreStartHook)>,
 }
 
 #[allow(unused)]
@@ -284,6 +288,7 @@ impl NewVmBuilder {
             logger: None,
             metrics_system: None,
             vsock: None,
+            pre_start_hook: None,
         }
     }
 
@@ -304,6 +309,11 @@ impl NewVmBuilder {
 
     pub fn vsock(mut self, vsock: VmVsock) -> Self {
         self.vsock = Some(vsock);
+        self
+    }
+
+    pub fn pre_start_hook(mut self, hook: impl Fn(&mut TestVm) -> BoxFuture<()> + Clone + 'static) -> Self {
+        self.pre_start_hook = Some((Box::new(hook.clone()), Box::new(hook)));
         self
     }
 
@@ -360,6 +370,11 @@ impl NewVmBuilder {
             jailed_configuration = jailed_configuration.vsock(vsock);
         }
 
+        let (pre_start_hook1, pre_start_hook2) = match self.pre_start_hook {
+            Some((a, b)) => (Some(a), Some(b)),
+            None => (None, None),
+        };
+
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -370,9 +385,16 @@ impl NewVmBuilder {
                         unrestricted_configuration,
                         unrestricted_executor,
                         unrestricted_shell_spawner,
+                        pre_start_hook1,
                         function.clone(),
                     ),
-                    Self::test_worker(jailed_configuration, jailed_executor, jailed_shell_spawner, function,)
+                    Self::test_worker(
+                        jailed_configuration,
+                        jailed_executor,
+                        jailed_shell_spawner,
+                        pre_start_hook2,
+                        function
+                    ),
                 );
             });
     }
@@ -381,6 +403,7 @@ impl NewVmBuilder {
         configuration: NewVmConfiguration,
         executor: TestExecutor,
         shell_spawner: TestShellSpawner,
+        pre_start_hook: Option<PreStartHook>,
         function: F,
     ) where
         F: Fn(TestVm) -> Fut + Send,
@@ -394,6 +417,9 @@ impl NewVmBuilder {
         )
         .await
         .unwrap();
+        if let Some(pre_start_hook) = pre_start_hook {
+            pre_start_hook(&mut vm).await;
+        }
         vm.start(Duration::from_secs(1)).await.unwrap();
         tokio::time::sleep(env_get_boot_wait()).await;
         function(vm).await;

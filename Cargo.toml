@@ -44,6 +44,9 @@ run_script = "0.10.1"
 tokio = { version = "1.39.2", features = ["macros", "rt-multi-thread"] }
 uuid = { version = "1.10.0", features = ["v4"] }
 which = "6.0.3"
+futures-util = { version = "0.3.30", default-features = false, features = [
+    "std",
+] }
 
 fctools = { path = ".", features = ["full"] }
 
