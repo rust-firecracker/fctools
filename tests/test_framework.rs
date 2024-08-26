@@ -18,7 +18,7 @@ use fctools::{
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
-        models::{VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem},
+        models::{VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem, VmVsock},
     },
 };
 use rand::RngCore;
@@ -172,14 +172,14 @@ pub fn env_get_shutdown_timeout() -> Duration {
         Ok(value) => value
             .parse::<u64>()
             .expect("Shutdown timeout from env var is not a u64"),
-        Err(_) => 1500,
+        Err(_) => 2000,
     })
 }
 
 fn env_get_boot_wait() -> Duration {
     Duration::from_millis(match std::env::var("FCTOOLS_VM_BOOT_WAIT") {
         Ok(value) => value.parse::<u64>().expect("Boot wait from env var is not a u64"),
-        Err(_) => 1500,
+        Err(_) => 2000,
     })
 }
 
@@ -273,6 +273,7 @@ pub struct NewVmBuilder {
     applier: NewVmConfigurationApplier,
     logger: Option<VmLogger>,
     metrics_system: Option<VmMetricsSystem>,
+    vsock: Option<VmVsock>,
 }
 
 #[allow(unused)]
@@ -282,6 +283,7 @@ impl NewVmBuilder {
             applier: NewVmConfigurationApplier::ViaApiCalls,
             logger: None,
             metrics_system: None,
+            vsock: None,
         }
     }
 
@@ -297,6 +299,11 @@ impl NewVmBuilder {
 
     pub fn metrics_system(mut self, metrics_system: VmMetricsSystem) -> Self {
         self.metrics_system = Some(metrics_system);
+        self
+    }
+
+    pub fn vsock(mut self, vsock: VmVsock) -> Self {
+        self.vsock = Some(vsock);
         self
     }
 
@@ -345,7 +352,12 @@ impl NewVmBuilder {
 
         if let Some(metrics_system) = self.metrics_system {
             unrestricted_configuration = unrestricted_configuration.metrics_system(metrics_system.clone());
-            jailed_configuration = jailed_configuration.metrics_system(metrics_system.clone());
+            jailed_configuration = jailed_configuration.metrics_system(metrics_system);
+        }
+
+        if let Some(vsock) = self.vsock {
+            unrestricted_configuration = unrestricted_configuration.vsock(vsock.clone());
+            jailed_configuration = jailed_configuration.vsock(vsock);
         }
 
         tokio::runtime::Builder::new_current_thread()

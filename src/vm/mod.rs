@@ -15,7 +15,7 @@ use api::VmApi;
 use configuration::{NewVmConfigurationApplier, VmConfiguration};
 use http::StatusCode;
 use paths::VmStandardPaths;
-use tokio::{fs, io::AsyncWriteExt, process::ChildStdin};
+use tokio::fs;
 
 pub mod api;
 pub mod configuration;
@@ -28,7 +28,7 @@ pub struct Vm<E: VmmExecutor, S: ShellSpawner> {
     is_paused: bool,
     configuration: Option<VmConfiguration>,
     standard_paths: VmStandardPaths,
-    traceless: bool,
+    executor_traceless: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,7 +95,6 @@ pub enum VmError {
 pub enum VmShutdownMethod {
     CtrlAltDel,
     PauseThenKill,
-    WriteRebootToStdin(ChildStdin),
     Kill,
 }
 
@@ -200,8 +199,8 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                     }
                 }
 
-                if let Some(ref metrics) = config.metrics_system {
-                    let new_metrics_path = vm_process.inner_to_outer_path(&metrics.metrics_path);
+                if let Some(ref metrics_system) = config.metrics_system {
+                    let new_metrics_path = vm_process.inner_to_outer_path(&metrics_system.metrics_path);
                     prepare_file(&new_metrics_path, false).await?;
                     accessible_paths.metrics_path = Some(new_metrics_path);
                 }
@@ -234,7 +233,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             is_paused: false,
             configuration: Some(configuration),
             standard_paths: accessible_paths,
-            traceless,
+            executor_traceless: traceless,
         })
     }
 
@@ -327,12 +326,6 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                     Ok(()) => self.vmm_process.send_sigkill().map_err(VmError::ProcessError),
                     Err(err) => Err(err),
                 },
-                VmShutdownMethod::WriteRebootToStdin(mut stdin) => {
-                    match stdin.write_all(b"reboot\n").await.map_err(VmError::IoError) {
-                        Ok(()) => stdin.flush().await.map_err(VmError::IoError),
-                        Err(err) => Err(err),
-                    }
-                }
                 VmShutdownMethod::Kill => self.vmm_process.send_sigkill().map_err(VmError::ProcessError),
             };
 
@@ -359,7 +352,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         self.ensure_exited_or_crashed()?;
         self.vmm_process.cleanup().await.map_err(VmError::ProcessError)?;
 
-        if self.traceless {
+        if self.executor_traceless {
             return Ok(());
         }
 
