@@ -15,22 +15,21 @@ use api::VmApi;
 use configuration::{NewVmBootMethod, VmConfiguration, VmConfigurationData};
 use http::StatusCode;
 use models::VmLoadSnapshot;
-use paths::VmStandardPaths;
-use tokio::fs;
+use tokio::{fs, task::JoinSet};
 
 pub mod api;
 pub mod configuration;
 pub mod models;
-pub mod paths;
 
 #[derive(Debug)]
 pub struct Vm<E: VmmExecutor, S: ShellSpawner> {
     vmm_process: VmmProcess<E, S>,
     is_paused: bool,
-    owned_configuration_data: VmConfigurationData,
-    transformed_configuration: Option<VmConfiguration>,
+    original_configuration_data: VmConfigurationData,
+    configuration: Option<VmConfiguration>,
     standard_paths: VmStandardPaths,
     executor_traceless: bool,
+    snapshot_traces: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +99,45 @@ pub enum VmShutdownMethod {
     Kill,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmStandardPaths {
+    pub(crate) drive_sockets: HashMap<String, PathBuf>,
+    pub(crate) metrics_path: Option<PathBuf>,
+    pub(crate) log_path: Option<PathBuf>,
+    pub(crate) vsock_multiplexer_path: Option<PathBuf>,
+    pub(crate) vsock_listener_paths: Vec<PathBuf>,
+}
+
+impl VmStandardPaths {
+    pub fn add_vsock_listener_path(&mut self, socket_path: impl Into<PathBuf>) {
+        self.vsock_listener_paths.push(socket_path.into());
+    }
+
+    pub fn get_drive_sockets(&self) -> &HashMap<String, PathBuf> {
+        &self.drive_sockets
+    }
+
+    pub fn get_drive_socket(&self, drive_id: impl AsRef<str>) -> Option<&PathBuf> {
+        self.drive_sockets.get(drive_id.as_ref())
+    }
+
+    pub fn get_metrics_path(&self) -> Option<&PathBuf> {
+        self.metrics_path.as_ref()
+    }
+
+    pub fn get_log_path(&self) -> Option<&PathBuf> {
+        self.log_path.as_ref()
+    }
+
+    pub fn get_vsock_multiplexer_path(&self) -> Option<&PathBuf> {
+        self.vsock_multiplexer_path.as_ref()
+    }
+
+    pub fn get_vsock_listener_paths(&self) -> &Vec<PathBuf> {
+        &self.vsock_listener_paths
+    }
+}
+
 impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
     pub async fn prepare(
         executor: E,
@@ -161,7 +199,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         let mut path_mappings = vm_process.prepare().await.map_err(VmError::ProcessError)?;
 
         // transform data according to returned mappings
-        let snapshot_configuration_data = configuration.data().clone();
+        let original_configuration_data = configuration.data().clone();
 
         configuration.data_mut().boot_source.kernel_image_path = path_mappings
             .remove(&configuration.data().boot_source.kernel_image_path)
@@ -244,10 +282,11 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         Ok(Self {
             vmm_process: vm_process,
             is_paused: false,
-            owned_configuration_data: snapshot_configuration_data,
-            transformed_configuration: Some(configuration),
+            original_configuration_data,
+            configuration: Some(configuration),
             standard_paths: accessible_paths,
             executor_traceless: traceless,
+            snapshot_traces: Vec::new(),
         })
     }
 
@@ -266,7 +305,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
     pub async fn start(&mut self, socket_wait_timeout: Duration) -> Result<(), VmError> {
         self.ensure_state(VmState::NotStarted)?;
         let configuration = self
-            .transformed_configuration
+            .configuration
             .take()
             .expect("No configuration cannot exist for a VM, unreachable");
         let socket_path = self
@@ -372,22 +411,30 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             return Ok(());
         }
 
-        if let Some(ref log_path) = self.standard_paths.log_path {
-            tokio::fs::remove_file(log_path).await.map_err(VmError::IoError)?;
+        let mut join_set = JoinSet::new();
+
+        if let Some(log_path) = self.standard_paths.log_path.clone() {
+            join_set.spawn_blocking(move || std::fs::remove_file(log_path));
         }
 
-        if let Some(ref metrics_path) = self.standard_paths.metrics_path {
-            tokio::fs::remove_file(metrics_path).await.map_err(VmError::IoError)?;
+        if let Some(metrics_path) = self.standard_paths.metrics_path.clone() {
+            join_set.spawn_blocking(move || std::fs::remove_file(metrics_path));
         }
 
-        if let Some(ref multiplexer_path) = self.standard_paths.vsock_multiplexer_path {
-            tokio::fs::remove_file(multiplexer_path)
-                .await
-                .map_err(VmError::IoError)?;
+        if let Some(multiplexer_path) = self.standard_paths.vsock_multiplexer_path.clone() {
+            join_set.spawn_blocking(move || std::fs::remove_file(multiplexer_path));
 
-            for listener_path in &self.standard_paths.vsock_listener_paths {
-                tokio::fs::remove_file(listener_path).await.map_err(VmError::IoError)?;
+            for listener_path in self.standard_paths.vsock_listener_paths.clone() {
+                join_set.spawn_blocking(move || std::fs::remove_file(listener_path));
             }
+        }
+
+        while let Some(snapshot_trace_path) = self.snapshot_traces.pop() {
+            join_set.spawn_blocking(move || std::fs::remove_file(snapshot_trace_path));
+        }
+
+        while let Some(remove_result) = join_set.join_next().await {
+            let _ = remove_result; // ignore "doesn't exist" errors that have no effect
         }
 
         Ok(())
