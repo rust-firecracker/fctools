@@ -92,7 +92,7 @@ async fn vmm_can_send_get_request_to_api_socket() {
 }
 
 #[tokio::test]
-async fn vmm_can_send_put_and_patch_requests_to_api_socket() {
+async fn vmm_can_send_patch_request_to_api_socket() {
     async fn send_state_request(state: &str, process: &mut TestVmmProcess) {
         let request = Request::builder()
             .method("PATCH")
@@ -110,6 +110,10 @@ async fn vmm_can_send_put_and_patch_requests_to_api_socket() {
         shutdown(&mut process).await;
     })
     .await;
+}
+
+#[tokio::test]
+async fn vmm_can_send_put_request_to_api_socket() {
     run_vmm_process_test(|mut process| async move {
         let request = Request::builder()
             .method("PUT")

@@ -18,7 +18,8 @@ use fctools::{
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
     vm::{
         configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
-        models::{VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem, VmVsock},
+        models::{VmBalloon, VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem, VmVsock},
+        VmShutdownMethod,
     },
 };
 use futures_util::future::BoxFuture;
@@ -278,6 +279,7 @@ pub struct NewVmBuilder {
     metrics_system: Option<VmMetricsSystem>,
     vsock: Option<VmVsock>,
     pre_start_hook: Option<(PreStartHook, PreStartHook)>,
+    balloon: Option<VmBalloon>,
 }
 
 #[allow(unused)]
@@ -289,6 +291,7 @@ impl NewVmBuilder {
             metrics_system: None,
             vsock: None,
             pre_start_hook: None,
+            balloon: None,
         }
     }
 
@@ -314,6 +317,11 @@ impl NewVmBuilder {
 
     pub fn pre_start_hook(mut self, hook: impl Fn(&mut TestVm) -> BoxFuture<()> + Clone + 'static) -> Self {
         self.pre_start_hook = Some((Box::new(hook.clone()), Box::new(hook)));
+        self
+    }
+
+    pub fn balloon(mut self, balloon: VmBalloon) -> Self {
+        self.balloon = Some(balloon);
         self
     }
 
@@ -370,6 +378,11 @@ impl NewVmBuilder {
             jailed_configuration = jailed_configuration.vsock(vsock);
         }
 
+        if let Some(balloon) = self.balloon {
+            unrestricted_configuration = unrestricted_configuration.balloon(balloon.clone());
+            jailed_configuration = jailed_configuration.balloon(balloon);
+        }
+
         let (pre_start_hook1, pre_start_hook2) = match self.pre_start_hook {
             Some((a, b)) => (Some(a), Some(b)),
             None => (None, None),
@@ -424,4 +437,12 @@ impl NewVmBuilder {
         tokio::time::sleep(env_get_boot_wait()).await;
         function(vm).await;
     }
+}
+
+#[allow(unused)]
+pub async fn shutdown_test_vm(vm: &mut TestVm, shutdown_method: VmShutdownMethod) {
+    vm.shutdown(vec![shutdown_method], env_get_shutdown_timeout())
+        .await
+        .unwrap();
+    vm.cleanup().await.unwrap();
 }

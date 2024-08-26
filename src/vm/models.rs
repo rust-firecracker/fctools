@@ -50,7 +50,7 @@ impl VmBalloon {
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct VmUpdateBalloon {
-    pub amount_mib: u16,
+    amount_mib: u16,
 }
 
 impl VmUpdateBalloon {
