@@ -17,8 +17,12 @@ use fctools::{
     process::VmmProcessState,
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
     vm::{
-        configuration::{NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
-        models::{VmBalloon, VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem, VmVsock},
+        configuration::{FromSnapshotVmConfiguration, NewVmConfiguration, NewVmConfigurationApplier, VmConfiguration},
+        models::{
+            VmBalloon, VmBootSource, VmDrive, VmLoadSnapshot, VmLogger, VmMachineConfiguration, VmMetricsSystem,
+            VmVsock,
+        },
+        paths::VmSnapshotPaths,
         VmShutdownMethod,
     },
 };
@@ -454,4 +458,30 @@ pub async fn shutdown_test_vm(vm: &mut TestVm, shutdown_method: VmShutdownMethod
         .await
         .unwrap();
     vm.cleanup().await.unwrap();
+}
+
+#[allow(unused)]
+pub async fn with_snapshot_restored_vm<F, Fut>(snapshot_paths: VmSnapshotPaths, function: F)
+where
+    F: FnOnce(TestVm) -> Fut + Send,
+    Fut: Future<Output = ()> + Send,
+{
+    let shell_spawner = TestShellSpawner::SameUser(SameUserShellSpawner::new(which::which("bash").unwrap()));
+    let executor = TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(FirecrackerArguments::new(
+        FirecrackerApiSocket::Enabled(get_tmp_path()),
+    )));
+    let mut load_snapshot: VmLoadSnapshot = snapshot_paths.into();
+    load_snapshot = load_snapshot.resume_vm(true);
+    let configuration = VmConfiguration::FromSnapshot(FromSnapshotVmConfiguration::new(load_snapshot));
+    let mut vm = TestVm::prepare(
+        executor,
+        shell_spawner,
+        get_real_firecracker_installation(),
+        configuration,
+    )
+    .await
+    .unwrap();
+    vm.start(env_get_boot_socket_wait()).await.unwrap();
+    tokio::time::sleep(env_get_boot_wait()).await;
+    function(vm).await;
 }

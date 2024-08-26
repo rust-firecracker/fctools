@@ -559,9 +559,11 @@ pub enum VmSnapshotType {
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct VmLoadSnapshot {
+    #[serde(skip_serializing_if = "Option::is_none")]
     enable_diff_snapshots: Option<bool>,
     pub(crate) mem_backend: VmMemoryBackend,
     pub(crate) snapshot_path: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
     resume_vm: Option<bool>,
 }
 

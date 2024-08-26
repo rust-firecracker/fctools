@@ -1,5 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
+use super::models::{VmLoadSnapshot, VmMemoryBackend, VmMemoryBackendType};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VmStandardPaths {
     pub(crate) drive_sockets: HashMap<String, PathBuf>,
@@ -52,5 +54,14 @@ impl VmSnapshotPaths {
 
     pub fn get_mem_file_path(&self) -> &PathBuf {
         &self.mem_file_path
+    }
+}
+
+impl From<VmSnapshotPaths> for VmLoadSnapshot {
+    fn from(value: VmSnapshotPaths) -> Self {
+        Self::new(
+            value.snapshot_path,
+            VmMemoryBackend::new(VmMemoryBackendType::File, value.mem_file_path),
+        )
     }
 }
