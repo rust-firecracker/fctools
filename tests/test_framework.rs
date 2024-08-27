@@ -609,10 +609,6 @@ impl VmBuilder {
                 .delete(&fcnet_path, cloned_shell_spawner.as_ref())
                 .await
                 .unwrap();
-            let _ = network
-                .fcnet_configuration
-                .delete(fcnet_path, cloned_shell_spawner.as_ref())
-                .await;
         }
     }
 }

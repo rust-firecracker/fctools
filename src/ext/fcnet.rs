@@ -245,8 +245,6 @@ impl FcnetConfiguration {
             }
         }
 
-        dbg!(&arguments);
-
         let child = shell_spawner
             .spawn(format!("{} {arguments}", fcnet_path.as_ref().to_string_lossy()))
             .await
