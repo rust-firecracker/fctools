@@ -113,11 +113,11 @@ pub trait VmApi {
 
     async fn api_resume(&mut self) -> Result<(), VmError>;
 
-    async fn api_create_mmds(&mut self, value: &serde_json::Value) -> Result<(), VmError>;
+    async fn api_create_mmds_untyped(&mut self, value: &serde_json::Value) -> Result<(), VmError>;
 
-    async fn api_update_mmds(&mut self, value: &serde_json::Value) -> Result<(), VmError>;
+    async fn api_update_mmds_untyped(&mut self, value: &serde_json::Value) -> Result<(), VmError>;
 
-    async fn api_get_mmds(&mut self) -> Result<serde_json::Value, VmError>;
+    async fn api_get_mmds_untyped(&mut self) -> Result<serde_json::Value, VmError>;
 }
 
 #[async_trait]
@@ -272,17 +272,17 @@ impl<E: VmmExecutor, S: ShellSpawner> VmApi for Vm<E, S> {
         Ok(())
     }
 
-    async fn api_create_mmds(&mut self, value: &serde_json::Value) -> Result<(), VmError> {
+    async fn api_create_mmds_untyped(&mut self, value: &serde_json::Value) -> Result<(), VmError> {
         self.ensure_paused_or_running()?;
         send_api_request(self, "/mmds", "PUT", Some(value)).await
     }
 
-    async fn api_update_mmds(&mut self, value: &serde_json::Value) -> Result<(), VmError> {
+    async fn api_update_mmds_untyped(&mut self, value: &serde_json::Value) -> Result<(), VmError> {
         self.ensure_paused_or_running()?;
         send_api_request(self, "/mmds", "PATCH", Some(value)).await
     }
 
-    async fn api_get_mmds(&mut self) -> Result<serde_json::Value, VmError> {
+    async fn api_get_mmds_untyped(&mut self) -> Result<serde_json::Value, VmError> {
         self.ensure_paused_or_running()?;
         send_api_request_with_response(self, "/mmds", "GET", None::<i32>).await
     }

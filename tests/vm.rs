@@ -17,7 +17,7 @@ use futures_util::FutureExt;
 use rand::RngCore;
 use test_framework::{
     env_get_boot_socket_wait, env_get_boot_wait, get_real_firecracker_installation, get_tmp_path, shutdown_test_vm,
-    NewVmBuilder, SnapshottingContext, TestExecutor, TestVm,
+    SnapshottingContext, TestExecutor, TestVm, VmBuilder,
 };
 use tokio::{
     fs::{metadata, try_exists},
@@ -28,7 +28,7 @@ mod test_framework;
 
 #[test]
 fn vm_can_boot_via_api_calls() {
-    NewVmBuilder::new()
+    VmBuilder::new()
         .boot_method(NewVmBootMethod::ViaApiCalls)
         .run(|mut vm| async move {
             shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
@@ -37,7 +37,7 @@ fn vm_can_boot_via_api_calls() {
 
 #[test]
 fn vm_can_boot_via_json() {
-    NewVmBuilder::new()
+    VmBuilder::new()
         .boot_method(NewVmBootMethod::ViaJsonConfiguration(get_tmp_path()))
         .run(|mut vm| async move {
             shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
@@ -46,21 +46,21 @@ fn vm_can_boot_via_json() {
 
 #[test]
 fn vm_can_be_shut_down_via_kill() {
-    NewVmBuilder::new().run(|mut vm| async move {
+    VmBuilder::new().run(|mut vm| async move {
         shutdown_test_vm(&mut vm, VmShutdownMethod::Kill).await;
     });
 }
 
 #[test]
 fn vm_can_be_shut_down_via_pause_then_kill() {
-    NewVmBuilder::new().run(|mut vm| async move {
+    VmBuilder::new().run(|mut vm| async move {
         shutdown_test_vm(&mut vm, VmShutdownMethod::PauseThenKill).await;
     });
 }
 
 #[test]
 fn vm_processes_logger_path() {
-    NewVmBuilder::new()
+    VmBuilder::new()
         .logger(VmLogger::new().log_path(get_tmp_path()))
         .run(|mut vm| async move {
             let log_path = vm.standard_paths().get_log_path().unwrap().clone();
@@ -72,7 +72,7 @@ fn vm_processes_logger_path() {
 
 #[test]
 fn vm_processes_metrics_path() {
-    NewVmBuilder::new()
+    VmBuilder::new()
         .metrics_system(VmMetricsSystem::new(get_tmp_path()))
         .run(|mut vm| async move {
             let metrics_path = vm.standard_paths().get_metrics_path().unwrap().clone();
@@ -84,7 +84,7 @@ fn vm_processes_metrics_path() {
 
 #[test]
 fn vm_processes_vsock_multiplexer_path() {
-    NewVmBuilder::new()
+    VmBuilder::new()
         .vsock(VmVsock::new(rand::thread_rng().next_u32(), get_tmp_path()))
         .run(|mut vm| async move {
             let vsock_multiplexer_path = vm.standard_paths().get_vsock_multiplexer_path().unwrap().clone();
@@ -96,7 +96,7 @@ fn vm_processes_vsock_multiplexer_path() {
 
 #[test]
 fn vm_processes_vsock_listener_paths() {
-    NewVmBuilder::new().run(|mut vm| async move {
+    VmBuilder::new().run(|mut vm| async move {
         assert!(vm.standard_paths().get_vsock_listener_paths().is_empty());
         let expected_path = get_tmp_path();
         vm.standard_paths_mut().add_vsock_listener_path(&expected_path);
@@ -107,7 +107,7 @@ fn vm_processes_vsock_listener_paths() {
 
 #[test]
 fn vm_translates_inner_to_outer_paths() {
-    NewVmBuilder::new().run(|mut vm| async move {
+    VmBuilder::new().run(|mut vm| async move {
         let inner_path = get_tmp_path();
         let outer_path = vm.inner_to_outer_path(&inner_path);
         assert!(inner_path == outer_path || outer_path.to_str().unwrap().ends_with(inner_path.to_str().unwrap()));
@@ -117,7 +117,7 @@ fn vm_translates_inner_to_outer_paths() {
 
 #[test]
 fn vm_can_take_pipes() {
-    NewVmBuilder::new()
+    VmBuilder::new()
         .pre_start_hook(|vm| {
             async {
                 vm.take_pipes().unwrap_err(); // cannot take out pipes before start
@@ -142,7 +142,7 @@ fn vm_can_take_pipes() {
 
 #[test]
 fn vm_tracks_state_with_graceful_exit() {
-    NewVmBuilder::new()
+    VmBuilder::new()
         .pre_start_hook(|vm| {
             async {
                 assert_eq!(vm.state(), VmState::NotStarted);
@@ -158,7 +158,7 @@ fn vm_tracks_state_with_graceful_exit() {
 
 #[test]
 fn vm_tracks_state_with_crash() {
-    NewVmBuilder::new().run(|mut vm| async move {
+    VmBuilder::new().run(|mut vm| async move {
         assert_eq!(vm.state(), VmState::Running);
         shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
     });
@@ -166,7 +166,7 @@ fn vm_tracks_state_with_crash() {
 
 #[test]
 fn vm_can_snapshot_while_original_is_running() {
-    NewVmBuilder::new().run_with_snapshotting_context(|mut vm, snapshotting_context| async move {
+    VmBuilder::new().run_with_snapshotting_context(|mut vm, snapshotting_context| async move {
         vm.api_pause().await.unwrap();
         let snapshot = vm
             .api_create_snapshot(VmCreateSnapshot::new(get_tmp_path(), get_tmp_path()))
@@ -185,7 +185,7 @@ fn vm_can_snapshot_while_original_is_running() {
 
 #[test]
 fn vm_can_snapshot_after_original_has_exited() {
-    NewVmBuilder::new().run_with_snapshotting_context(|mut vm, snapshotting_context| async move {
+    VmBuilder::new().run_with_snapshotting_context(|mut vm, snapshotting_context| async move {
         vm.api_pause().await.unwrap();
         let mut snapshot = vm
             .api_create_snapshot(VmCreateSnapshot::new(get_tmp_path(), get_tmp_path()))
@@ -202,7 +202,7 @@ fn vm_can_snapshot_after_original_has_exited() {
 
 #[test]
 fn vm_can_boot_with_net_iface() {
-    NewVmBuilder::new().networking().run(|mut vm| async move {
+    VmBuilder::new().networking().run(|mut vm| async move {
         let configuration = vm.api_get_effective_configuration().await.unwrap();
         assert_eq!(configuration.network_interfaces.len(), 1);
         shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;

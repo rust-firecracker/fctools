@@ -303,7 +303,7 @@ struct NetworkData {
 }
 
 #[allow(unused)]
-pub struct NewVmBuilder {
+pub struct VmBuilder {
     boot_method: NewVmBootMethod,
     logger: Option<VmLogger>,
     metrics_system: Option<VmMetricsSystem>,
@@ -332,7 +332,7 @@ impl SnapshottingContext {
 }
 
 #[allow(unused)]
-impl NewVmBuilder {
+impl VmBuilder {
     pub fn new() -> Self {
         Self {
             boot_method: NewVmBootMethod::ViaApiCalls,

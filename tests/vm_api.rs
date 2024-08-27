@@ -11,13 +11,13 @@ use fctools::{
 use http::{Request, StatusCode};
 use http_body_util::Full;
 use serde::{Deserialize, Serialize};
-use test_framework::{get_tmp_path, shutdown_test_vm, NewVmBuilder};
+use test_framework::{get_tmp_path, shutdown_test_vm, VmBuilder};
 
 mod test_framework;
 
 #[test]
 fn vm_api_can_catch_api_errors() {
-    NewVmBuilder::new()
+    VmBuilder::new()
         .balloon(VmBalloon::new(64, false))
         .run(|mut vm| async move {
             // trying to set up balloon stats after being disabled pre-boot is a bad request
@@ -38,7 +38,7 @@ fn vm_api_can_catch_api_errors() {
 
 #[test]
 fn vm_api_can_send_custom_request() {
-    NewVmBuilder::new().run(|mut vm| async move {
+    VmBuilder::new().run(|mut vm| async move {
         let mut response = vm
             .api_custom_request(
                 "/",
@@ -55,7 +55,7 @@ fn vm_api_can_send_custom_request() {
 
 #[test]
 fn vm_api_custom_requests_perform_pause_changes() {
-    NewVmBuilder::new().run(|mut vm| async move {
+    VmBuilder::new().run(|mut vm| async move {
         let request = Request::builder().method("GET").body(Full::new(Bytes::new())).unwrap();
         vm.api_custom_request("/", request.clone(), Some(true)).await.unwrap();
         assert_eq!(vm.state(), VmState::Paused);
@@ -67,7 +67,7 @@ fn vm_api_custom_requests_perform_pause_changes() {
 
 #[test]
 fn vm_api_can_receive_info() {
-    NewVmBuilder::new().run(|mut vm| async move {
+    VmBuilder::new().run(|mut vm| async move {
         let info = vm.api_get_info().await.unwrap();
         assert_eq!(info.app_name, "Firecracker");
         assert_eq!(info.state, VmReturnedState::Running);
@@ -77,7 +77,7 @@ fn vm_api_can_receive_info() {
 
 #[test]
 fn vm_api_can_flush_metrics() {
-    NewVmBuilder::new()
+    VmBuilder::new()
         .metrics_system(VmMetricsSystem::new(get_tmp_path()))
         .run(|mut vm| async move {
             vm.api_flush_metrics().await.unwrap();
@@ -87,7 +87,7 @@ fn vm_api_can_flush_metrics() {
 
 #[test]
 fn vm_api_can_get_balloon() {
-    NewVmBuilder::new()
+    VmBuilder::new()
         .balloon(VmBalloon::new(64, false))
         .run(|mut vm| async move {
             let balloon = vm.api_get_balloon().await.unwrap();
@@ -100,7 +100,7 @@ fn vm_api_can_get_balloon() {
 
 #[test]
 fn vm_api_can_update_balloon() {
-    NewVmBuilder::new()
+    VmBuilder::new()
         .balloon(VmBalloon::new(64, false))
         .run(|mut vm| async move {
             vm.api_update_balloon(VmUpdateBalloon::new(50)).await.unwrap();
@@ -112,7 +112,7 @@ fn vm_api_can_update_balloon() {
 
 #[test]
 fn vm_api_can_get_balloon_statistics() {
-    NewVmBuilder::new()
+    VmBuilder::new()
         .balloon(VmBalloon::new(64, false).stats_polling_interval_s(1))
         .run(|mut vm| async move {
             let statistics = vm.api_get_balloon_statistics().await.unwrap();
@@ -123,7 +123,7 @@ fn vm_api_can_get_balloon_statistics() {
 
 #[test]
 fn vm_api_can_update_balloon_statistics() {
-    NewVmBuilder::new()
+    VmBuilder::new()
         .balloon(VmBalloon::new(64, false).stats_polling_interval_s(1))
         .run(|mut vm| async move {
             vm.api_update_balloon_statistics(VmUpdateBalloonStatistics::new(3))
@@ -136,7 +136,7 @@ fn vm_api_can_update_balloon_statistics() {
 
 #[test]
 fn vm_api_can_get_machine_configuration() {
-    NewVmBuilder::new().run(|mut vm| async move {
+    VmBuilder::new().run(|mut vm| async move {
         let machine_configuration = vm.api_get_machine_configuration().await.unwrap();
         assert_eq!(machine_configuration.get_vcpu_count(), 1);
         assert_eq!(machine_configuration.get_mem_size_mib(), 128);
@@ -146,7 +146,7 @@ fn vm_api_can_get_machine_configuration() {
 
 #[test]
 fn vm_api_can_get_firecracker_version() {
-    NewVmBuilder::new().run(|mut vm| async move {
+    VmBuilder::new().run(|mut vm| async move {
         let firecracker_version = vm.api_get_firecracker_version().await.unwrap();
         assert!(firecracker_version.contains("1"));
         shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
@@ -155,7 +155,7 @@ fn vm_api_can_get_firecracker_version() {
 
 #[test]
 fn vm_api_can_get_effective_configuration() {
-    NewVmBuilder::new().run(|mut vm| async move {
+    VmBuilder::new().run(|mut vm| async move {
         let effective_configuration = vm.api_get_effective_configuration().await.unwrap();
         effective_configuration.boot_source.unwrap();
         effective_configuration.machine_configuration.unwrap();
@@ -166,7 +166,7 @@ fn vm_api_can_get_effective_configuration() {
 
 #[test]
 fn vm_api_can_pause_and_resume() {
-    NewVmBuilder::new().run(|mut vm| async move {
+    VmBuilder::new().run(|mut vm| async move {
         vm.api_pause().await.unwrap();
         assert_eq!(vm.state(), VmState::Paused);
         vm.api_resume().await.unwrap();
@@ -176,16 +176,33 @@ fn vm_api_can_pause_and_resume() {
 }
 
 #[test]
-fn vm_api_can_put_mmds() {
-    NewVmBuilder::new().networking().mmds().run(|mut vm| async move {
-        vm.api_create_mmds(&serde_json::to_value(MmdsData { data: 4 }).unwrap())
+fn vm_api_can_put_and_get_mmds() {
+    VmBuilder::new().networking().mmds().run(|mut vm| async move {
+        vm.api_create_mmds_untyped(&serde_json::to_value(MmdsData { number: 4 }).unwrap())
             .await
             .unwrap();
+        let data = serde_json::from_value::<MmdsData>(vm.api_get_mmds_untyped().await.unwrap()).unwrap();
+        assert_eq!(data.number, 4);
+        shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
+    });
+}
+
+#[test]
+fn vm_api_can_patch_mmds_untyped() {
+    VmBuilder::new().networking().mmds().run(|mut vm| async move {
+        vm.api_create_mmds_untyped(&serde_json::to_value(MmdsData { number: 4 }).unwrap())
+            .await
+            .unwrap();
+        vm.api_update_mmds_untyped(&serde_json::to_value(MmdsData { number: 5 }).unwrap())
+            .await
+            .unwrap();
+        let data = serde_json::from_value::<MmdsData>(vm.api_get_mmds_untyped().await.unwrap()).unwrap();
+        assert_eq!(data.number, 5);
         shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
     });
 }
 
 #[derive(Serialize, Deserialize)]
 struct MmdsData {
-    data: i32,
+    number: i32,
 }
