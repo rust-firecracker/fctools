@@ -342,6 +342,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                     break;
                 }
             }
+            tokio::time::sleep(Duration::from_millis(1)).await;
             Ok(())
         })
         .await

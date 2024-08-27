@@ -59,6 +59,7 @@ full = [
     "fcnet-ext",
     "vsock-http-ext",
     "serial-console-ext",
+    "link-local-ext",
 ]
 # layers
 shell-spawner = []
@@ -77,3 +78,4 @@ metrics-ext = ["dep:serde", "dep:serde_json"]
 fcnet-ext = ["shell-spawner", "dep:cidr"]
 vsock-http-ext = ["vm", "hyper-client-sockets/firecracker"]
 serial-console-ext = ["vmm-process", "dep:pin-project-lite"]
+link-local-ext = ["dep:cidr"]
