@@ -176,7 +176,7 @@ fn vm_api_can_pause_and_resume() {
 }
 
 #[test]
-fn vm_api_can_put_and_get_mmds() {
+fn vm_api_can_put_and_get_mmds_untyped() {
     VmBuilder::new().networking().mmds().run(|mut vm| async move {
         vm.api_create_mmds_untyped(&serde_json::to_value(MmdsData { number: 4 }).unwrap())
             .await
@@ -199,6 +199,25 @@ fn vm_api_can_patch_mmds_untyped() {
         let data = serde_json::from_value::<MmdsData>(vm.api_get_mmds_untyped().await.unwrap()).unwrap();
         assert_eq!(data.number, 5);
         shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
+    });
+}
+
+#[test]
+fn vm_api_can_put_and_get_mmds_typed() {
+    VmBuilder::new().networking().mmds().run(|mut vm| async move {
+        vm.api_create_mmds(MmdsData { number: 4 }).await.unwrap();
+        let data = vm.api_get_mmds::<MmdsData>().await.unwrap();
+        assert_eq!(data.number, 4);
+    });
+}
+
+#[test]
+fn vm_api_can_patch_mmds_typed() {
+    VmBuilder::new().networking().mmds().run(|mut vm| async move {
+        vm.api_create_mmds(MmdsData { number: 4 }).await.unwrap();
+        vm.api_update_mmds(MmdsData { number: 5 }).await.unwrap();
+        let data = vm.api_get_mmds::<MmdsData>().await.unwrap();
+        assert_eq!(data.number, 5);
     });
 }
 

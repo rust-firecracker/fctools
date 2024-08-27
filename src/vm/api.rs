@@ -113,6 +113,12 @@ pub trait VmApi {
 
     async fn api_resume(&mut self) -> Result<(), VmError>;
 
+    async fn api_create_mmds<T: Serialize + Send>(&mut self, value: T) -> Result<(), VmError>;
+
+    async fn api_update_mmds<T: Serialize + Send>(&mut self, value: T) -> Result<(), VmError>;
+
+    async fn api_get_mmds<T: DeserializeOwned>(&mut self) -> Result<T, VmError>;
+
     async fn api_create_mmds_untyped(&mut self, value: &serde_json::Value) -> Result<(), VmError>;
 
     async fn api_update_mmds_untyped(&mut self, value: &serde_json::Value) -> Result<(), VmError>;
@@ -270,6 +276,21 @@ impl<E: VmmExecutor, S: ShellSpawner> VmApi for Vm<E, S> {
         .await?;
         self.is_paused = false;
         Ok(())
+    }
+
+    async fn api_create_mmds<T: Serialize + Send>(&mut self, value: T) -> Result<(), VmError> {
+        self.ensure_paused_or_running()?;
+        send_api_request(self, "/mmds", "PUT", Some(value)).await
+    }
+
+    async fn api_update_mmds<T: Serialize + Send>(&mut self, value: T) -> Result<(), VmError> {
+        self.ensure_paused_or_running()?;
+        send_api_request(self, "/mmds", "PATCH", Some(value)).await
+    }
+
+    async fn api_get_mmds<T: DeserializeOwned>(&mut self) -> Result<T, VmError> {
+        self.ensure_paused_or_running()?;
+        send_api_request_with_response(self, "/mmds", "GET", None::<i32>).await
     }
 
     async fn api_create_mmds_untyped(&mut self, value: &serde_json::Value) -> Result<(), VmError> {
