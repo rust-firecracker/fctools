@@ -2,6 +2,7 @@ use std::net::Ipv4Addr;
 
 use cidr::Ipv4Inet;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LinkLocalSubnet {
     subnet_index: u16,
     network_length: u8,
@@ -10,8 +11,6 @@ pub struct LinkLocalSubnet {
 
 const LINK_LOCAL_OCTET_1: u8 = 169;
 const LINK_LOCAL_OCTET_2: u8 = 254;
-const THINNEST_NETWORK_LENGTH: u8 = 30;
-const WIDEST_NETWORK_LENGTH: u8 = 17;
 const LINK_LOCAL_IP_AMOUNT: u32 = 65536;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,14 +27,24 @@ const fn get_ip_amount(network_length: u8) -> u32 {
     2_u32.pow((32 - network_length) as u32)
 }
 
+#[inline(always)]
+const fn validate_network_length_and_subnet_index(
+    network_length: u8,
+    subnet_index: u16,
+) -> Result<(), LinkLocalSubnetError> {
+    if network_length > 30 || network_length < 17 {
+        Err(LinkLocalSubnetError::NetworkLengthDoesNotFit)
+    } else if LINK_LOCAL_IP_AMOUNT / (2_u32.pow(32 - network_length as u32)) <= subnet_index as u32 {
+        Err(LinkLocalSubnetError::SubnetIndexDoesNotFit)
+    } else {
+        Ok(())
+    }
+}
+
 impl LinkLocalSubnet {
     pub const fn new(subnet_index: u16, network_length: u8) -> Result<Self, LinkLocalSubnetError> {
-        if network_length > THINNEST_NETWORK_LENGTH || network_length < WIDEST_NETWORK_LENGTH {
-            return Err(LinkLocalSubnetError::NetworkLengthDoesNotFit);
-        }
-
-        if LINK_LOCAL_IP_AMOUNT / (2_u32.pow(32 - network_length as u32)) <= subnet_index as u32 {
-            return Err(LinkLocalSubnetError::SubnetIndexDoesNotFit);
+        if let Err(err) = validate_network_length_and_subnet_index(network_length, subnet_index) {
+            return Err(err);
         }
 
         Ok(Self {
@@ -45,32 +54,26 @@ impl LinkLocalSubnet {
         })
     }
 
-    pub fn of_inet(inet: impl AsRef<Ipv4Inet>) -> Result<Self, LinkLocalSubnetError> {
-        let inet = inet.as_ref();
+    pub const fn from_inet(inet: &Ipv4Inet) -> Result<Self, LinkLocalSubnetError> {
         if !inet.address().is_link_local() {
             return Err(LinkLocalSubnetError::NotLinkLocal);
         }
 
-        if inet.network_length() > THINNEST_NETWORK_LENGTH || inet.network_length() < WIDEST_NETWORK_LENGTH {
-            return Err(LinkLocalSubnetError::NetworkLengthDoesNotFit);
+        // where octet 3 is a, octet 4 is b, network length is c
+        // subnet_index=ceil((256a-b%c)/c)
+        let network_length = inet.network_length() as u16;
+        let octet_3 = inet.address().octets()[2] as u16;
+        let octet_4 = inet.address().octets()[3] as u16;
+        let subnet_index = (256 * octet_3 - octet_4 % network_length).div_ceil(network_length);
+
+        match validate_network_length_and_subnet_index(inet.network_length(), subnet_index) {
+            Ok(_) => Ok(Self {
+                subnet_index,
+                network_length: inet.network_length(),
+                ip_amount: get_ip_amount(inet.network_length()),
+            }),
+            Err(err) => Err(err),
         }
-
-        // where octet 3 is A, octet 4 is B, network length is N
-        // offset=ceil((256A-B%N)/N)
-        let network_length: u16 = inet.network_length().into();
-        let octet_3: u16 = inet.address().octets()[2].into();
-        let octet_4: u16 = inet.address().octets()[3].into();
-        let index = (256 * octet_3 - octet_4 % network_length).div_ceil(network_length);
-
-        if LINK_LOCAL_IP_AMOUNT / (2_u32.pow(32 - inet.network_length() as u32)) <= index as u32 {
-            return Err(LinkLocalSubnetError::SubnetIndexDoesNotFit);
-        }
-
-        Ok(Self {
-            subnet_index: index,
-            network_length: inet.network_length(),
-            ip_amount: get_ip_amount(inet.network_length()),
-        })
     }
 
     pub const fn subnet_index(&self) -> u16 {
@@ -158,11 +161,81 @@ impl LinkLocalSubnet {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
+    use cidr::Ipv4Inet;
+
+    use crate::ext::link_local::LinkLocalSubnetError;
+
     use super::LinkLocalSubnet;
 
     #[test]
-    fn t() {
-        let subnet = LinkLocalSubnet::new(0, 29).unwrap();
-        dbg!(subnet.get_host_ips().unwrap());
+    fn subnet_new_fails_with_wide_network_length() {
+        for network_length in 0..=16 {
+            assert_eq!(
+                LinkLocalSubnet::new(0, network_length),
+                Err(LinkLocalSubnetError::NetworkLengthDoesNotFit)
+            );
+        }
+    }
+
+    #[test]
+    fn subnet_new_fails_with_thin_network_length() {
+        for network_length in 31..=255 {
+            assert_eq!(
+                LinkLocalSubnet::new(0, network_length),
+                Err(LinkLocalSubnetError::NetworkLengthDoesNotFit)
+            );
+        }
+    }
+
+    #[test]
+    fn subnet_new_fails_with_not_fitting_subnet_index() {
+        for network_length in 17..=30 {
+            let min_forbidden_subnet_index = 65536 / (2_u32.pow(32 - network_length as u32));
+            assert_eq!(
+                LinkLocalSubnet::new(min_forbidden_subnet_index as u16, network_length),
+                Err(LinkLocalSubnetError::SubnetIndexDoesNotFit)
+            );
+        }
+    }
+
+    #[test]
+    fn subnet_new_succeeds_with_correct_params() {
+        for network_length in 17..=30 {
+            LinkLocalSubnet::new(0, network_length).unwrap();
+        }
+    }
+
+    #[test]
+    fn subnet_from_inet_fails_with_non_link_local_inet() {
+        let inet = Ipv4Inet::from_str("168.253.1.1/30").unwrap();
+        assert_eq!(
+            LinkLocalSubnet::from_inet(&inet),
+            Err(LinkLocalSubnetError::NotLinkLocal)
+        );
+    }
+
+    #[test]
+    fn subnet_from_inet_fails_with_incorrect_network_length() {
+        for inet in ["169.254.1.1/31", "169.254.1.1/16"]
+            .into_iter()
+            .map(|slice| Ipv4Inet::from_str(slice).unwrap())
+        {
+            assert_eq!(
+                LinkLocalSubnet::from_inet(&inet),
+                Err(LinkLocalSubnetError::NetworkLengthDoesNotFit)
+            );
+        }
+    }
+
+    #[test]
+    fn subnet_from_inet_succeeds_with_correct_params() {
+        for a in 1..256 {
+            for b in 1..256 {
+                let inet = Ipv4Inet::from_str(format!("169.254.{a}.{b}/30").as_str()).unwrap();
+                LinkLocalSubnet::from_inet(&inet).unwrap();
+            }
+        }
     }
 }
