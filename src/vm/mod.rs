@@ -75,7 +75,7 @@ pub enum VmError {
         fault_message: String,
     },
     #[error(
-        "The API HTTP request could not be constructed, likely due to an incorrect URI or HTTP cotodo!()nfiguration: `{0}`"
+        "The API HTTP request could not be constructed, likely due to an incorrect URI or HTTP configuration: `{0}`"
     )]
     ApiRequestNotConstructed(http::Error),
     #[error("The API HTTP response could not be received from the API socket: `{0}`")]

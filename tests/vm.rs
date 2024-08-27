@@ -200,6 +200,14 @@ fn vm_can_snapshot_after_original_has_exited() {
     });
 }
 
+#[test]
+fn vm_can_boot_with_net_iface() {
+    NewVmBuilder::new().networking().run(|mut vm| async move {
+        dbg!(vm.api_get_effective_configuration().await.unwrap());
+        shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
+    });
+}
+
 async fn restore_vm_from_snapshot(snapshot: VmSnapshot, snapshotting_context: SnapshottingContext) {
     let executor = match snapshotting_context.is_jailed {
         true => TestExecutor::Jailed(JailedVmmExecutor::new(

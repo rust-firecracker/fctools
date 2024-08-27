@@ -2,24 +2,33 @@ use std::{
     collections::HashMap,
     future::Future,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU16, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
 use async_trait::async_trait;
+use cidr::IpInet;
 use fctools::{
     executor::{
         arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments},
+        command_modifier::NetnsCommandModifier,
         installation::FirecrackerInstallation,
         jailed::{FlatJailRenamer, JailedVmmExecutor},
         unrestricted::UnrestrictedVmmExecutor,
         VmmExecutor, VmmExecutorError,
     },
+    ext::fcnet::{FcnetConfiguration, FcnetNetnsOptions},
     process::VmmProcessState,
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
     vm::{
         configuration::{NewVmBootMethod, VmConfiguration, VmConfigurationData},
-        models::{VmBalloon, VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem, VmVsock},
+        models::{
+            VmBalloon, VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem, VmNetworkInterface,
+            VmVsock,
+        },
         VmShutdownMethod,
     },
 };
@@ -93,6 +102,7 @@ pub enum TestExecutor {
 }
 
 #[allow(unused)]
+#[derive(Clone)]
 pub enum TestShellSpawner {
     Su(SuShellSpawner),
     SameUser(SameUserShellSpawner),
@@ -284,6 +294,13 @@ pub type TestVm = fctools::vm::Vm<TestExecutor, TestShellSpawner>;
 
 type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> BoxFuture<()>>;
 
+struct NetworkData {
+    network_interface: VmNetworkInterface,
+    fcnet_configuration: FcnetConfiguration,
+    netns_name: String,
+    boot_arg_append: String,
+}
+
 #[allow(unused)]
 pub struct NewVmBuilder {
     boot_method: NewVmBootMethod,
@@ -292,6 +309,9 @@ pub struct NewVmBuilder {
     vsock: Option<VmVsock>,
     pre_start_hook: Option<(PreStartHook, PreStartHook)>,
     balloon: Option<VmBalloon>,
+    unrestricted_network: Option<NetworkData>,
+    jailed_network: Option<NetworkData>,
+    boot_arg_append: String,
 }
 
 #[allow(unused)]
@@ -309,6 +329,8 @@ impl SnapshottingContext {
     }
 }
 
+static NET_COUNTER: AtomicU16 = AtomicU16::new(0);
+
 #[allow(unused)]
 impl NewVmBuilder {
     pub fn new() -> Self {
@@ -319,6 +341,9 @@ impl NewVmBuilder {
             vsock: None,
             pre_start_hook: None,
             balloon: None,
+            unrestricted_network: None,
+            jailed_network: None,
+            boot_arg_append: String::new(),
         }
     }
 
@@ -352,6 +377,48 @@ impl NewVmBuilder {
         self
     }
 
+    pub fn networking(mut self) -> Self {
+        self.unrestricted_network = Some(self.setup_network());
+        self.jailed_network = Some(self.setup_network());
+
+        self
+    }
+
+    fn setup_network(&self) -> NetworkData {
+        fn inet(net_num: u16, num: u16) -> IpInet {
+            format!("169.254.{}.{}/29", (8 * net_num + num) / 256, (8 * net_num + num) % 256)
+                .parse()
+                .unwrap()
+        }
+
+        let net_num = NET_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let guest_ip = inet(net_num, 1);
+        let tap_ip = inet(net_num, 2);
+        let tap_name = format!("tap{net_num}");
+        let netns_name = format!("fcnetns{net_num}");
+
+        let fcnet_configuration = FcnetConfiguration::netns(
+            FcnetNetnsOptions::new()
+                .veth1_ip(inet(net_num, 3))
+                .veth1_name(format!("veth1{net_num}"))
+                .veth2_ip(inet(net_num, 4))
+                .netns_name(&netns_name)
+                .guest_ip(guest_ip.address()),
+        )
+        .iface_name(std::env::var("FCTOOLS_NET_IFACE").expect("FCTOOLS_NET_IFACE not set"))
+        .tap_name(&tap_name)
+        .tap_ip(tap_ip);
+        let mut boot_arg_append = String::from(" ");
+        boot_arg_append.push_str(fcnet_configuration.get_guest_ip_boot_arg(&guest_ip, "eth0").as_str());
+
+        NetworkData {
+            network_interface: VmNetworkInterface::new("eth0", tap_name),
+            fcnet_configuration,
+            netns_name,
+            boot_arg_append,
+        }
+    }
+
     pub fn run<F, Fut>(self, function: F)
     where
         F: Fn(TestVm) -> Fut + Send,
@@ -367,36 +434,59 @@ impl NewVmBuilder {
         F: Clone + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
+        // setup executors, shell spawners and base data
+        fn get_boot_arg(network: Option<&NetworkData>) -> String {
+            let mut arg = "console=ttyS0 reboot=k panic=1 pci=off".to_string();
+            if let Some(network) = network {
+                arg.push_str(&network.boot_arg_append);
+            }
+            arg
+        }
+
         let socket_path = get_tmp_path();
 
         let mut unrestricted_data = VmConfigurationData::new(
-            VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args("console=ttyS0 reboot=k panic=1 pci=off"),
+            VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args(get_boot_arg(self.unrestricted_network.as_ref())),
             VmMachineConfiguration::new(1, 128),
         )
         .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")));
-        let unrestricted_executor = TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(
-            FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path.clone())),
+        let mut unrestricted_executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(
+            FirecrackerApiSocket::Enabled(socket_path.clone()),
         ));
-        let unrestricted_shell_spawner =
-            TestShellSpawner::SameUser(SameUserShellSpawner::new(which::which("bash").unwrap()));
+        if let Some(ref network) = self.unrestricted_network {
+            unrestricted_executor =
+                unrestricted_executor.command_modifier(NetnsCommandModifier::new(&network.netns_name));
+        }
+
+        let unrestricted_shell_spawner = match self.unrestricted_network {
+            None => TestShellSpawner::SameUser(SameUserShellSpawner::new(which::which("bash").unwrap())),
+            Some(_) => TestShellSpawner::Su(SuShellSpawner::new(std::env::var("ROOT_PWD").expect("No ROOT_PWD set"))),
+        };
 
         let mut jailed_data = VmConfigurationData::new(
-            VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args("console=ttyS0 reboot=k panic=1 pci=off"),
+            VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args(get_boot_arg(self.jailed_network.as_ref())),
             VmMachineConfiguration::new(1, 128),
         )
         .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")));
+        let mut jailer_arguments = JailerArguments::new(
+            unsafe { libc::geteuid() },
+            unsafe { libc::getegid() },
+            rand::thread_rng().next_u32().to_string(),
+        );
+        if let Some(ref network) = self.jailed_network {
+            jailer_arguments =
+                jailer_arguments.network_namespace_path(format!("/var/run/netns/{}", network.netns_name));
+        }
+
         let jailed_executor = TestExecutor::Jailed(JailedVmmExecutor::new(
             FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path)),
-            JailerArguments::new(
-                unsafe { libc::geteuid() },
-                unsafe { libc::getegid() },
-                rand::thread_rng().next_u32().to_string(),
-            ),
+            jailer_arguments,
             FlatJailRenamer::default(),
         ));
         let jailed_shell_spawner =
             TestShellSpawner::Su(SuShellSpawner::new(std::env::var("ROOT_PWD").expect("No ROOT_PWD set")));
 
+        // add components from builder to data
         if let Some(logger) = self.logger {
             unrestricted_data = unrestricted_data.logger(logger.clone());
             jailed_data = jailed_data.logger(logger);
@@ -417,11 +507,20 @@ impl NewVmBuilder {
             jailed_data = jailed_data.balloon(balloon);
         }
 
+        if let Some(ref network) = self.unrestricted_network {
+            unrestricted_data = unrestricted_data.network_interface(network.network_interface.clone());
+        }
+
+        if let Some(ref network) = self.jailed_network {
+            jailed_data = jailed_data.network_interface(network.network_interface.clone());
+        }
+
         let (pre_start_hook1, pre_start_hook2) = match self.pre_start_hook {
             Some((a, b)) => (Some(a), Some(b)),
             None => (None, None),
         };
 
+        // run workers on tokio runtime
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -429,21 +528,23 @@ impl NewVmBuilder {
             .block_on(async {
                 tokio::join!(
                     Self::test_worker(
+                        self.unrestricted_network,
                         VmConfiguration::New {
                             boot_method: self.boot_method.clone(),
                             data: unrestricted_data
                         },
                         SnapshottingContext::new(false, unrestricted_shell_spawner),
-                        unrestricted_executor,
+                        TestExecutor::Unrestricted(unrestricted_executor),
                         pre_start_hook1,
                         function.clone(),
                     ),
                     Self::test_worker(
+                        self.jailed_network,
                         VmConfiguration::New {
                             boot_method: self.boot_method,
                             data: jailed_data
                         },
-                        SnapshottingContext::new(true, jailed_shell_spawner),
+                        SnapshottingContext::new(true, jailed_shell_spawner.clone()),
                         jailed_executor,
                         pre_start_hook2,
                         function
@@ -453,6 +554,7 @@ impl NewVmBuilder {
     }
 
     async fn test_worker<F, Fut>(
+        network: Option<NetworkData>,
         configuration: VmConfiguration,
         run_context: SnapshottingContext,
         executor: TestExecutor,
@@ -462,6 +564,16 @@ impl NewVmBuilder {
         F: Fn(TestVm, SnapshottingContext) -> Fut + Send,
         Fut: Future<Output = ()> + Send + 'static,
     {
+        let fcnet_path = which::which("fcnet").expect("fcnet not installed onto PATH");
+
+        if let Some(ref network) = network {
+            network
+                .fcnet_configuration
+                .add(&fcnet_path, run_context.shell_spawner.as_ref())
+                .await
+                .unwrap();
+        }
+
         let mut vm: fctools::vm::Vm<TestExecutor, TestShellSpawner> = TestVm::prepare_arced(
             Arc::new(executor),
             run_context.shell_spawner.clone(),
@@ -475,7 +587,16 @@ impl NewVmBuilder {
         }
         vm.start(env_get_boot_socket_wait()).await.unwrap();
         tokio::time::sleep(env_get_boot_wait()).await;
+        let cloned_shell_spawner = run_context.shell_spawner.clone();
         function(vm, run_context).await;
+
+        if let Some(network) = network {
+            network
+                .fcnet_configuration
+                .delete(fcnet_path, cloned_shell_spawner.as_ref())
+                .await
+                .unwrap();
+        }
     }
 }
 
