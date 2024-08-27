@@ -20,10 +20,10 @@ pub enum LinkLocalSubnetError {
     NetworkLengthDoesNotFit,
     SubnetIndexDoesNotFit,
     IpIndexDoesNotFit,
-    Overflow,
-    Other,
+    UnexpectedOverflow,
 }
 
+#[inline(always)]
 const fn get_ip_amount(network_length: u8) -> u32 {
     2_u32.pow((32 - network_length) as u32)
 }
@@ -89,28 +89,67 @@ impl LinkLocalSubnet {
         self.ip_amount - 2
     }
 
+    #[inline(always)]
     pub fn get_ip(&self, ip_index: u32) -> Result<Ipv4Inet, LinkLocalSubnetError> {
         if ip_index >= self.ip_amount() {
             return Err(LinkLocalSubnetError::IpIndexDoesNotFit);
         }
 
-        let x = self.ip_amount() as u32 * self.subnet_index as u32 + ip_index;
+        self.get_ip_imp(self.ip_amount() as u32 * self.subnet_index as u32 + ip_index)
+    }
+
+    #[inline(always)]
+    pub fn get_host_ip(&self, ip_index: u32) -> Result<Ipv4Inet, LinkLocalSubnetError> {
+        if ip_index >= self.host_ip_amount() {
+            return Err(LinkLocalSubnetError::IpIndexDoesNotFit);
+        }
+
+        self.get_ip_imp(self.ip_amount() as u32 * self.subnet_index as u32 + ip_index + 1)
+    }
+
+    #[inline(always)]
+    fn get_ip_imp(&self, x: u32) -> Result<Ipv4Inet, LinkLocalSubnetError> {
         let addr = Ipv4Addr::new(
             LINK_LOCAL_OCTET_1,
             LINK_LOCAL_OCTET_2,
-            (x / 256).try_into().map_err(|_| LinkLocalSubnetError::Overflow)?,
-            (x % 256).try_into().map_err(|_| LinkLocalSubnetError::Overflow)?,
+            (x / 256)
+                .try_into()
+                .map_err(|_| LinkLocalSubnetError::UnexpectedOverflow)?,
+            (x % 256)
+                .try_into()
+                .map_err(|_| LinkLocalSubnetError::UnexpectedOverflow)?,
         );
 
-        Ipv4Inet::new(addr, self.network_length).map_err(|_| LinkLocalSubnetError::Other)
+        Ipv4Inet::new(addr, self.network_length).map_err(|_| LinkLocalSubnetError::UnexpectedOverflow)
     }
 
+    #[inline(always)]
     pub fn get_ips(&self) -> Result<Vec<Ipv4Inet>, LinkLocalSubnetError> {
         let ip_amount = self.ip_amount();
-        let mut ips = Vec::with_capacity(ip_amount.try_into().map_err(|_| LinkLocalSubnetError::Overflow)?);
+        let mut ips = Vec::with_capacity(
+            ip_amount
+                .try_into()
+                .map_err(|_| LinkLocalSubnetError::UnexpectedOverflow)?,
+        );
 
         for i in 0..ip_amount {
             ips.push(self.get_ip(i)?);
+        }
+
+        Ok(ips)
+    }
+
+    #[inline(always)]
+    pub fn get_host_ips(&self) -> Result<Vec<Ipv4Inet>, LinkLocalSubnetError> {
+        let host_ip_amount = self.host_ip_amount();
+        let mut ips = Vec::with_capacity(
+            host_ip_amount
+                .try_into()
+                .map_err(|_| LinkLocalSubnetError::UnexpectedOverflow)?,
+        );
+
+        for i in 0..host_ip_amount {
+            ips.push(self.get_host_ip(i)?);
         }
 
         Ok(ips)
@@ -123,7 +162,7 @@ mod tests {
 
     #[test]
     fn t() {
-        let subnet = LinkLocalSubnet::new(1, 31).unwrap();
-        dbg!(subnet.get_ip(3).unwrap());
+        let subnet = LinkLocalSubnet::new(0, 29).unwrap();
+        dbg!(subnet.get_host_ips().unwrap());
     }
 }
