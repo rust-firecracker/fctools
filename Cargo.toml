@@ -47,6 +47,7 @@ which = "6.0.3"
 futures-util = { version = "0.3.30", default-features = false, features = [
     "std",
 ] }
+file-lock = "2.1.11"
 
 fctools = { path = ".", features = ["full"] }
 

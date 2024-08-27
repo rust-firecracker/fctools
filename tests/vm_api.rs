@@ -10,6 +10,7 @@ use fctools::{
 };
 use http::{Request, StatusCode};
 use http_body_util::Full;
+use serde::{Deserialize, Serialize};
 use test_framework::{get_tmp_path, shutdown_test_vm, NewVmBuilder};
 
 mod test_framework;
@@ -172,4 +173,19 @@ fn vm_api_can_pause_and_resume() {
         assert_eq!(vm.state(), VmState::Running);
         shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
     });
+}
+
+#[test]
+fn vm_api_can_put_mmds() {
+    NewVmBuilder::new().networking().mmds().run(|mut vm| async move {
+        vm.api_create_mmds(&serde_json::to_value(MmdsData { data: 4 }).unwrap())
+            .await
+            .unwrap();
+        shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
+    });
+}
+
+#[derive(Serialize, Deserialize)]
+struct MmdsData {
+    data: i32,
 }

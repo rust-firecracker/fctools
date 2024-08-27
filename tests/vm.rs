@@ -203,7 +203,8 @@ fn vm_can_snapshot_after_original_has_exited() {
 #[test]
 fn vm_can_boot_with_net_iface() {
     NewVmBuilder::new().networking().run(|mut vm| async move {
-        dbg!(vm.api_get_effective_configuration().await.unwrap());
+        let configuration = vm.api_get_effective_configuration().await.unwrap();
+        assert_eq!(configuration.network_interfaces.len(), 1);
         shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
     });
 }

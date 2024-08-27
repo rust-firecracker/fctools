@@ -1,11 +1,9 @@
 use std::{
     collections::HashMap,
     future::Future,
+    io::Write,
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicU16, Ordering},
-        Arc,
-    },
+    sync::Arc,
     time::Duration,
 };
 
@@ -26,15 +24,18 @@ use fctools::{
     vm::{
         configuration::{NewVmBootMethod, VmConfiguration, VmConfigurationData},
         models::{
-            VmBalloon, VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem, VmNetworkInterface,
-            VmVsock,
+            VmBalloon, VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem, VmMmdsConfiguration,
+            VmMmdsVersion, VmNetworkInterface, VmVsock,
         },
         VmShutdownMethod,
     },
 };
 use futures_util::future::BoxFuture;
-use rand::RngCore;
-use tokio::process::Child;
+use rand::{Rng, RngCore};
+use tokio::{
+    process::Child,
+    sync::{Mutex, MutexGuard},
+};
 use uuid::Uuid;
 
 // MISC UTILITIES
@@ -193,7 +194,7 @@ pub fn env_get_shutdown_timeout() -> Duration {
 pub fn env_get_boot_wait() -> Duration {
     Duration::from_millis(match std::env::var("FCTOOLS_VM_BOOT_WAIT") {
         Ok(value) => value.parse::<u64>().expect("Boot wait from env var is not a u64"),
-        Err(_) => 2500,
+        Err(_) => 3000,
     })
 }
 
@@ -312,6 +313,7 @@ pub struct NewVmBuilder {
     unrestricted_network: Option<NetworkData>,
     jailed_network: Option<NetworkData>,
     boot_arg_append: String,
+    mmds: bool,
 }
 
 #[allow(unused)]
@@ -329,8 +331,6 @@ impl SnapshottingContext {
     }
 }
 
-static NET_COUNTER: AtomicU16 = AtomicU16::new(0);
-
 #[allow(unused)]
 impl NewVmBuilder {
     pub fn new() -> Self {
@@ -344,6 +344,7 @@ impl NewVmBuilder {
             unrestricted_network: None,
             jailed_network: None,
             boot_arg_append: String::new(),
+            mmds: false,
         }
     }
 
@@ -380,7 +381,11 @@ impl NewVmBuilder {
     pub fn networking(mut self) -> Self {
         self.unrestricted_network = Some(self.setup_network());
         self.jailed_network = Some(self.setup_network());
+        self
+    }
 
+    pub fn mmds(mut self) -> Self {
+        self.mmds = true;
         self
     }
 
@@ -391,7 +396,7 @@ impl NewVmBuilder {
                 .unwrap()
         }
 
-        let net_num = NET_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let net_num = rand::thread_rng().gen_range(1..=3000);
         let guest_ip = inet(net_num, 1);
         let tap_ip = inet(net_num, 2);
         let tap_name = format!("tap{net_num}");
@@ -515,6 +520,12 @@ impl NewVmBuilder {
             jailed_data = jailed_data.network_interface(network.network_interface.clone());
         }
 
+        if self.mmds {
+            let mmds_config = VmMmdsConfiguration::new(VmMmdsVersion::V2, vec!["eth0".to_string()]);
+            unrestricted_data = unrestricted_data.mmds_configuration(mmds_config.clone());
+            jailed_data = jailed_data.mmds_configuration(mmds_config);
+        }
+
         let (pre_start_hook1, pre_start_hook2) = match self.pre_start_hook {
             Some((a, b)) => (Some(a), Some(b)),
             None => (None, None),
@@ -566,7 +577,9 @@ impl NewVmBuilder {
     {
         let fcnet_path = which::which("fcnet").expect("fcnet not installed onto PATH");
 
+        let mut lock = None;
         if let Some(ref network) = network {
+            lock = Some(get_network_lock().await);
             network
                 .fcnet_configuration
                 .add(&fcnet_path, run_context.shell_spawner.as_ref())
@@ -593,11 +606,37 @@ impl NewVmBuilder {
         if let Some(network) = network {
             network
                 .fcnet_configuration
-                .delete(fcnet_path, cloned_shell_spawner.as_ref())
+                .delete(&fcnet_path, cloned_shell_spawner.as_ref())
                 .await
                 .unwrap();
+            let _ = network
+                .fcnet_configuration
+                .delete(fcnet_path, cloned_shell_spawner.as_ref())
+                .await;
         }
     }
+}
+
+static NETWORK_LOCKING_MUTEX: Mutex<()> = Mutex::const_new(());
+
+#[allow(unused)]
+struct NetworkLock<'a> {
+    mutex_guard: MutexGuard<'a, ()>,
+    file_lock: file_lock::FileLock,
+}
+
+async fn get_network_lock<'a>() -> NetworkLock<'a> {
+    let mutex_guard = NETWORK_LOCKING_MUTEX.lock().await;
+    let file_lock = tokio::task::spawn_blocking(|| {
+        let file_options = file_lock::FileOptions::new().write(true).create(true);
+        let mut lock = file_lock::FileLock::lock("/tmp/fctools_test_net_lock", true, file_options).unwrap();
+        lock.file.write(b"lock_data").unwrap();
+        lock
+    })
+    .await
+    .unwrap();
+
+    NetworkLock { mutex_guard, file_lock }
 }
 
 #[allow(unused)]
