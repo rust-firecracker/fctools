@@ -7,9 +7,10 @@ use fctools::{
         unrestricted::UnrestrictedVmmExecutor,
     },
     vm::{
-        api::{VmApi, VmSnapshot},
+        api::VmApi,
         configuration::NewVmBootMethod,
         models::{VmCreateSnapshot, VmLogger, VmMetricsSystem, VmVsock},
+        snapshot::VmSnapshot,
         VmShutdownMethod, VmState,
     },
 };
@@ -63,7 +64,7 @@ fn vm_processes_logger_path() {
     VmBuilder::new()
         .logger(VmLogger::new().log_path(get_tmp_path()))
         .run(|mut vm| async move {
-            let log_path = vm.standard_paths().get_log_path().unwrap().clone();
+            let log_path = vm.get_accessible_paths().log_path.clone().unwrap();
             assert!(metadata(&log_path).await.unwrap().is_file());
             shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
             assert!(!try_exists(log_path).await.unwrap());
@@ -75,7 +76,7 @@ fn vm_processes_metrics_path() {
     VmBuilder::new()
         .metrics_system(VmMetricsSystem::new(get_tmp_path()))
         .run(|mut vm| async move {
-            let metrics_path = vm.standard_paths().get_metrics_path().unwrap().clone();
+            let metrics_path = vm.get_accessible_paths().metrics_path.clone().unwrap();
             assert!(metadata(&metrics_path).await.unwrap().is_file());
             shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
             assert!(!try_exists(metrics_path).await.unwrap());
@@ -87,7 +88,7 @@ fn vm_processes_vsock_multiplexer_path() {
     VmBuilder::new()
         .vsock(VmVsock::new(rand::thread_rng().next_u32(), get_tmp_path()))
         .run(|mut vm| async move {
-            let vsock_multiplexer_path = vm.standard_paths().get_vsock_multiplexer_path().unwrap().clone();
+            let vsock_multiplexer_path = vm.get_accessible_paths().vsock_multiplexer_path.clone().unwrap();
             assert!(metadata(&vsock_multiplexer_path).await.unwrap().file_type().is_socket());
             shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
             assert!(!try_exists(vsock_multiplexer_path).await.unwrap());
@@ -97,10 +98,10 @@ fn vm_processes_vsock_multiplexer_path() {
 #[test]
 fn vm_processes_vsock_listener_paths() {
     VmBuilder::new().run(|mut vm| async move {
-        assert!(vm.standard_paths().get_vsock_listener_paths().is_empty());
+        assert!(vm.get_accessible_paths().vsock_listener_paths.is_empty());
         let expected_path = get_tmp_path();
-        vm.standard_paths_mut().add_vsock_listener_path(&expected_path);
-        assert!(vm.standard_paths().get_vsock_listener_paths().contains(&expected_path));
+        vm.register_vsock_listener_path(&expected_path);
+        assert!(vm.get_accessible_paths().vsock_listener_paths.contains(&expected_path));
         shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
     });
 }
@@ -109,7 +110,7 @@ fn vm_processes_vsock_listener_paths() {
 fn vm_translates_inner_to_outer_paths() {
     VmBuilder::new().run(|mut vm| async move {
         let inner_path = get_tmp_path();
-        let outer_path = vm.inner_to_outer_path(&inner_path);
+        let outer_path = vm.get_accessible_path_from_inner(&inner_path);
         assert!(inner_path == outer_path || outer_path.to_str().unwrap().ends_with(inner_path.to_str().unwrap()));
         shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
     });
@@ -229,7 +230,7 @@ async fn restore_vm_from_snapshot(snapshot: VmSnapshot, snapshotting_context: Sn
         Arc::new(executor),
         snapshotting_context.shell_spawner,
         Arc::new(get_real_firecracker_installation()),
-        snapshot.into_configuration(true),
+        snapshot.into_configuration(Some(true), None),
     )
     .await
     .unwrap();

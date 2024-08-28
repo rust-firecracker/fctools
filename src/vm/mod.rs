@@ -20,6 +20,7 @@ use tokio::{fs, task::JoinSet};
 pub mod api;
 pub mod configuration;
 pub mod models;
+pub mod snapshot;
 
 #[derive(Debug)]
 pub struct Vm<E: VmmExecutor, S: ShellSpawner> {
@@ -27,7 +28,7 @@ pub struct Vm<E: VmmExecutor, S: ShellSpawner> {
     is_paused: bool,
     original_configuration_data: VmConfigurationData,
     configuration: Option<VmConfiguration>,
-    standard_paths: VmStandardPaths,
+    accessible_paths: VmAccessiblePaths,
     executor_traceless: bool,
     snapshot_traces: Vec<PathBuf>,
 }
@@ -100,42 +101,12 @@ pub enum VmShutdownMethod {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VmStandardPaths {
-    pub(crate) drive_sockets: HashMap<String, PathBuf>,
-    pub(crate) metrics_path: Option<PathBuf>,
-    pub(crate) log_path: Option<PathBuf>,
-    pub(crate) vsock_multiplexer_path: Option<PathBuf>,
-    pub(crate) vsock_listener_paths: Vec<PathBuf>,
-}
-
-impl VmStandardPaths {
-    pub fn add_vsock_listener_path(&mut self, socket_path: impl Into<PathBuf>) {
-        self.vsock_listener_paths.push(socket_path.into());
-    }
-
-    pub fn get_drive_sockets(&self) -> &HashMap<String, PathBuf> {
-        &self.drive_sockets
-    }
-
-    pub fn get_drive_socket(&self, drive_id: impl AsRef<str>) -> Option<&PathBuf> {
-        self.drive_sockets.get(drive_id.as_ref())
-    }
-
-    pub fn get_metrics_path(&self) -> Option<&PathBuf> {
-        self.metrics_path.as_ref()
-    }
-
-    pub fn get_log_path(&self) -> Option<&PathBuf> {
-        self.log_path.as_ref()
-    }
-
-    pub fn get_vsock_multiplexer_path(&self) -> Option<&PathBuf> {
-        self.vsock_multiplexer_path.as_ref()
-    }
-
-    pub fn get_vsock_listener_paths(&self) -> &Vec<PathBuf> {
-        &self.vsock_listener_paths
-    }
+pub struct VmAccessiblePaths {
+    pub drive_sockets: HashMap<String, PathBuf>,
+    pub metrics_path: Option<PathBuf>,
+    pub log_path: Option<PathBuf>,
+    pub vsock_multiplexer_path: Option<PathBuf>,
+    pub vsock_listener_paths: Vec<PathBuf>,
 }
 
 impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
@@ -194,9 +165,9 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         };
 
         // prepare
-        let traceless = executor.traceless();
-        let mut vm_process = VmmProcess::new_arced(executor, shell_spawner_arc, installation_arc, outer_paths);
-        let mut path_mappings = vm_process.prepare().await.map_err(VmError::ProcessError)?;
+        let executor_traceless = executor.traceless();
+        let mut vmm_process = VmmProcess::new_arced(executor, shell_spawner_arc, installation_arc, outer_paths);
+        let mut path_mappings = vmm_process.prepare().await.map_err(VmError::ProcessError)?;
 
         // transform data according to returned mappings
         let original_configuration_data = configuration.data().clone();
@@ -229,8 +200,8 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
                 .ok_or(VmError::MissingPathMapping)?;
         }
 
-        // generate standard paths, ensure paths exist
-        let mut standard_paths = VmStandardPaths {
+        // generate accessible paths, ensure paths exist
+        let mut accessible_paths = VmAccessiblePaths {
             drive_sockets: HashMap::new(),
             metrics_path: None,
             log_path: None,
@@ -240,52 +211,52 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
 
         for drive in &configuration.data().drives {
             if let Some(ref socket) = drive.socket {
-                standard_paths
+                accessible_paths
                     .drive_sockets
-                    .insert(drive.drive_id.clone(), vm_process.inner_to_outer_path(&socket));
+                    .insert(drive.drive_id.clone(), vmm_process.inner_to_outer_path(&socket));
             }
         }
 
         if let Some(ref logger) = configuration.data().logger {
             if let Some(ref log_path) = logger.log_path {
-                let new_log_path = vm_process.inner_to_outer_path(log_path);
+                let new_log_path = vmm_process.inner_to_outer_path(log_path);
                 prepare_file(&new_log_path, false).await?;
-                standard_paths.log_path = Some(new_log_path);
+                accessible_paths.log_path = Some(new_log_path);
             }
         }
 
         if let Some(ref metrics_system) = configuration.data().metrics_system {
-            let new_metrics_path = vm_process.inner_to_outer_path(&metrics_system.metrics_path);
+            let new_metrics_path = vmm_process.inner_to_outer_path(&metrics_system.metrics_path);
             prepare_file(&new_metrics_path, false).await?;
-            standard_paths.metrics_path = Some(new_metrics_path);
+            accessible_paths.metrics_path = Some(new_metrics_path);
         }
 
         if let Some(ref vsock) = configuration.data().vsock {
-            let new_uds_path = vm_process.inner_to_outer_path(&vsock.uds_path);
+            let new_uds_path = vmm_process.inner_to_outer_path(&vsock.uds_path);
             prepare_file(&new_uds_path, true).await?;
-            standard_paths.vsock_multiplexer_path = Some(new_uds_path);
+            accessible_paths.vsock_multiplexer_path = Some(new_uds_path);
         }
         if let Some(ref logger) = configuration.data().logger {
             if let Some(ref log_path) = logger.log_path {
-                let new_log_path = vm_process.inner_to_outer_path(log_path);
+                let new_log_path = vmm_process.inner_to_outer_path(log_path);
                 prepare_file(&new_log_path, false).await?;
-                standard_paths.log_path = Some(new_log_path);
+                accessible_paths.log_path = Some(new_log_path);
             }
         }
 
         if let Some(ref metrics) = configuration.data().metrics_system {
-            let new_metrics_path = vm_process.inner_to_outer_path(&metrics.metrics_path);
+            let new_metrics_path = vmm_process.inner_to_outer_path(&metrics.metrics_path);
             prepare_file(&new_metrics_path, false).await?;
-            standard_paths.metrics_path = Some(new_metrics_path);
+            accessible_paths.metrics_path = Some(new_metrics_path);
         }
 
         Ok(Self {
-            vmm_process: vm_process,
+            vmm_process,
             is_paused: false,
             original_configuration_data,
             configuration: Some(configuration),
-            standard_paths,
-            executor_traceless: traceless,
+            accessible_paths,
+            executor_traceless,
             snapshot_traces: Vec::new(),
         })
     }
@@ -414,18 +385,18 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
 
         let mut join_set = JoinSet::new();
 
-        if let Some(log_path) = self.standard_paths.log_path.clone() {
+        if let Some(log_path) = self.accessible_paths.log_path.clone() {
             join_set.spawn_blocking(move || std::fs::remove_file(log_path));
         }
 
-        if let Some(metrics_path) = self.standard_paths.metrics_path.clone() {
+        if let Some(metrics_path) = self.accessible_paths.metrics_path.clone() {
             join_set.spawn_blocking(move || std::fs::remove_file(metrics_path));
         }
 
-        if let Some(multiplexer_path) = self.standard_paths.vsock_multiplexer_path.clone() {
+        if let Some(multiplexer_path) = self.accessible_paths.vsock_multiplexer_path.clone() {
             join_set.spawn_blocking(move || std::fs::remove_file(multiplexer_path));
 
-            for listener_path in self.standard_paths.vsock_listener_paths.clone() {
+            for listener_path in self.accessible_paths.vsock_listener_paths.clone() {
                 join_set.spawn_blocking(move || std::fs::remove_file(listener_path));
             }
         }
@@ -446,16 +417,16 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         self.vmm_process.take_pipes().map_err(VmError::ProcessError)
     }
 
-    pub fn standard_paths(&self) -> &VmStandardPaths {
-        &self.standard_paths
+    pub fn get_accessible_paths(&self) -> &VmAccessiblePaths {
+        &self.accessible_paths
     }
 
-    pub fn standard_paths_mut(&mut self) -> &mut VmStandardPaths {
-        &mut self.standard_paths
-    }
-
-    pub fn inner_to_outer_path(&self, inner_path: impl AsRef<Path>) -> PathBuf {
+    pub fn get_accessible_path_from_inner(&self, inner_path: impl AsRef<Path>) -> PathBuf {
         self.vmm_process.inner_to_outer_path(inner_path)
+    }
+
+    pub fn register_vsock_listener_path(&mut self, listener_path: impl Into<PathBuf>) {
+        self.accessible_paths.vsock_listener_paths.push(listener_path.into());
     }
 
     pub(super) fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmError> {

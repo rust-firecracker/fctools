@@ -577,8 +577,8 @@ impl VmLoadSnapshot {
         }
     }
 
-    pub fn enable_diff_snapshots(mut self, enable: bool) -> Self {
-        self.enable_diff_snapshots = Some(enable);
+    pub fn enable_diff_snapshots(mut self, enable_diff_snapshots: bool) -> Self {
+        self.enable_diff_snapshots = Some(enable_diff_snapshots);
         self
     }
 
