@@ -577,14 +577,14 @@ impl VmBuilder {
     {
         let fcnet_path = which::which("fcnet").expect("fcnet not installed onto PATH");
 
-        let mut lock = None;
         if let Some(ref network) = network {
-            lock = Some(get_network_lock().await);
+            let lock = get_network_lock().await;
             network
                 .fcnet_configuration
                 .add(&fcnet_path, run_context.shell_spawner.as_ref())
                 .await
                 .unwrap();
+            drop(lock);
         }
 
         let mut vm: fctools::vm::Vm<TestExecutor, TestShellSpawner> = TestVm::prepare_arced(
@@ -604,11 +604,13 @@ impl VmBuilder {
         function(vm, run_context).await;
 
         if let Some(network) = network {
+            let lock = get_network_lock().await;
             network
                 .fcnet_configuration
                 .delete(&fcnet_path, cloned_shell_spawner.as_ref())
                 .await
                 .unwrap();
+            drop(lock);
         }
     }
 }
