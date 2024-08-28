@@ -208,6 +208,7 @@ fn vm_api_can_put_and_get_mmds_typed() {
         vm.api_create_mmds(MmdsData { number: 4 }).await.unwrap();
         let data = vm.api_get_mmds::<MmdsData>().await.unwrap();
         assert_eq!(data.number, 4);
+        shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
     });
 }
 
@@ -218,6 +219,7 @@ fn vm_api_can_patch_mmds_typed() {
         vm.api_update_mmds(MmdsData { number: 5 }).await.unwrap();
         let data = vm.api_get_mmds::<MmdsData>().await.unwrap();
         assert_eq!(data.number, 5);
+        shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
     });
 }
 
