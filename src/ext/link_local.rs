@@ -238,4 +238,42 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn ip_amounts_are_reported_correctly() {
+        for network_length in 17_u8..=30_u8 {
+            let ip_amount = 2_u32.pow(32 - network_length as u32);
+            let subnet = LinkLocalSubnet::new(0, network_length).unwrap();
+            assert_eq!(subnet.ip_amount(), ip_amount);
+            assert_eq!(subnet.host_ip_amount(), ip_amount - 2);
+        }
+    }
+
+    #[test]
+    fn get_ip_reports_correctly() {
+        for network_length in 17_u8..=30_u8 {
+            let subnet = LinkLocalSubnet::new(0, network_length).unwrap();
+            for i in 0..subnet.ip_amount() {
+                let ip = subnet.get_ip(i).unwrap();
+                assert_eq!(ip.address().octets()[0], 169);
+                assert_eq!(ip.address().octets()[1], 254);
+                assert_eq!(ip.address().octets()[2], (i / 256) as u8);
+                assert_eq!(ip.address().octets()[3], (i % 256) as u8);
+            }
+        }
+    }
+
+    #[test]
+    fn get_host_ip_reports_correctly() {
+        for network_length in 17_u8..=30_u8 {
+            let subnet = LinkLocalSubnet::new(0, network_length).unwrap();
+            for i in 0..subnet.host_ip_amount() {
+                let ip = subnet.get_host_ip(i).unwrap();
+                assert_eq!(ip.address().octets()[0], 169);
+                assert_eq!(ip.address().octets()[1], 254);
+                assert_eq!(ip.address().octets()[2], ((i + 1) / 256) as u8);
+                assert_eq!(ip.address().octets()[3], ((i + 1) % 256) as u8);
+            }
+        }
+    }
 }
