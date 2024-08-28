@@ -63,7 +63,7 @@ pub trait VsockExt {
 }
 
 #[async_trait]
-impl<E: VmmExecutor + Sync, S: ShellSpawner> VsockExt for Vm<E, S> {
+impl<E: VmmExecutor, S: ShellSpawner> VsockExt for Vm<E, S> {
     async fn vsock_connect(&self, guest_port: u32) -> Result<SendRequest<Full<Bytes>>, VsockError> {
         let uds_path = self
             .standard_paths()
