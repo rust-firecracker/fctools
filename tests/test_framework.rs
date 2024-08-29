@@ -549,17 +549,17 @@ impl VmBuilder {
                         pre_start_hook1,
                         function.clone(),
                     ),
-                    // Self::test_worker(
-                    //     self.jailed_network,
-                    //     VmConfiguration::New {
-                    //         boot_method: self.boot_method,
-                    //         data: jailed_data
-                    //     },
-                    //     SnapshottingContext::new(true, jailed_shell_spawner.clone()),
-                    //     jailed_executor,
-                    //     pre_start_hook2,
-                    //     function
-                    // ),
+                    Self::test_worker(
+                        self.jailed_network,
+                        VmConfiguration::New {
+                            boot_method: self.boot_method,
+                            data: jailed_data
+                        },
+                        SnapshottingContext::new(true, jailed_shell_spawner.clone()),
+                        jailed_executor,
+                        pre_start_hook2,
+                        function
+                    ),
                 );
             });
     }

@@ -1,0 +1,55 @@
+[filesystem]
+type = "Ext4"
+size_mib = 250
+
+[container]
+engine = "Docker"
+rootful = true
+wait_timeout_s = 1
+image = { name = "docker.io/library/debian", tag = "bookworm-slim" }
+
+[[commands]]
+script_inline = """
+#!/bin/bash
+
+apt update
+apt install -y udev systemd-sysv iputils-ping curl openssh-server iproute2 ca-certificates
+
+rm -f /etc/systemd/system/multi-user.target.wants/systemd-resolved.service
+rm -f /etc/systemd/system/dbus-org.freedesktop.resolve1.service
+rm -f /etc/systemd/system/sysinit.target.wants/systemd-timesyncd.service
+
+systemctl disable e2scrub_reap.service
+rm -vf /etc/systemd/system/timers.target.wants/*
+
+for console in ttyS0; do
+    mkdir "/etc/systemd/system/serial-getty@$console.service.d/"
+    cat <<'EOF' > "/etc/systemd/system/serial-getty@$console.service.d/override.conf"
+[Service]
+# systemd requires this empty ExecStart line to override
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root -o '-p -- \\u' --keep-baud 115200,38400,9600 %I dumb
+EOF
+done
+
+echo 'root:root' | chpasswd
+
+rm -rf /usr/share/{doc,man,info,locale}
+
+cat >> /etc/sysctl.conf <<EOF
+# This avoids a SPECTRE vuln
+kernel.unprivileged_bpf_disabled=1
+EOF
+"""
+
+[[overlays]]
+source_inline = """
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+nameserver 1.1.1.1
+"""
+destination = "/etc/resolv.conf"
+
+[export.directories]
+include = [ "/bin", "/etc", "/home", "/lib", "/lib64", "/root", "/sbin", "/usr" ]
+create = [ "/var/lib/dpkg", "/dev", "/proc", "/sys", "/run", "/tmp", "/var/lib/systemd" ]
