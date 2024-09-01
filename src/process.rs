@@ -20,7 +20,7 @@ use tokio::{
 
 use crate::{
     executor::{
-        arguments::FirecrackerConfigOverride, force_chown, installation::VmmInstallation, VmmExecutor,
+        arguments::ConfigurationFileOverride, force_chown, installation::VmmInstallation, VmmExecutor,
         VmmExecutorError,
     },
     shell_spawner::ShellSpawner,
@@ -172,7 +172,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
     }
 
     /// Invoke the VM process. Allowed in AwaitingStart state, will result in Started state.
-    pub async fn invoke(&mut self, config_override: FirecrackerConfigOverride) -> Result<(), VmmProcessError> {
+    pub async fn invoke(&mut self, config_override: ConfigurationFileOverride) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.child = Some(
             self.executor

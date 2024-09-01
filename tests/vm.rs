@@ -2,7 +2,7 @@ use std::{os::unix::fs::FileTypeExt, sync::Arc};
 
 use fctools::{
     executor::{
-        arguments::{FirecrackerApiSocket, FirecrackerArguments, JailerArguments},
+        arguments::{VmmApiSocket, VmmArguments, JailerArguments},
         jailed::{FlatJailRenamer, JailedVmmExecutor},
         unrestricted::UnrestrictedVmmExecutor,
     },
@@ -179,8 +179,8 @@ fn vm_can_snapshot_while_original_is_running() {
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm, VmShutdownMethod::CtrlAltDel).await;
 
-        assert!(!tokio::fs::try_exists(snapshot.get_snapshot_path()).await.unwrap());
-        assert!(!tokio::fs::try_exists(snapshot.get_mem_file_path()).await.unwrap());
+        assert!(!tokio::fs::try_exists(snapshot.snapshot_path()).await.unwrap());
+        assert!(!tokio::fs::try_exists(snapshot.mem_file_path()).await.unwrap());
     });
 }
 
@@ -213,7 +213,7 @@ fn vm_can_boot_with_net_iface() {
 async fn restore_vm_from_snapshot(snapshot: VmSnapshot, snapshotting_context: SnapshottingContext) {
     let executor = match snapshotting_context.is_jailed {
         true => TestExecutor::Jailed(JailedVmmExecutor::new(
-            FirecrackerArguments::new(FirecrackerApiSocket::Enabled(get_tmp_path())),
+            VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
             JailerArguments::new(
                 unsafe { libc::geteuid() },
                 unsafe { libc::getegid() },
@@ -221,8 +221,8 @@ async fn restore_vm_from_snapshot(snapshot: VmSnapshot, snapshotting_context: Sn
             ),
             FlatJailRenamer::default(),
         )),
-        false => TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(FirecrackerArguments::new(
-            FirecrackerApiSocket::Enabled(get_tmp_path()),
+        false => TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(VmmArguments::new(
+            VmmApiSocket::Enabled(get_tmp_path()),
         ))),
     };
 

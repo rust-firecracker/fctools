@@ -9,7 +9,7 @@ use tokio::{process::Child, task::JoinSet};
 use crate::shell_spawner::ShellSpawner;
 
 use super::{
-    arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments},
+    arguments::{ConfigurationFileOverride, JailerArguments, VmmApiSocket, VmmArguments},
     command_modifier::{apply_command_modifier_chain, CommandModifier},
     create_file_with_tree, force_chown, force_mkdir,
     installation::VmmInstallation,
@@ -21,7 +21,7 @@ use super::{
 /// process itself won't.
 #[derive(Debug)]
 pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
-    firecracker_arguments: FirecrackerArguments,
+    vmm_arguments: VmmArguments,
     jailer_arguments: JailerArguments,
     jail_move_method: JailMoveMethod,
     jail_renamer: R,
@@ -29,13 +29,9 @@ pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
 }
 
 impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
-    pub fn new(
-        firecracker_arguments: FirecrackerArguments,
-        jailer_arguments: JailerArguments,
-        jail_renamer: R,
-    ) -> Self {
+    pub fn new(vmm_arguments: VmmArguments, jailer_arguments: JailerArguments, jail_renamer: R) -> Self {
         Self {
-            firecracker_arguments,
+            vmm_arguments,
             jailer_arguments,
             jail_move_method: JailMoveMethod::Copy,
             jail_renamer,
@@ -74,11 +70,9 @@ pub enum JailMoveMethod {
 #[async_trait]
 impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
-        match &self.firecracker_arguments.api_socket {
-            FirecrackerApiSocket::Disabled => None,
-            FirecrackerApiSocket::Enabled(socket_path) => {
-                Some(self.get_jail_path(installation).jail_join(&socket_path))
-            }
+        match &self.vmm_arguments.api_socket {
+            VmmApiSocket::Disabled => None,
+            VmmApiSocket::Enabled(socket_path) => Some(self.get_jail_path(installation).jail_join(&socket_path)),
         }
     }
 
@@ -124,7 +118,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             .map_err(VmmExecutorError::IoError)?;
 
         // Ensure socket parent directory exists so that the firecracker process can bind inside of it
-        if let FirecrackerApiSocket::Enabled(ref socket_path) = self.firecracker_arguments.api_socket {
+        if let VmmApiSocket::Enabled(ref socket_path) = self.vmm_arguments.api_socket {
             if let Some(socket_parent_dir) = socket_path.parent() {
                 tokio::fs::create_dir_all(jail_path.jail_join(socket_parent_dir))
                     .await
@@ -133,10 +127,10 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         }
 
         // Ensure argument paths exist
-        if let Some(ref log_path) = self.firecracker_arguments.log_path {
+        if let Some(ref log_path) = self.vmm_arguments.log_path {
             create_file_with_tree(jail_path.jail_join(log_path)).await?;
         }
-        if let Some(ref metrics_path) = self.firecracker_arguments.metrics_path {
+        if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
             create_file_with_tree(jail_path.jail_join(metrics_path)).await?;
         }
 
@@ -196,10 +190,10 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         &self,
         installation: &VmmInstallation,
         shell: &impl ShellSpawner,
-        config_override: FirecrackerConfigOverride,
+        config_override: ConfigurationFileOverride,
     ) -> Result<Child, VmmExecutorError> {
         let jailer_args = self.jailer_arguments.join(&installation.firecracker_path);
-        let firecracker_args = self.firecracker_arguments.join(config_override);
+        let firecracker_args = self.vmm_arguments.join(config_override);
         let mut shell_command = format!(
             "{} {jailer_args} -- {firecracker_args}",
             installation.jailer_path.to_string_lossy()

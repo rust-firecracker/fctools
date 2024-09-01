@@ -71,15 +71,15 @@ impl VmSnapshot {
         }
     }
 
-    pub fn get_snapshot_path(&self) -> &PathBuf {
+    pub fn snapshot_path(&self) -> &PathBuf {
         &self.snapshot_path
     }
 
-    pub fn get_mem_file_path(&self) -> &PathBuf {
+    pub fn mem_file_path(&self) -> &PathBuf {
         &self.mem_file_path
     }
 
-    pub fn get_configuration_data(&self) -> &VmConfigurationData {
+    pub fn configuration_data(&self) -> &VmConfigurationData {
         &self.configuration_data
     }
 }

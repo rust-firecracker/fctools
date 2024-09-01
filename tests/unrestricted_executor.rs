@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use assert_matches::assert_matches;
 use fctools::executor::{
-    arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride},
+    arguments::{VmmApiSocket, VmmArguments, ConfigurationFileOverride},
     command_modifier::{AppendCommandModifier, RewriteCommandModifier},
     unrestricted::UnrestrictedVmmExecutor,
     VmmExecutor, VmmExecutorError,
@@ -15,14 +15,14 @@ mod test_framework;
 #[test]
 fn unrestricted_executor_returns_socket_path_according_to_configuration() {
     assert_eq!(
-        UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Disabled))
+        UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled))
             .get_socket_path(&get_fake_firecracker_installation()),
         None
     );
 
     let path = PathBuf::from("/a/certain/path");
     assert_eq!(
-        UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Enabled(path.clone())))
+        UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(path.clone())))
             .get_socket_path(&get_fake_firecracker_installation()),
         Some(path)
     );
@@ -33,7 +33,7 @@ async fn unrestricted_executor_prepare_runs_with_existing_resources() {
     let existing_path = get_tmp_path();
     File::create_new(&existing_path).await.unwrap();
 
-    let executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Disabled));
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled));
     let mut expected_hash_map = HashMap::new();
     expected_hash_map.insert(existing_path.clone(), existing_path.clone());
     assert_eq!(
@@ -54,7 +54,7 @@ async fn unrestricted_executor_prepare_runs_with_existing_resources() {
 #[tokio::test]
 async fn unrestricted_executor_prepare_fails_with_missing_resources() {
     let path = get_tmp_path();
-    let executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Disabled));
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled));
     assert_matches!(
         executor
             .prepare(
@@ -71,7 +71,7 @@ async fn unrestricted_executor_prepare_fails_with_missing_resources() {
 async fn unrestricted_executor_prepare_removes_pre_existing_api_socket() {
     let socket_path = get_tmp_path();
     File::create_new(&socket_path).await.unwrap();
-    let executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Enabled(
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(
         socket_path.clone(),
     )));
     executor
@@ -85,7 +85,7 @@ async fn unrestricted_executor_prepare_removes_pre_existing_api_socket() {
 async fn unrestricted_executor_prepare_creates_log_file() {
     let log_path = get_tmp_path();
     let executor =
-        UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Disabled).log_path(&log_path));
+        UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled).log_path(&log_path));
     executor
         .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
         .await
@@ -98,7 +98,7 @@ async fn unrestricted_executor_prepare_creates_log_file() {
 async fn unrestricted_executor_prepare_creates_metrics_file() {
     let metrics_path = get_tmp_path();
     let executor = UnrestrictedVmmExecutor::new(
-        FirecrackerArguments::new(FirecrackerApiSocket::Disabled).metrics_path(&metrics_path),
+        VmmArguments::new(VmmApiSocket::Disabled).metrics_path(&metrics_path),
     );
     executor
         .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
@@ -110,13 +110,13 @@ async fn unrestricted_executor_prepare_creates_metrics_file() {
 
 #[tokio::test]
 async fn unrestricted_executor_invoke_reports_shell_spawner_error() {
-    let executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Disabled));
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled));
     assert_matches!(
         executor
             .invoke(
                 &get_fake_firecracker_installation(),
                 &FailingShellSpawner::default(),
-                FirecrackerConfigOverride::NoOverride,
+                ConfigurationFileOverride::NoOverride,
             )
             .await,
         Err(VmmExecutorError::ShellSpawnFailed(_))
@@ -125,14 +125,14 @@ async fn unrestricted_executor_invoke_reports_shell_spawner_error() {
 
 #[tokio::test]
 async fn unrestricted_executor_invoke_applies_command_modifier_chain() {
-    let executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Disabled))
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled))
         .command_modifier(RewriteCommandModifier::new("echo"))
         .command_modifier(AppendCommandModifier::new(" test"));
     let child = executor
         .invoke(
             &get_fake_firecracker_installation(),
             &get_shell_spawner(),
-            FirecrackerConfigOverride::NoOverride,
+            ConfigurationFileOverride::NoOverride,
         )
         .await
         .unwrap();
@@ -146,7 +146,7 @@ async fn unrestricted_executor_invoke_applies_command_modifier_chain() {
 async fn unrestricted_executor_cleanup_removes_api_socket() {
     let socket_path = get_tmp_path();
     File::create_new(&socket_path).await.unwrap();
-    let executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Enabled(
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(
         socket_path.clone(),
     )));
     executor
@@ -164,7 +164,7 @@ async fn unrestricted_executor_cleanup_removes_log_and_metrics_file() {
     File::create_new(&metrics_path).await.unwrap();
 
     let executor = UnrestrictedVmmExecutor::new(
-        FirecrackerArguments::new(FirecrackerApiSocket::Disabled)
+        VmmArguments::new(VmmApiSocket::Disabled)
             .log_path(&log_path)
             .metrics_path(&metrics_path),
     )
@@ -186,7 +186,7 @@ async fn unrestricted_executor_cleanup_does_not_remove_log_and_metrics_files() {
     File::create_new(&metrics_path).await.unwrap();
 
     let executor = UnrestrictedVmmExecutor::new(
-        FirecrackerArguments::new(FirecrackerApiSocket::Disabled)
+        VmmArguments::new(VmmApiSocket::Disabled)
             .log_path(&log_path)
             .metrics_path(&metrics_path),
     );

@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use cidr::IpInet;
 use fctools::{
     executor::{
-        arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments},
+        arguments::{VmmApiSocket, VmmArguments, ConfigurationFileOverride, JailerArguments},
         command_modifier::NetnsCommandModifier,
         installation::VmmInstallation,
         jailed::{FlatJailRenamer, JailedVmmExecutor},
@@ -165,7 +165,7 @@ impl VmmExecutor for TestExecutor {
         &self,
         installation: &VmmInstallation,
         shell_spawner: &impl ShellSpawner,
-        config_override: FirecrackerConfigOverride,
+        config_override: ConfigurationFileOverride,
     ) -> Result<Child, VmmExecutorError> {
         match self {
             TestExecutor::Unrestricted(e) => e.invoke(installation, shell_spawner, config_override).await,
@@ -235,7 +235,7 @@ where
         assert_eq!(process.state(), VmmProcessState::AwaitingPrepare);
         process.prepare().await.unwrap();
         assert_eq!(process.state(), VmmProcessState::AwaitingStart);
-        process.invoke(FirecrackerConfigOverride::NoOverride).await.unwrap();
+        process.invoke(ConfigurationFileOverride::NoOverride).await.unwrap();
         assert_eq!(process.state(), VmmProcessState::Started);
     }
 
@@ -254,10 +254,10 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
     let socket_path = get_tmp_path();
 
     let unrestricted_firecracker_arguments =
-        FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path.clone()))
+        VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()))
             .config_path(get_test_path("config.json"));
     let jailer_firecracker_arguments =
-        FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path)).config_path("jail-config.json");
+        VmmArguments::new(VmmApiSocket::Enabled(socket_path)).config_path("jail-config.json");
 
     let jailer_arguments = JailerArguments::new(
         unsafe { libc::geteuid() },
@@ -457,11 +457,11 @@ impl VmBuilder {
 
         let mut unrestricted_data = VmConfigurationData::new(
             VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args(get_boot_arg(self.unrestricted_network.as_ref())),
-            VmMachineConfiguration::new(1, 128),
+            VmMachineConfiguration::new(1, 128).track_dirty_pages(true),
         )
         .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")));
-        let mut unrestricted_executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(
-            FirecrackerApiSocket::Enabled(socket_path.clone()),
+        let mut unrestricted_executor = UnrestrictedVmmExecutor::new(VmmArguments::new(
+            VmmApiSocket::Enabled(socket_path.clone()),
         ));
         if let Some(ref network) = self.unrestricted_network {
             unrestricted_executor =
@@ -475,7 +475,7 @@ impl VmBuilder {
 
         let mut jailed_data = VmConfigurationData::new(
             VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args(get_boot_arg(self.jailed_network.as_ref())),
-            VmMachineConfiguration::new(1, 128),
+            VmMachineConfiguration::new(1, 128).track_dirty_pages(true),
         )
         .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")));
         let mut jailer_arguments = JailerArguments::new(
@@ -489,7 +489,7 @@ impl VmBuilder {
         }
 
         let jailed_executor = TestExecutor::Jailed(JailedVmmExecutor::new(
-            FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path)),
+            VmmArguments::new(VmmApiSocket::Enabled(socket_path)),
             jailer_arguments,
             FlatJailRenamer::default(),
         ));

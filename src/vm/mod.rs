@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    executor::{arguments::FirecrackerConfigOverride, installation::VmmInstallation, VmmExecutor},
+    executor::{arguments::ConfigurationFileOverride, installation::VmmInstallation, VmmExecutor},
     process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
     shell_spawner::ShellSpawner,
 };
@@ -284,14 +284,14 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             .get_socket_path()
             .ok_or(VmError::DisabledApiSocketIsUnsupported)?;
 
-        let mut config_override = FirecrackerConfigOverride::NoOverride;
+        let mut config_override = ConfigurationFileOverride::NoOverride;
         if let VmConfiguration::New {
             ref boot_method,
             ref data,
         } = configuration
         {
             if let NewVmBootMethod::ViaJsonConfiguration(inner_path) = boot_method {
-                config_override = FirecrackerConfigOverride::Enable(inner_path.clone());
+                config_override = ConfigurationFileOverride::Enable(inner_path.clone());
                 prepare_file(inner_path, true).await?;
                 fs::write(
                     self.vmm_process.inner_to_outer_path(inner_path),

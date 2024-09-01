@@ -5,12 +5,12 @@ use std::{
 
 /// Arguments passed by relevant executors to the "firecracker" binary.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct FirecrackerArguments {
+pub struct VmmArguments {
     // main
-    pub(crate) api_socket: FirecrackerApiSocket,
+    pub(crate) api_socket: VmmApiSocket,
     config_path: Option<PathBuf>,
     // logging
-    log_level: Option<FirecrackerLogLevel>,
+    log_level: Option<VmmLogLevel>,
     pub(crate) log_path: Option<PathBuf>,
     show_log_origin: bool,
     log_module: Option<String>,
@@ -25,14 +25,14 @@ pub struct FirecrackerArguments {
     seccomp_path: Option<PathBuf>,
 }
 
-pub enum FirecrackerConfigOverride {
+pub enum ConfigurationFileOverride {
     NoOverride,
     Disable,
     Enable(PathBuf),
 }
 
-impl FirecrackerArguments {
-    pub fn new(api_socket: FirecrackerApiSocket) -> Self {
+impl VmmArguments {
+    pub fn new(api_socket: VmmApiSocket) -> Self {
         Self {
             api_socket,
             config_path: None,
@@ -56,7 +56,7 @@ impl FirecrackerArguments {
         self
     }
 
-    pub fn log_level(mut self, log_level: FirecrackerLogLevel) -> Self {
+    pub fn log_level(mut self, log_level: VmmLogLevel) -> Self {
         self.log_level = Some(log_level);
         self
     }
@@ -116,14 +116,14 @@ impl FirecrackerArguments {
         self
     }
 
-    pub(crate) fn join(&self, config_override: FirecrackerConfigOverride) -> String {
+    pub(crate) fn join(&self, config_override: ConfigurationFileOverride) -> String {
         let mut args = HashMap::new();
 
         match self.api_socket {
-            FirecrackerApiSocket::Disabled => {
+            VmmApiSocket::Disabled => {
                 args.insert("no-api".into(), ArgValue::None);
             }
-            FirecrackerApiSocket::Enabled(ref socket_path) => {
+            VmmApiSocket::Enabled(ref socket_path) => {
                 args.insert(
                     "api-sock".into(),
                     ArgValue::Some(socket_path.to_string_lossy().into_owned()),
@@ -132,7 +132,7 @@ impl FirecrackerArguments {
         }
 
         match config_override {
-            FirecrackerConfigOverride::NoOverride => {
+            ConfigurationFileOverride::NoOverride => {
                 if let Some(ref config_path) = self.config_path {
                     args.insert(
                         "config-file".into(),
@@ -140,8 +140,8 @@ impl FirecrackerArguments {
                     );
                 }
             }
-            FirecrackerConfigOverride::Disable => {}
-            FirecrackerConfigOverride::Enable(path) => {
+            ConfigurationFileOverride::Disable => {}
+            ConfigurationFileOverride::Enable(path) => {
                 args.insert(
                     "config-file".into(),
                     ArgValue::Some(path.to_string_lossy().into_owned()),
@@ -366,7 +366,7 @@ impl JailerArguments {
 
 /// A configuration of a Firecracker API Unix socket.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum FirecrackerApiSocket {
+pub enum VmmApiSocket {
     /// The socket should be disabled via --no-api argument.
     Disabled,
     /// The socket should be enabled at the given path via --api-sock argument.
@@ -375,7 +375,7 @@ pub enum FirecrackerApiSocket {
 
 /// A level of logging applied by Firecracker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum FirecrackerLogLevel {
+pub enum VmmLogLevel {
     Off,
     Trace,
     Debug,
@@ -384,15 +384,15 @@ pub enum FirecrackerLogLevel {
     Error,
 }
 
-impl ToString for FirecrackerLogLevel {
+impl ToString for VmmLogLevel {
     fn to_string(&self) -> String {
         match self {
-            FirecrackerLogLevel::Off => "Off",
-            FirecrackerLogLevel::Trace => "Trace",
-            FirecrackerLogLevel::Debug => "Debug",
-            FirecrackerLogLevel::Info => "Info",
-            FirecrackerLogLevel::Warn => "Warn",
-            FirecrackerLogLevel::Error => "Error",
+            VmmLogLevel::Off => "Off",
+            VmmLogLevel::Trace => "Trace",
+            VmmLogLevel::Debug => "Debug",
+            VmmLogLevel::Info => "Info",
+            VmmLogLevel::Warn => "Warn",
+            VmmLogLevel::Error => "Error",
         }
         .into()
     }
@@ -444,64 +444,63 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, FirecrackerLogLevel, JailerArguments,
-        JailerCgroupVersion,
+        ConfigurationFileOverride, JailerArguments, JailerCgroupVersion, VmmApiSocket, VmmArguments, VmmLogLevel,
     };
 
     #[test]
     fn firecracker_builds_correctly() {
-        assert_fc(&["--no-api"], FirecrackerArguments::new(FirecrackerApiSocket::Disabled));
+        assert_fc(&["--no-api"], VmmArguments::new(VmmApiSocket::Disabled));
         assert_fc(
             &["--api-sock", "/tmp/socket.sock"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Enabled(PathBuf::from("/tmp/socket.sock"))),
+            VmmArguments::new(VmmApiSocket::Enabled(PathBuf::from("/tmp/socket.sock"))),
         );
         assert_fc(
             &["--no-api", "--level Info"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).log_level(FirecrackerLogLevel::Info),
+            VmmArguments::new(VmmApiSocket::Disabled).log_level(VmmLogLevel::Info),
         );
         assert_fc(
             &["--no-api", "--log-path /tmp/t.fifo"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).log_path("/tmp/t.fifo"),
+            VmmArguments::new(VmmApiSocket::Disabled).log_path("/tmp/t.fifo"),
         );
         assert_fc(
             &["--no-api", "--show-log-origin"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).show_log_origin(),
+            VmmArguments::new(VmmApiSocket::Disabled).show_log_origin(),
         );
         assert_fc(
             &["--no-api", "--module mod"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).log_module("mod"),
+            VmmArguments::new(VmmApiSocket::Disabled).log_module("mod"),
         );
         assert_fc(
             &["--no-api", "--show-level"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).show_log_level(),
+            VmmArguments::new(VmmApiSocket::Disabled).show_log_level(),
         );
         assert_fc(
             &["--no-api", "--boot-timer"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).enable_boot_timer(),
+            VmmArguments::new(VmmApiSocket::Disabled).enable_boot_timer(),
         );
         assert_fc(
             &["--no-api", "--http-api-max-payload-size 32"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).api_max_payload_bytes(32),
+            VmmArguments::new(VmmApiSocket::Disabled).api_max_payload_bytes(32),
         );
         assert_fc(
             &["--no-api", "--metadata /tmp/metadata"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).metadata_path("/tmp/metadata"),
+            VmmArguments::new(VmmApiSocket::Disabled).metadata_path("/tmp/metadata"),
         );
         assert_fc(
             &["--no-api", "--metrics-path /tmp/m.path"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).metrics_path("/tmp/m.path"),
+            VmmArguments::new(VmmApiSocket::Disabled).metrics_path("/tmp/m.path"),
         );
         assert_fc(
             &["--no-api", "--mmds-size-limit 128"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).mmds_size_limit(128),
+            VmmArguments::new(VmmApiSocket::Disabled).mmds_size_limit(128),
         );
         assert_fc(
             &["--no-api", "--no-seccomp"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).disable_seccomp(),
+            VmmArguments::new(VmmApiSocket::Disabled).disable_seccomp(),
         );
         assert_fc(
             &["--no-api", "--seccomp-filter /tmp/seccomp.filter"],
-            FirecrackerArguments::new(FirecrackerApiSocket::Disabled).seccomp_path("/tmp/seccomp.filter"),
+            VmmArguments::new(VmmApiSocket::Disabled).seccomp_path("/tmp/seccomp.filter"),
         );
     }
 
@@ -538,8 +537,8 @@ mod tests {
         );
     }
 
-    fn assert_fc(expectations: &[&str], args: FirecrackerArguments) {
-        let joined_args = args.join(FirecrackerConfigOverride::NoOverride);
+    fn assert_fc(expectations: &[&str], args: VmmArguments) {
+        let joined_args = args.join(ConfigurationFileOverride::NoOverride);
         for expectation in expectations {
             assert!(joined_args.contains(expectation));
         }

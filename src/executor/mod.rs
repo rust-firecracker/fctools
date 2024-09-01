@@ -6,7 +6,7 @@ use std::{
     process::ExitStatus,
 };
 
-use arguments::FirecrackerConfigOverride;
+use arguments::ConfigurationFileOverride;
 use async_trait::async_trait;
 use installation::VmmInstallation;
 use jailed::JailRenamerError;
@@ -72,7 +72,7 @@ pub trait VmmExecutor: Send + Sync {
         &self,
         installation: &VmmInstallation,
         shell_spawner: &impl ShellSpawner,
-        config_override: FirecrackerConfigOverride,
+        config_override: ConfigurationFileOverride,
     ) -> Result<Child, VmmExecutorError>;
 
     /// Clean up all transient resources of the VM invocation.

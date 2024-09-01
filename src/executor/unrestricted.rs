@@ -9,7 +9,7 @@ use tokio::{fs, process::Child};
 use crate::shell_spawner::ShellSpawner;
 
 use super::{
-    arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride},
+    arguments::{ConfigurationFileOverride, VmmApiSocket, VmmArguments},
     command_modifier::{apply_command_modifier_chain, CommandModifier},
     create_file_with_tree, force_chown,
     installation::VmmInstallation,
@@ -20,18 +20,18 @@ use super::{
 /// This executor allows rootless execution, given that the user has access to /dev/kvm.
 #[derive(Debug)]
 pub struct UnrestrictedVmmExecutor {
-    firecracker_arguments: FirecrackerArguments,
+    vmm_arguments: VmmArguments,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
     remove_metrics_on_cleanup: bool,
     remove_logs_on_cleanup: bool,
     pipes_to_null: bool,
-    id: Option<String>,
+    id: Option<VmmId>,
 }
 
 impl UnrestrictedVmmExecutor {
-    pub fn new(firecracker_arguments: FirecrackerArguments) -> Self {
+    pub fn new(vmm_arguments: VmmArguments) -> Self {
         Self {
-            firecracker_arguments,
+            vmm_arguments,
             command_modifier_chain: Vec::new(),
             remove_metrics_on_cleanup: false,
             remove_logs_on_cleanup: false,
@@ -65,18 +65,65 @@ impl UnrestrictedVmmExecutor {
         self
     }
 
-    pub fn id(mut self, id: impl Into<String>) -> Self {
-        self.id = Some(id.into());
+    pub fn id(mut self, id: VmmId) -> Self {
+        self.id = Some(id);
         self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VmmId(String);
+
+pub enum VmmIdParseError {
+    TooShort,
+    TooLong,
+    ContainsInvalidCharacter,
+}
+
+impl VmmId {
+    pub fn new(id: impl Into<String>) -> Result<VmmId, VmmIdParseError> {
+        id.into().try_into()
+    }
+}
+
+impl TryFrom<String> for VmmId {
+    type Error = VmmIdParseError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value.len() < 5 {
+            return Err(VmmIdParseError::TooShort);
+        }
+
+        if value.len() > 60 {
+            return Err(VmmIdParseError::TooLong);
+        }
+
+        if value.chars().any(|c| !c.is_ascii_alphanumeric() && c != '-') {
+            return Err(VmmIdParseError::ContainsInvalidCharacter);
+        }
+
+        Ok(Self(value))
+    }
+}
+
+impl AsRef<str> for VmmId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<VmmId> for String {
+    fn from(value: VmmId) -> Self {
+        value.0
     }
 }
 
 #[async_trait]
 impl VmmExecutor for UnrestrictedVmmExecutor {
     fn get_socket_path(&self, _installation: &VmmInstallation) -> Option<PathBuf> {
-        match &self.firecracker_arguments.api_socket {
-            FirecrackerApiSocket::Disabled => None,
-            FirecrackerApiSocket::Enabled(path) => Some(path.clone()),
+        match &self.vmm_arguments.api_socket {
+            VmmApiSocket::Disabled => None,
+            VmmApiSocket::Enabled(path) => Some(path.clone()),
         }
     }
 
@@ -101,7 +148,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             force_chown(&path, shell_spawner).await?;
         }
 
-        if let FirecrackerApiSocket::Enabled(ref socket_path) = self.firecracker_arguments.api_socket {
+        if let VmmApiSocket::Enabled(ref socket_path) = self.vmm_arguments.api_socket {
             if fs::try_exists(socket_path).await.map_err(VmmExecutorError::IoError)? {
                 force_chown(socket_path, shell_spawner).await?;
                 fs::remove_file(socket_path).await.map_err(VmmExecutorError::IoError)?;
@@ -109,10 +156,10 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         // Ensure argument paths exist
-        if let Some(ref log_path) = self.firecracker_arguments.log_path {
+        if let Some(ref log_path) = self.vmm_arguments.log_path {
             create_file_with_tree(log_path).await?;
         }
-        if let Some(ref metrics_path) = self.firecracker_arguments.metrics_path {
+        if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
             create_file_with_tree(metrics_path).await?;
         }
 
@@ -123,14 +170,14 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         &self,
         installation: &VmmInstallation,
         shell_spawner: &impl ShellSpawner,
-        config_override: FirecrackerConfigOverride,
+        config_override: ConfigurationFileOverride,
     ) -> Result<Child, VmmExecutorError> {
-        let arguments = self.firecracker_arguments.join(config_override);
+        let arguments = self.vmm_arguments.join(config_override);
         let mut shell_command = format!("{} {arguments}", installation.firecracker_path.to_string_lossy());
         apply_command_modifier_chain(&mut shell_command, &self.command_modifier_chain);
         if let Some(ref id) = self.id {
             shell_command.push_str(" --id");
-            shell_command.push_str(id);
+            shell_command.push_str(id.as_ref());
         }
 
         let child = shell_spawner
@@ -145,7 +192,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         _installation: &VmmInstallation,
         shell_spawner: &impl ShellSpawner,
     ) -> Result<(), VmmExecutorError> {
-        if let FirecrackerApiSocket::Enabled(ref socket_path) = self.firecracker_arguments.api_socket {
+        if let VmmApiSocket::Enabled(ref socket_path) = self.vmm_arguments.api_socket {
             if fs::try_exists(socket_path).await.map_err(VmmExecutorError::IoError)? {
                 force_chown(socket_path, shell_spawner).await?;
                 fs::remove_file(socket_path).await.map_err(VmmExecutorError::IoError)?;
@@ -153,13 +200,13 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         if self.remove_logs_on_cleanup {
-            if let Some(ref log_path) = self.firecracker_arguments.log_path {
+            if let Some(ref log_path) = self.vmm_arguments.log_path {
                 fs::remove_file(log_path).await.map_err(VmmExecutorError::IoError)?;
             }
         }
 
         if self.remove_metrics_on_cleanup {
-            if let Some(ref metrics_path) = self.firecracker_arguments.metrics_path {
+            if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
                 fs::remove_file(metrics_path).await.map_err(VmmExecutorError::IoError)?;
             }
         }

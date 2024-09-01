@@ -19,10 +19,12 @@ impl SnapshotEditorExt for VmmInstallation {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SnapshotEditor<'a> {
     path: &'a PathBuf,
 }
 
+#[derive(Debug)]
 pub enum SnapshotEditorError {
     ProcessForkFailed(tokio::io::Error),
     ExitedWithNonZeroStatus(ExitStatus),
@@ -71,7 +73,7 @@ impl<'a> SnapshotEditor<'a> {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    pub async fn get_snapshot_cpu_states(
+    pub async fn get_snapshot_vcpu_states(
         &self,
         snapshot_path: impl AsRef<Path> + Send,
     ) -> Result<String, SnapshotEditorError> {
