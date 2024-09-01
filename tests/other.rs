@@ -74,7 +74,7 @@ async fn installation_does_not_verify_for_incorrect_binary_version() {
 #[tokio::test]
 async fn same_user_shell_launches_simple_command() {
     let shell_spawner = SameUserShellSpawner::new(which::which("sh").unwrap());
-    let child = shell_spawner.spawn("cat --help".into()).await.unwrap();
+    let child = shell_spawner.spawn("cat --help".into(), false).await.unwrap();
     let output = child.wait_with_output().await.unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     assert!(stdout.contains("Usage: cat [OPTION]... [FILE]..."));
@@ -87,7 +87,7 @@ async fn same_user_shell_runs_under_correct_uid() {
     let shell_spawner = SameUserShellSpawner::new(which::which("sh").unwrap());
     let stdout = String::from_utf8_lossy(
         &shell_spawner
-            .spawn("echo $UID".into())
+            .spawn("echo $UID".into(), false)
             .await
             .unwrap()
             .wait_with_output()
@@ -116,7 +116,7 @@ async fn elevation_test<S: ShellSpawner, F: FnOnce(String) -> S>(closure: F) {
         return;
     }
     let shell_spawner = closure(password.unwrap());
-    let child = shell_spawner.spawn("echo $UID".into()).await.unwrap();
+    let child = shell_spawner.spawn("echo $UID".into(), false).await.unwrap();
     let stdout = String::from_utf8_lossy(&child.wait_with_output().await.unwrap().stdout).into_owned();
     assert_eq!(stdout, "0\n");
 }

@@ -8,11 +8,9 @@ use std::{
 
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
+use http::{Request, Response, StatusCode, Uri};
 use http_body_util::{BodyExt, Full};
-use hyper::{
-    body::{Body, Incoming},
-    Request, Response, StatusCode, Uri,
-};
+use hyper::body::{Body, Incoming};
 use hyper_client_sockets::{HyperUnixConnector, UnixUriExt};
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use tokio::{
@@ -112,8 +110,10 @@ pub enum VmmProcessError {
     IncorrectSocketUri,
     #[error("The underlying VMM executor returned an error: `{0}`")]
     ExecutorError(VmmExecutorError),
-    #[error("Attempted to take out the process' pipes when they had already been taken")]
-    PipesAlreadyTaken,
+    #[error(
+        "Attempted to take out the process' pipes when they had already been taken or were redirected to /dev/null"
+    )]
+    PipesNulledOrAlreadyTaken,
 }
 
 impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
@@ -215,9 +215,18 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
     pub fn take_pipes(&mut self) -> Result<VmmProcessPipes, VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
         let child_ref = self.child.as_mut().expect("No child while running");
-        let stdin = child_ref.stdin.take().ok_or(VmmProcessError::PipesAlreadyTaken)?;
-        let stdout = child_ref.stdout.take().ok_or(VmmProcessError::PipesAlreadyTaken)?;
-        let stderr = child_ref.stderr.take().ok_or(VmmProcessError::PipesAlreadyTaken)?;
+        let stdin = child_ref
+            .stdin
+            .take()
+            .ok_or(VmmProcessError::PipesNulledOrAlreadyTaken)?;
+        let stdout = child_ref
+            .stdout
+            .take()
+            .ok_or(VmmProcessError::PipesNulledOrAlreadyTaken)?;
+        let stderr = child_ref
+            .stderr
+            .take()
+            .ok_or(VmmProcessError::PipesNulledOrAlreadyTaken)?;
         Ok(VmmProcessPipes { stdin, stdout, stderr })
     }
 

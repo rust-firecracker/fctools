@@ -17,7 +17,7 @@ pub trait ShellSpawner: Send + Sync {
 
     /// Spawn the shell and enter shell_command in it, with the shell exiting as soon as the command completes.
     /// The returned tokio Child must be the shell's process.
-    async fn spawn(&self, shell_command: String) -> Result<Child, io::Error>;
+    async fn spawn(&self, shell_command: String, pipes_to_null: bool) -> Result<Child, io::Error>;
 }
 
 /// A shell spawner that doesn't do privilege escalation and simply launches the given shell
@@ -44,20 +44,29 @@ impl Default for SameUserShellSpawner {
     }
 }
 
+#[inline(always)]
+fn get_stdio(pipes_to_null: bool) -> Stdio {
+    if pipes_to_null {
+        Stdio::null()
+    } else {
+        Stdio::piped()
+    }
+}
+
 #[async_trait]
 impl ShellSpawner for SameUserShellSpawner {
     fn increases_privileges(&self) -> bool {
         false
     }
 
-    async fn spawn(&self, shell_command: String) -> Result<Child, io::Error> {
+    async fn spawn(&self, shell_command: String, pipes_to_null: bool) -> Result<Child, io::Error> {
         let mut command = Command::new(self.shell_path.as_os_str());
         command
             .arg("-c")
             .arg(shell_command)
-            .stderr(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stdin(Stdio::piped());
+            .stderr(get_stdio(pipes_to_null))
+            .stdout(get_stdio(pipes_to_null))
+            .stdin(get_stdio(pipes_to_null));
         let child = command.spawn()?;
         Ok(child)
     }
@@ -93,11 +102,11 @@ impl ShellSpawner for SuShellSpawner {
         true
     }
 
-    async fn spawn(&self, shell_command: String) -> Result<Child, io::Error> {
+    async fn spawn(&self, shell_command: String, pipes_to_null: bool) -> Result<Child, io::Error> {
         let mut command = Command::new(self.su_path.as_os_str());
         command
-            .stderr(Stdio::piped())
-            .stdout(Stdio::piped())
+            .stderr(get_stdio(pipes_to_null))
+            .stdout(get_stdio(pipes_to_null))
             .stdin(Stdio::piped());
         let mut child = command.spawn()?;
 
@@ -146,7 +155,7 @@ impl ShellSpawner for SudoShellSpawner {
         true
     }
 
-    async fn spawn(&self, shell_command: String) -> Result<Child, io::Error> {
+    async fn spawn(&self, shell_command: String, pipes_to_null: bool) -> Result<Child, io::Error> {
         let mut command = Command::new(self.sudo_path.as_os_str());
         command.arg("-S");
         command.arg("-s");
@@ -154,8 +163,8 @@ impl ShellSpawner for SudoShellSpawner {
             command.arg(component);
         }
         command
-            .stderr(Stdio::piped())
-            .stdout(Stdio::piped())
+            .stderr(get_stdio(pipes_to_null))
+            .stdout(get_stdio(pipes_to_null))
             .stdin(Stdio::piped());
         let mut child = command.spawn()?;
 

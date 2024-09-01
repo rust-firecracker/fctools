@@ -24,6 +24,7 @@ pub struct UnrestrictedVmmExecutor {
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
     remove_metrics_on_cleanup: bool,
     remove_logs_on_cleanup: bool,
+    pipes_to_null: bool,
 }
 
 impl UnrestrictedVmmExecutor {
@@ -33,6 +34,7 @@ impl UnrestrictedVmmExecutor {
             command_modifier_chain: Vec::new(),
             remove_metrics_on_cleanup: false,
             remove_logs_on_cleanup: false,
+            pipes_to_null: false,
         }
     }
 
@@ -53,6 +55,11 @@ impl UnrestrictedVmmExecutor {
 
     pub fn remove_logs_on_cleanup(mut self) -> Self {
         self.remove_logs_on_cleanup = true;
+        self
+    }
+
+    pub fn pipes_to_null(mut self) -> Self {
+        self.pipes_to_null = true;
         self
     }
 }
@@ -115,7 +122,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         apply_command_modifier_chain(&mut shell_command, &self.command_modifier_chain);
 
         let child = shell_spawner
-            .spawn(shell_command)
+            .spawn(shell_command, self.pipes_to_null)
             .await
             .map_err(VmmExecutorError::ShellSpawnFailed)?;
         Ok(child)

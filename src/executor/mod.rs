@@ -86,7 +86,7 @@ pub(crate) async fn force_chown(path: &Path, shell_spawner: &impl ShellSpawner) 
     let gid = unsafe { libc::getegid() };
 
     let mut child = shell_spawner
-        .spawn(format!("chown -f -R {uid}:{gid} {}", path.to_string_lossy()))
+        .spawn(format!("chown -f -R {uid}:{gid} {}", path.to_string_lossy()), true)
         .await
         .map_err(VmmExecutorError::ShellSpawnFailed)?;
     let exit_status = child.wait().await.map_err(VmmExecutorError::ShellForkFailed)?;
@@ -107,7 +107,7 @@ async fn force_mkdir(path: &Path, shell_spawner: &impl ShellSpawner) -> Result<(
     }
 
     let mut child = shell_spawner
-        .spawn(format!("mkdir -p {}", path.to_string_lossy()))
+        .spawn(format!("mkdir -p {}", path.to_string_lossy()), true)
         .await
         .map_err(VmmExecutorError::ShellSpawnFailed)?;
     let exit_status = child.wait().await.map_err(VmmExecutorError::ShellForkFailed)?;

@@ -203,8 +203,9 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         );
         apply_command_modifier_chain(&mut shell_command, &self.command_modifier_chain);
 
+        // nulling the pipes is redundant since jailer can do this itself via daemonization
         shell
-            .spawn(shell_command)
+            .spawn(shell_command, false)
             .await
             .map_err(VmmExecutorError::ShellSpawnFailed)
     }

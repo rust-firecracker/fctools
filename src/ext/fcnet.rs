@@ -14,6 +14,7 @@ pub struct FcnetConfiguration {
     tap_name: Option<String>,
     tap_ip: Option<IpInet>,
     configuration_type: FcnetConfigurationType,
+    pipes_to_null: bool,
 }
 
 impl FcnetConfiguration {
@@ -24,6 +25,7 @@ impl FcnetConfiguration {
             tap_name: None,
             tap_ip: None,
             configuration_type: FcnetConfigurationType::Simple,
+            pipes_to_null: false,
         }
     }
 
@@ -34,6 +36,7 @@ impl FcnetConfiguration {
             tap_name: None,
             tap_ip: None,
             configuration_type: FcnetConfigurationType::Netns(netns_options),
+            pipes_to_null: false,
         }
     }
 
@@ -54,6 +57,11 @@ impl FcnetConfiguration {
 
     pub fn tap_ip(mut self, tap_ip: IpInet) -> Self {
         self.tap_ip = Some(tap_ip);
+        self
+    }
+
+    pub fn pipes_to_null(mut self) -> Self {
+        self.pipes_to_null = true;
         self
     }
 }
@@ -246,7 +254,10 @@ impl FcnetConfiguration {
         }
 
         let child = shell_spawner
-            .spawn(format!("{} {arguments}", fcnet_path.as_ref().to_string_lossy()))
+            .spawn(
+                format!("{} {arguments}", fcnet_path.as_ref().to_string_lossy()),
+                self.pipes_to_null,
+            )
             .await
             .map_err(FcnetError::ShellSpawnFailed)?;
 

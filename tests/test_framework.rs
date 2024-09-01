@@ -91,7 +91,7 @@ impl ShellSpawner for FailingShellSpawner {
         false
     }
 
-    async fn spawn(&self, _shell_command: String) -> Result<Child, std::io::Error> {
+    async fn spawn(&self, _shell_command: String, _pipes_to_null: bool) -> Result<Child, std::io::Error> {
         Err(std::io::Error::other("deliberately generated error in test"))
     }
 }
@@ -118,10 +118,10 @@ impl ShellSpawner for TestShellSpawner {
         }
     }
 
-    async fn spawn(&self, shell_command: String) -> Result<Child, tokio::io::Error> {
+    async fn spawn(&self, shell_command: String, pipes_to_null: bool) -> Result<Child, tokio::io::Error> {
         match self {
-            TestShellSpawner::Su(s) => s.spawn(shell_command).await,
-            TestShellSpawner::SameUser(s) => s.spawn(shell_command).await,
+            TestShellSpawner::Su(s) => s.spawn(shell_command, pipes_to_null).await,
+            TestShellSpawner::SameUser(s) => s.spawn(shell_command, pipes_to_null).await,
         }
     }
 }
