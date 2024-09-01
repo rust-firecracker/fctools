@@ -8,7 +8,7 @@ use std::{
 
 use arguments::FirecrackerConfigOverride;
 use async_trait::async_trait;
-use installation::FirecrackerInstallation;
+use installation::VmmInstallation;
 use jailed::JailRenamerError;
 use tokio::{fs, process::Child, task::JoinError};
 
@@ -51,10 +51,10 @@ pub enum VmmExecutorError {
 #[async_trait]
 pub trait VmmExecutor: Send + Sync {
     /// Get the host location of the VMM socket, if one exists.
-    fn get_socket_path(&self, installation: &FirecrackerInstallation) -> Option<PathBuf>;
+    fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf>;
 
     /// Resolves an inner path into an outer path.
-    fn inner_to_outer_path(&self, installation: &FirecrackerInstallation, inner_path: &Path) -> PathBuf;
+    fn inner_to_outer_path(&self, installation: &VmmInstallation, inner_path: &Path) -> PathBuf;
 
     // Returns a boolean determining whether this executor leaves any traces on the host filesystem after cleanup.
     fn traceless(&self) -> bool;
@@ -62,7 +62,7 @@ pub trait VmmExecutor: Send + Sync {
     /// Prepare all transient resources for the VM invocation.
     async fn prepare(
         &self,
-        installation: &FirecrackerInstallation,
+        installation: &VmmInstallation,
         shell_spawner: &impl ShellSpawner,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError>;
@@ -70,7 +70,7 @@ pub trait VmmExecutor: Send + Sync {
     /// Invoke the VM on the given FirecrackerInstallation and return the spawned tokio Child.
     async fn invoke(
         &self,
-        installation: &FirecrackerInstallation,
+        installation: &VmmInstallation,
         shell_spawner: &impl ShellSpawner,
         config_override: FirecrackerConfigOverride,
     ) -> Result<Child, VmmExecutorError>;
@@ -78,7 +78,7 @@ pub trait VmmExecutor: Send + Sync {
     /// Clean up all transient resources of the VM invocation.
     async fn cleanup(
         &self,
-        installation: &FirecrackerInstallation,
+        installation: &VmmInstallation,
         shell_spawner: &impl ShellSpawner,
     ) -> Result<(), VmmExecutorError>;
 }

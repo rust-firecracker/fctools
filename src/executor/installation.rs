@@ -9,7 +9,7 @@ use tokio::{fs, process::Command};
 /// Firecracker components: firecracker, jailer, snapshot-editor. Using a partial installation with only
 /// some of these binaries is neither recommended nor supported.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FirecrackerInstallation {
+pub struct VmmInstallation {
     pub firecracker_path: PathBuf,
     pub jailer_path: PathBuf,
     pub snapshot_editor_path: PathBuf,
@@ -17,7 +17,7 @@ pub struct FirecrackerInstallation {
 
 /// Error caused during installation verification.
 #[derive(Debug, thiserror::Error)]
-pub enum FirecrackerInstallationError {
+pub enum VmmInstallationError {
     #[error("Accessing a file via tokio I/O failed: `{0}`")]
     FilesystemError(tokio::io::Error),
     #[error("A binary inside the installation doesn't exist")]
@@ -30,9 +30,9 @@ pub enum FirecrackerInstallationError {
     BinaryDoesNotMatchExpectedVersion,
 }
 
-impl FirecrackerInstallation {
+impl VmmInstallation {
     /// Verify the installation by ensuring all binaries exist, are executable and yield the correct type and version when forked.
-    pub async fn verify(&self, expected_version: impl AsRef<str>) -> Result<(), FirecrackerInstallationError> {
+    pub async fn verify(&self, expected_version: impl AsRef<str>) -> Result<(), VmmInstallationError> {
         verify_imp(&self.firecracker_path, expected_version.as_ref(), "Firecracker").await?;
         verify_imp(&self.jailer_path, expected_version.as_ref(), "Jailer").await?;
         verify_imp(&self.snapshot_editor_path, expected_version.as_ref(), "snapshot-editor").await?;
@@ -40,16 +40,12 @@ impl FirecrackerInstallation {
     }
 }
 
-async fn verify_imp(
-    path: &Path,
-    expected_version: &str,
-    expected_name: &str,
-) -> Result<(), FirecrackerInstallationError> {
+async fn verify_imp(path: &Path, expected_version: &str, expected_name: &str) -> Result<(), VmmInstallationError> {
     if !fs::try_exists(path)
         .await
-        .map_err(FirecrackerInstallationError::FilesystemError)?
+        .map_err(VmmInstallationError::FilesystemError)?
     {
-        return Err(FirecrackerInstallationError::BinaryMissing);
+        return Err(VmmInstallationError::BinaryMissing);
     }
 
     let mut command = Command::new(path);
@@ -57,15 +53,15 @@ async fn verify_imp(
     let output = command
         .output()
         .await
-        .map_err(|_| FirecrackerInstallationError::BinaryNotExecutable)?;
+        .map_err(|_| VmmInstallationError::BinaryNotExecutable)?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
 
     if !stdout.starts_with(expected_name) {
-        return Err(FirecrackerInstallationError::BinaryIsOfIncorrectType);
+        return Err(VmmInstallationError::BinaryIsOfIncorrectType);
     }
 
     if !stdout.contains(expected_version) {
-        return Err(FirecrackerInstallationError::BinaryDoesNotMatchExpectedVersion);
+        return Err(VmmInstallationError::BinaryDoesNotMatchExpectedVersion);
     }
 
     Ok(())

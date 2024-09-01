@@ -20,7 +20,7 @@ use tokio::{
 
 use crate::{
     executor::{
-        arguments::FirecrackerConfigOverride, force_chown, installation::FirecrackerInstallation, VmmExecutor,
+        arguments::FirecrackerConfigOverride, force_chown, installation::VmmInstallation, VmmExecutor,
         VmmExecutorError,
     },
     shell_spawner::ShellSpawner,
@@ -32,7 +32,7 @@ use crate::{
 pub struct VmmProcess<E: VmmExecutor, S: ShellSpawner> {
     executor: Arc<E>,
     shell_spawner: Arc<S>,
-    installation: Arc<FirecrackerInstallation>,
+    installation: Arc<VmmInstallation>,
     child: Option<Child>,
     state: VmmProcessState,
     socket_path: Option<PathBuf>,
@@ -121,7 +121,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
     pub fn new(
         executor: E,
         shell_spawner: S,
-        installation: FirecrackerInstallation,
+        installation: VmmInstallation,
         outer_paths: Vec<PathBuf>,
     ) -> Self {
         Self::new_arced(
@@ -137,7 +137,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
     pub fn new_arced(
         executor_arc: Arc<E>,
         shell_spawner_arc: Arc<S>,
-        installation_arc: Arc<FirecrackerInstallation>,
+        installation_arc: Arc<VmmInstallation>,
         outer_paths: Vec<PathBuf>,
     ) -> Self {
         let socket_path = executor_arc.get_socket_path(installation_arc.as_ref());

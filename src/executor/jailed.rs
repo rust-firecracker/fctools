@@ -12,7 +12,7 @@ use super::{
     arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride, JailerArguments},
     command_modifier::{apply_command_modifier_chain, CommandModifier},
     create_file_with_tree, force_chown, force_mkdir,
-    installation::FirecrackerInstallation,
+    installation::VmmInstallation,
     VmmExecutor, VmmExecutorError,
 };
 
@@ -73,7 +73,7 @@ pub enum JailMoveMethod {
 
 #[async_trait]
 impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
-    fn get_socket_path(&self, installation: &FirecrackerInstallation) -> Option<PathBuf> {
+    fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
         match &self.firecracker_arguments.api_socket {
             FirecrackerApiSocket::Disabled => None,
             FirecrackerApiSocket::Enabled(socket_path) => {
@@ -82,7 +82,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         }
     }
 
-    fn inner_to_outer_path(&self, installation: &FirecrackerInstallation, inner_path: &Path) -> PathBuf {
+    fn inner_to_outer_path(&self, installation: &VmmInstallation, inner_path: &Path) -> PathBuf {
         self.get_jail_path(installation).jail_join(inner_path)
     }
 
@@ -92,7 +92,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
 
     async fn prepare(
         &self,
-        installation: &FirecrackerInstallation,
+        installation: &VmmInstallation,
         shell_spawner: &impl ShellSpawner,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
@@ -194,7 +194,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
 
     async fn invoke(
         &self,
-        installation: &FirecrackerInstallation,
+        installation: &VmmInstallation,
         shell: &impl ShellSpawner,
         config_override: FirecrackerConfigOverride,
     ) -> Result<Child, VmmExecutorError> {
@@ -215,7 +215,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
 
     async fn cleanup(
         &self,
-        installation: &FirecrackerInstallation,
+        installation: &VmmInstallation,
         _shell_spawner: &impl ShellSpawner,
     ) -> Result<(), VmmExecutorError> {
         let jail_path = self.get_jail_path(installation);
@@ -231,7 +231,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
 }
 
 impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
-    fn get_jail_path(&self, installation: &FirecrackerInstallation) -> PathBuf {
+    fn get_jail_path(&self, installation: &VmmInstallation) -> PathBuf {
         let chroot_base_dir = match self.jailer_arguments.chroot_base_dir {
             Some(ref path) => path.clone(),
             None => PathBuf::from("/srv/jailer"),

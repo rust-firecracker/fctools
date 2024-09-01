@@ -52,12 +52,19 @@ fctools = { path = ".", features = ["full"] }
 
 [features]
 default = []
-full = ["vm", "metrics-ext", "fcnet-ext", "vsock-http-ext", "link-local-ext"]
+full = [
+    "vm",
+    "metrics-ext",
+    "fcnet-ext",
+    "vsock-http-ext",
+    "link-local-ext",
+    "snapshot-editor-ext",
+]
 # layers
 shell-spawner = []
-vmm-executor = ["shell-spawner", "dep:libc"]
-vmm-process = [
-    "vmm-executor",
+executor = ["shell-spawner", "dep:libc"]
+process = [
+    "executor",
     "dep:hyper",
     "dep:bytes",
     "dep:http-body-util",
@@ -65,9 +72,10 @@ vmm-process = [
     "dep:hyper-util",
     "dep:http",
 ]
-vm = ["vmm-process", "dep:serde", "dep:serde_json"]
+vm = ["process", "dep:serde", "dep:serde_json"]
 # extensions
 metrics-ext = ["dep:serde", "dep:serde_json"]
 fcnet-ext = ["shell-spawner", "dep:cidr"]
 vsock-http-ext = ["vm", "hyper-client-sockets/firecracker"]
 link-local-ext = ["dep:cidr"]
+snapshot-editor-ext = ["executor"]

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use fctools::{
-    executor::installation::{FirecrackerInstallation, FirecrackerInstallationError},
+    executor::installation::{VmmInstallation, VmmInstallationError},
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner, SudoShellSpawner},
 };
 use test_framework::get_test_path;
@@ -15,14 +15,14 @@ async fn installation_does_not_verify_for_missing_files() {
         PathBuf::from(format!("/tmp/{}", Uuid::new_v4()))
     }
 
-    let installation = FirecrackerInstallation {
+    let installation = VmmInstallation {
         firecracker_path: random_path(),
         jailer_path: random_path(),
         snapshot_editor_path: random_path(),
     };
     assert_matches::assert_matches!(
         installation.verify("v1.8.0").await,
-        Err(FirecrackerInstallationError::BinaryMissing)
+        Err(VmmInstallationError::BinaryMissing)
     );
 }
 
@@ -34,40 +34,40 @@ async fn installation_does_not_verify_for_non_executable_files() {
         path
     }
 
-    let installation = FirecrackerInstallation {
+    let installation = VmmInstallation {
         firecracker_path: non_executable_path().await,
         jailer_path: non_executable_path().await,
         snapshot_editor_path: non_executable_path().await,
     };
     assert_matches::assert_matches!(
         installation.verify("v1.8.0").await,
-        Err(FirecrackerInstallationError::BinaryNotExecutable)
+        Err(VmmInstallationError::BinaryNotExecutable)
     );
 }
 
 #[tokio::test]
 async fn installation_does_not_verify_for_incorrect_binary_type() {
-    let installation = FirecrackerInstallation {
+    let installation = VmmInstallation {
         firecracker_path: get_test_path("jailer"),
         jailer_path: get_test_path("snapshot-editor"),
         snapshot_editor_path: get_test_path("firecracker"),
     };
     assert_matches::assert_matches!(
         installation.verify("v1.8.0").await,
-        Err(FirecrackerInstallationError::BinaryIsOfIncorrectType)
+        Err(VmmInstallationError::BinaryIsOfIncorrectType)
     );
 }
 
 #[tokio::test]
 async fn installation_does_not_verify_for_incorrect_binary_version() {
-    let installation = FirecrackerInstallation {
+    let installation = VmmInstallation {
         firecracker_path: get_test_path("firecracker-wrong-version"),
         jailer_path: get_test_path("jailer"),
         snapshot_editor_path: get_test_path("snapshot-editor"),
     };
     assert_matches::assert_matches!(
         installation.verify("v1.8.0").await,
-        Err(FirecrackerInstallationError::BinaryDoesNotMatchExpectedVersion)
+        Err(VmmInstallationError::BinaryDoesNotMatchExpectedVersion)
     );
 }
 

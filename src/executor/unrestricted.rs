@@ -12,7 +12,7 @@ use super::{
     arguments::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigOverride},
     command_modifier::{apply_command_modifier_chain, CommandModifier},
     create_file_with_tree, force_chown,
-    installation::FirecrackerInstallation,
+    installation::VmmInstallation,
     VmmExecutor, VmmExecutorError,
 };
 
@@ -73,14 +73,14 @@ impl UnrestrictedVmmExecutor {
 
 #[async_trait]
 impl VmmExecutor for UnrestrictedVmmExecutor {
-    fn get_socket_path(&self, _installation: &FirecrackerInstallation) -> Option<PathBuf> {
+    fn get_socket_path(&self, _installation: &VmmInstallation) -> Option<PathBuf> {
         match &self.firecracker_arguments.api_socket {
             FirecrackerApiSocket::Disabled => None,
             FirecrackerApiSocket::Enabled(path) => Some(path.clone()),
         }
     }
 
-    fn inner_to_outer_path(&self, _installation: &FirecrackerInstallation, inner_path: &Path) -> PathBuf {
+    fn inner_to_outer_path(&self, _installation: &VmmInstallation, inner_path: &Path) -> PathBuf {
         inner_path.to_owned()
     }
 
@@ -90,7 +90,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
     async fn prepare(
         &self,
-        _installation: &FirecrackerInstallation,
+        _installation: &VmmInstallation,
         shell_spawner: &impl ShellSpawner,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
@@ -121,7 +121,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
     async fn invoke(
         &self,
-        installation: &FirecrackerInstallation,
+        installation: &VmmInstallation,
         shell_spawner: &impl ShellSpawner,
         config_override: FirecrackerConfigOverride,
     ) -> Result<Child, VmmExecutorError> {
@@ -142,7 +142,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
     async fn cleanup(
         &self,
-        _installation: &FirecrackerInstallation,
+        _installation: &VmmInstallation,
         shell_spawner: &impl ShellSpawner,
     ) -> Result<(), VmmExecutorError> {
         if let FirecrackerApiSocket::Enabled(ref socket_path) = self.firecracker_arguments.api_socket {

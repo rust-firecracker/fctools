@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    executor::{arguments::FirecrackerConfigOverride, installation::FirecrackerInstallation, VmmExecutor},
+    executor::{arguments::FirecrackerConfigOverride, installation::VmmInstallation, VmmExecutor},
     process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
     shell_spawner::ShellSpawner,
 };
@@ -113,7 +113,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
     pub async fn prepare(
         executor: E,
         shell_spawner: S,
-        installation: FirecrackerInstallation,
+        installation: VmmInstallation,
         configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
         Self::prepare_arced(
@@ -128,7 +128,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
     pub async fn prepare_arced(
         executor: Arc<E>,
         shell_spawner_arc: Arc<S>,
-        installation_arc: Arc<FirecrackerInstallation>,
+        installation_arc: Arc<VmmInstallation>,
         mut configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
         fn get_outer_paths(data: &VmConfigurationData, load_snapshot: Option<&VmLoadSnapshot>) -> Vec<PathBuf> {
