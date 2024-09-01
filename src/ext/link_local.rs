@@ -13,12 +13,17 @@ const LINK_LOCAL_OCTET_1: u8 = 169;
 const LINK_LOCAL_OCTET_2: u8 = 254;
 const LINK_LOCAL_IP_AMOUNT: u32 = 65536;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LinkLocalSubnetError {
+    #[error("The given subnet is not link-local (fits into 169.254.0.0/16)")]
     NotLinkLocal,
+    #[error("The given network length is thinner than /30 or wider than /17")]
     NetworkLengthDoesNotFit,
+    #[error("The given subnet index does not fit into the link-local range (169.254.0.0/16)")]
     SubnetIndexDoesNotFit,
+    #[error("The given IP index does not fit into the subnet")]
     IpIndexDoesNotFit,
+    #[error("An unexpected unsigned integer overflow occurred. This should never happen")]
     UnexpectedOverflow,
 }
 

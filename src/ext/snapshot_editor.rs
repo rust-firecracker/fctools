@@ -24,10 +24,13 @@ pub struct SnapshotEditor<'a> {
     path: &'a PathBuf,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SnapshotEditorError {
+    #[error("Forking the snapshot-editor process failed: `{0}`")]
     ProcessForkFailed(tokio::io::Error),
+    #[error("The snapshot-editor exited with a non-zero exit status: `{0}`")]
     ExitedWithNonZeroStatus(ExitStatus),
+    #[error("A given path was not in UTF-8. Non-UTF-8 paths are unsupported.")]
     NonUTF8Path,
 }
 
