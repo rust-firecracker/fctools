@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use cidr::IpInet;
 use fctools::{
     executor::{
-        arguments::{VmmApiSocket, VmmArguments, ConfigurationFileOverride, JailerArguments},
+        arguments::{ConfigurationFileOverride, JailerArguments, VmmApiSocket, VmmArguments},
         command_modifier::NetnsCommandModifier,
         installation::VmmInstallation,
         jailed::{FlatJailRenamer, JailedVmmExecutor},
@@ -22,12 +22,12 @@ use fctools::{
     process::VmmProcessState,
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
     vm::{
-        configuration::{NewVmBootMethod, VmConfiguration, VmConfigurationData},
+        configuration::{InitMethod, VmConfiguration, VmConfigurationData},
         models::{
-            VmBalloon, VmBootSource, VmDrive, VmLogger, VmMachineConfiguration, VmMetricsSystem, VmMmdsConfiguration,
-            VmMmdsVersion, VmNetworkInterface, VmVsock,
+            BalloonDevice, BootSource, Drive, LoggerSystem, MachineConfiguration, MetricsSystem, MmdsConfiguration,
+            MmdsVersion, NetworkInterface, VsockDevice,
         },
-        VmShutdownMethod,
+        ShutdownMethod,
     },
 };
 use futures_util::future::BoxFuture;
@@ -254,8 +254,7 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
     let socket_path = get_tmp_path();
 
     let unrestricted_firecracker_arguments =
-        VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()))
-            .config_path(get_test_path("config.json"));
+        VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())).config_path(get_test_path("config.json"));
     let jailer_firecracker_arguments =
         VmmArguments::new(VmmApiSocket::Enabled(socket_path)).config_path("jail-config.json");
 
@@ -301,7 +300,7 @@ pub type TestVm = fctools::vm::Vm<TestExecutor, TestShellSpawner>;
 type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> BoxFuture<()>>;
 
 struct NetworkData {
-    network_interface: VmNetworkInterface,
+    network_interface: NetworkInterface,
     fcnet_configuration: FcnetConfiguration,
     netns_name: String,
     boot_arg_append: String,
@@ -309,12 +308,12 @@ struct NetworkData {
 
 #[allow(unused)]
 pub struct VmBuilder {
-    boot_method: NewVmBootMethod,
-    logger: Option<VmLogger>,
-    metrics_system: Option<VmMetricsSystem>,
-    vsock: Option<VmVsock>,
+    boot_method: InitMethod,
+    logger: Option<LoggerSystem>,
+    metrics_system: Option<MetricsSystem>,
+    vsock: Option<VsockDevice>,
     pre_start_hook: Option<(PreStartHook, PreStartHook)>,
-    balloon: Option<VmBalloon>,
+    balloon: Option<BalloonDevice>,
     unrestricted_network: Option<NetworkData>,
     jailed_network: Option<NetworkData>,
     boot_arg_append: String,
@@ -340,7 +339,7 @@ impl SnapshottingContext {
 impl VmBuilder {
     pub fn new() -> Self {
         Self {
-            boot_method: NewVmBootMethod::ViaApiCalls,
+            boot_method: InitMethod::ViaApiCalls,
             logger: None,
             metrics_system: None,
             vsock: None,
@@ -353,22 +352,22 @@ impl VmBuilder {
         }
     }
 
-    pub fn boot_method(mut self, applier: NewVmBootMethod) -> Self {
+    pub fn boot_method(mut self, applier: InitMethod) -> Self {
         self.boot_method = applier;
         self
     }
 
-    pub fn logger(mut self, logger: VmLogger) -> Self {
+    pub fn logger(mut self, logger: LoggerSystem) -> Self {
         self.logger = Some(logger);
         self
     }
 
-    pub fn metrics_system(mut self, metrics_system: VmMetricsSystem) -> Self {
+    pub fn metrics_system(mut self, metrics_system: MetricsSystem) -> Self {
         self.metrics_system = Some(metrics_system);
         self
     }
 
-    pub fn vsock(mut self, vsock: VmVsock) -> Self {
+    pub fn vsock(mut self, vsock: VsockDevice) -> Self {
         self.vsock = Some(vsock);
         self
     }
@@ -378,7 +377,7 @@ impl VmBuilder {
         self
     }
 
-    pub fn balloon(mut self, balloon: VmBalloon) -> Self {
+    pub fn balloon(mut self, balloon: BalloonDevice) -> Self {
         self.balloon = Some(balloon);
         self
     }
@@ -422,7 +421,7 @@ impl VmBuilder {
         boot_arg_append.push_str(fcnet_configuration.get_guest_ip_boot_arg(&guest_ip, "eth0").as_str());
 
         NetworkData {
-            network_interface: VmNetworkInterface::new("eth0", tap_name),
+            network_interface: NetworkInterface::new("eth0", tap_name),
             fcnet_configuration,
             netns_name,
             boot_arg_append,
@@ -456,13 +455,12 @@ impl VmBuilder {
         let socket_path = get_tmp_path();
 
         let mut unrestricted_data = VmConfigurationData::new(
-            VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args(get_boot_arg(self.unrestricted_network.as_ref())),
-            VmMachineConfiguration::new(1, 128).track_dirty_pages(true),
+            BootSource::new(get_test_path("vmlinux-6.1")).boot_args(get_boot_arg(self.unrestricted_network.as_ref())),
+            MachineConfiguration::new(1, 128).track_dirty_pages(true),
         )
-        .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")));
-        let mut unrestricted_executor = UnrestrictedVmmExecutor::new(VmmArguments::new(
-            VmmApiSocket::Enabled(socket_path.clone()),
-        ));
+        .drive(Drive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")));
+        let mut unrestricted_executor =
+            UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())));
         if let Some(ref network) = self.unrestricted_network {
             unrestricted_executor =
                 unrestricted_executor.command_modifier(NetnsCommandModifier::new(&network.netns_name));
@@ -474,10 +472,10 @@ impl VmBuilder {
         };
 
         let mut jailed_data = VmConfigurationData::new(
-            VmBootSource::new(get_test_path("vmlinux-6.1")).boot_args(get_boot_arg(self.jailed_network.as_ref())),
-            VmMachineConfiguration::new(1, 128).track_dirty_pages(true),
+            BootSource::new(get_test_path("vmlinux-6.1")).boot_args(get_boot_arg(self.jailed_network.as_ref())),
+            MachineConfiguration::new(1, 128).track_dirty_pages(true),
         )
-        .drive(VmDrive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")));
+        .drive(Drive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")));
         let mut jailer_arguments = JailerArguments::new(
             unsafe { libc::geteuid() },
             unsafe { libc::getegid() },
@@ -498,8 +496,8 @@ impl VmBuilder {
 
         // add components from builder to data
         if let Some(logger) = self.logger {
-            unrestricted_data = unrestricted_data.logger(logger.clone());
-            jailed_data = jailed_data.logger(logger);
+            unrestricted_data = unrestricted_data.logger_system(logger.clone());
+            jailed_data = jailed_data.logger_system(logger);
         }
 
         if let Some(metrics_system) = self.metrics_system {
@@ -508,13 +506,13 @@ impl VmBuilder {
         }
 
         if let Some(vsock) = self.vsock {
-            unrestricted_data = unrestricted_data.vsock(vsock.clone());
-            jailed_data = jailed_data.vsock(vsock);
+            unrestricted_data = unrestricted_data.vsock_device(vsock.clone());
+            jailed_data = jailed_data.vsock_device(vsock);
         }
 
         if let Some(balloon) = self.balloon {
-            unrestricted_data = unrestricted_data.balloon(balloon.clone());
-            jailed_data = jailed_data.balloon(balloon);
+            unrestricted_data = unrestricted_data.balloon_device(balloon.clone());
+            jailed_data = jailed_data.balloon_device(balloon);
         }
 
         if let Some(ref network) = self.unrestricted_network {
@@ -526,7 +524,7 @@ impl VmBuilder {
         }
 
         if self.mmds {
-            let mmds_config = VmMmdsConfiguration::new(VmMmdsVersion::V2, vec!["eth0".to_string()]);
+            let mmds_config = MmdsConfiguration::new(MmdsVersion::V2, vec!["eth0".to_string()]);
             unrestricted_data = unrestricted_data.mmds_configuration(mmds_config.clone());
             jailed_data = jailed_data.mmds_configuration(mmds_config);
         }
@@ -546,7 +544,7 @@ impl VmBuilder {
                     Self::test_worker(
                         self.unrestricted_network,
                         VmConfiguration::New {
-                            boot_method: self.boot_method.clone(),
+                            init_method: self.boot_method.clone(),
                             data: unrestricted_data
                         },
                         SnapshottingContext::new(false, unrestricted_shell_spawner),
@@ -557,7 +555,7 @@ impl VmBuilder {
                     Self::test_worker(
                         self.jailed_network,
                         VmConfiguration::New {
-                            boot_method: self.boot_method,
+                            init_method: self.boot_method,
                             data: jailed_data
                         },
                         SnapshottingContext::new(true, jailed_shell_spawner.clone()),
@@ -643,7 +641,7 @@ async fn get_network_lock<'a>() -> NetworkLock<'a> {
 }
 
 #[allow(unused)]
-pub async fn shutdown_test_vm(vm: &mut TestVm, shutdown_method: VmShutdownMethod) {
+pub async fn shutdown_test_vm(vm: &mut TestVm, shutdown_method: ShutdownMethod) {
     vm.shutdown(vec![shutdown_method], env_get_shutdown_timeout())
         .await
         .unwrap();

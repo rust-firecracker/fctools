@@ -12,9 +12,9 @@ use crate::{
     shell_spawner::ShellSpawner,
 };
 use api::VmApi;
-use configuration::{NewVmBootMethod, VmConfiguration, VmConfigurationData};
+use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
 use http::StatusCode;
-use models::VmLoadSnapshot;
+use models::LoadSnapshot;
 use tokio::{fs, task::JoinSet};
 
 pub mod api;
@@ -28,7 +28,7 @@ pub struct Vm<E: VmmExecutor, S: ShellSpawner> {
     is_paused: bool,
     original_configuration_data: VmConfigurationData,
     configuration: Option<VmConfiguration>,
-    accessible_paths: VmAccessiblePaths,
+    accessible_paths: AccessiblePaths,
     executor_traceless: bool,
     snapshot_traces: Vec<PathBuf>,
 }
@@ -94,14 +94,14 @@ pub enum VmError {
 }
 
 #[derive(Debug)]
-pub enum VmShutdownMethod {
+pub enum ShutdownMethod {
     CtrlAltDel,
     PauseThenKill,
     Kill,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VmAccessiblePaths {
+pub struct AccessiblePaths {
     pub drive_sockets: HashMap<String, PathBuf>,
     pub metrics_path: Option<PathBuf>,
     pub log_path: Option<PathBuf>,
@@ -131,7 +131,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         installation_arc: Arc<VmmInstallation>,
         mut configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
-        fn get_outer_paths(data: &VmConfigurationData, load_snapshot: Option<&VmLoadSnapshot>) -> Vec<PathBuf> {
+        fn get_outer_paths(data: &VmConfigurationData, load_snapshot: Option<&LoadSnapshot>) -> Vec<PathBuf> {
             let mut outer_paths = Vec::new();
 
             outer_paths.push(data.boot_source.kernel_image_path.clone());
@@ -160,7 +160,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
 
         // compute outer paths from configuration
         let outer_paths = match &configuration {
-            VmConfiguration::New { boot_method: _, data } => get_outer_paths(data, None),
+            VmConfiguration::New { init_method: _, data } => get_outer_paths(data, None),
             VmConfiguration::RestoredFromSnapshot { load_snapshot, data } => get_outer_paths(data, Some(load_snapshot)),
         };
 
@@ -201,7 +201,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         }
 
         // generate accessible paths, ensure paths exist
-        let mut accessible_paths = VmAccessiblePaths {
+        let mut accessible_paths = AccessiblePaths {
             drive_sockets: HashMap::new(),
             metrics_path: None,
             log_path: None,
@@ -217,7 +217,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             }
         }
 
-        if let Some(ref logger) = configuration.data().logger {
+        if let Some(ref logger) = configuration.data().logger_system {
             if let Some(ref log_path) = logger.log_path {
                 let new_log_path = vmm_process.inner_to_outer_path(log_path);
                 prepare_file(&new_log_path, false).await?;
@@ -231,12 +231,12 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             accessible_paths.metrics_path = Some(new_metrics_path);
         }
 
-        if let Some(ref vsock) = configuration.data().vsock {
+        if let Some(ref vsock) = configuration.data().vsock_device {
             let new_uds_path = vmm_process.inner_to_outer_path(&vsock.uds_path);
             prepare_file(&new_uds_path, true).await?;
             accessible_paths.vsock_multiplexer_path = Some(new_uds_path);
         }
-        if let Some(ref logger) = configuration.data().logger {
+        if let Some(ref logger) = configuration.data().logger_system {
             if let Some(ref log_path) = logger.log_path {
                 let new_log_path = vmm_process.inner_to_outer_path(log_path);
                 prepare_file(&new_log_path, false).await?;
@@ -286,11 +286,11 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
 
         let mut config_override = ConfigurationFileOverride::NoOverride;
         if let VmConfiguration::New {
-            ref boot_method,
+            ref init_method,
             ref data,
         } = configuration
         {
-            if let NewVmBootMethod::ViaJsonConfiguration(inner_path) = boot_method {
+            if let InitMethod::ViaJsonConfiguration(inner_path) = init_method {
                 config_override = ConfigurationFileOverride::Enable(inner_path.clone());
                 prepare_file(inner_path, true).await?;
                 fs::write(
@@ -321,8 +321,8 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         .map_err(VmError::IoError)?;
 
         match configuration {
-            VmConfiguration::New { boot_method, data } => {
-                if boot_method == NewVmBootMethod::ViaApiCalls {
+            VmConfiguration::New { init_method, data } => {
+                if init_method == InitMethod::ViaApiCalls {
                     api::init_new(self, data).await?;
                 }
             }
@@ -334,26 +334,22 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         Ok(())
     }
 
-    pub async fn shutdown(
-        &mut self,
-        shutdown_methods: Vec<VmShutdownMethod>,
-        timeout: Duration,
-    ) -> Result<(), VmError> {
+    pub async fn shutdown(&mut self, shutdown_methods: Vec<ShutdownMethod>, timeout: Duration) -> Result<(), VmError> {
         self.ensure_paused_or_running()?;
         let mut last_result = Ok(());
 
         for shutdown_method in shutdown_methods {
             last_result = match shutdown_method {
-                VmShutdownMethod::CtrlAltDel => self
+                ShutdownMethod::CtrlAltDel => self
                     .vmm_process
                     .send_ctrl_alt_del()
                     .await
                     .map_err(VmError::ProcessError),
-                VmShutdownMethod::PauseThenKill => match self.api_pause().await {
+                ShutdownMethod::PauseThenKill => match self.api_pause().await {
                     Ok(()) => self.vmm_process.send_sigkill().map_err(VmError::ProcessError),
                     Err(err) => Err(err),
                 },
-                VmShutdownMethod::Kill => self.vmm_process.send_sigkill().map_err(VmError::ProcessError),
+                ShutdownMethod::Kill => self.vmm_process.send_sigkill().map_err(VmError::ProcessError),
             };
 
             if last_result.is_ok() {
@@ -417,7 +413,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
         self.vmm_process.take_pipes().map_err(VmError::ProcessError)
     }
 
-    pub fn get_accessible_paths(&self) -> &VmAccessiblePaths {
+    pub fn get_accessible_paths(&self) -> &AccessiblePaths {
         &self.accessible_paths
     }
 

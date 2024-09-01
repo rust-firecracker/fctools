@@ -2,17 +2,17 @@ use std::path::PathBuf;
 
 use super::{
     configuration::{VmConfiguration, VmConfigurationData},
-    models::{VmLoadSnapshot, VmMemoryBackend, VmMemoryBackendType},
+    models::{LoadSnapshot, MemoryBackend, MemoryBackendType},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VmSnapshot {
+pub struct SnapshotData {
     pub(super) snapshot_path: PathBuf,
     pub(super) mem_file_path: PathBuf,
     pub(super) configuration_data: VmConfigurationData,
 }
 
-impl VmSnapshot {
+impl SnapshotData {
     pub async fn copy(
         &mut self,
         new_snapshot_path: PathBuf,
@@ -52,9 +52,9 @@ impl VmSnapshot {
     }
 
     pub fn into_configuration(self, resume_vm: Option<bool>, enable_diff_snapshots: Option<bool>) -> VmConfiguration {
-        let mut load_snapshot = VmLoadSnapshot::new(
+        let mut load_snapshot = LoadSnapshot::new(
             self.snapshot_path,
-            VmMemoryBackend::new(VmMemoryBackendType::File, self.mem_file_path),
+            MemoryBackend::new(MemoryBackendType::File, self.mem_file_path),
         );
 
         if let Some(resume_vm) = resume_vm {

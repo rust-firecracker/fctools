@@ -3,25 +3,25 @@ use std::{net::Ipv4Addr, path::PathBuf};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub(crate) struct VmAction {
-    pub action_type: VmActionType,
+pub(crate) struct ReprAction {
+    pub action_type: ReprActionType,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum VmActionType {
+pub(crate) enum ReprActionType {
     FlushMetrics,
     InstanceStart,
     SendCtrlAltDel,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmBalloon {
+pub struct BalloonDevice {
     amount_mib: i32,
     deflate_on_oom: bool,
     stats_polling_interval_s: i32,
 }
 
-impl VmBalloon {
+impl BalloonDevice {
     pub fn new(amount_mib: i32, deflate_on_oom: bool) -> Self {
         Self {
             amount_mib,
@@ -49,18 +49,18 @@ impl VmBalloon {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmUpdateBalloon {
+pub struct UpdateBalloonDevice {
     amount_mib: u16,
 }
 
-impl VmUpdateBalloon {
+impl UpdateBalloonDevice {
     pub fn new(amount_mib: u16) -> Self {
         Self { amount_mib }
     }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmBalloonStatistics {
+pub struct BalloonStatistics {
     pub target_pages: u32,
     pub actual_pages: u32,
     pub target_mib: u32,
@@ -86,11 +86,11 @@ pub struct VmBalloonStatistics {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmUpdateBalloonStatistics {
+pub struct UpdateBalloonStatistics {
     stats_polling_interval_s: u16,
 }
 
-impl VmUpdateBalloonStatistics {
+impl UpdateBalloonStatistics {
     pub fn new(stats_polling_interval_s: u16) -> Self {
         Self {
             stats_polling_interval_s,
@@ -99,7 +99,7 @@ impl VmUpdateBalloonStatistics {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmBootSource {
+pub struct BootSource {
     pub(crate) kernel_image_path: PathBuf,
     #[serde(skip_serializing_if = "Option::is_none")]
     boot_args: Option<String>,
@@ -107,7 +107,7 @@ pub struct VmBootSource {
     pub(crate) initrd_path: Option<PathBuf>,
 }
 
-impl VmBootSource {
+impl BootSource {
     pub fn new(kernel_image_path: impl Into<PathBuf>) -> Self {
         Self {
             kernel_image_path: kernel_image_path.into(),
@@ -128,11 +128,11 @@ impl VmBootSource {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmDrive {
+pub struct Drive {
     pub(crate) drive_id: String,
     is_root_device: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    cache_type: Option<VmDriveCacheType>,
+    cache_type: Option<DriveCacheType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     partuuid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -140,14 +140,14 @@ pub struct VmDrive {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) path_on_host: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    rate_limiter: Option<VmRateLimiter>,
+    rate_limiter: Option<RateLimiter>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    io_engine: Option<VmIoEngine>,
+    io_engine: Option<DriveIoEngine>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) socket: Option<PathBuf>,
 }
 
-impl VmDrive {
+impl Drive {
     pub fn new(drive_id: impl Into<String>, is_root_device: bool) -> Self {
         Self {
             drive_id: drive_id.into(),
@@ -162,7 +162,7 @@ impl VmDrive {
         }
     }
 
-    pub fn cache_type(mut self, cache_type: VmDriveCacheType) -> Self {
+    pub fn cache_type(mut self, cache_type: DriveCacheType) -> Self {
         self.cache_type = Some(cache_type);
         self
     }
@@ -182,12 +182,12 @@ impl VmDrive {
         self
     }
 
-    pub fn rate_limiter(mut self, rate_limiter: VmRateLimiter) -> Self {
+    pub fn rate_limiter(mut self, rate_limiter: RateLimiter) -> Self {
         self.rate_limiter = Some(rate_limiter);
         self
     }
 
-    pub fn io_engine(mut self, io_engine: VmIoEngine) -> Self {
+    pub fn io_engine(mut self, io_engine: DriveIoEngine) -> Self {
         self.io_engine = Some(io_engine);
         self
     }
@@ -199,15 +199,15 @@ impl VmDrive {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmUpdateDrive {
+pub struct UpdateDrive {
     pub(crate) drive_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     path_on_host: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    rate_limiter: Option<VmRateLimiter>,
+    rate_limiter: Option<RateLimiter>,
 }
 
-impl VmUpdateDrive {
+impl UpdateDrive {
     pub fn new(drive_id: impl Into<String>) -> Self {
         Self {
             drive_id: drive_id.into(),
@@ -221,45 +221,45 @@ impl VmUpdateDrive {
         self
     }
 
-    pub fn rate_limiter(mut self, rate_limiter: VmRateLimiter) -> Self {
+    pub fn rate_limiter(mut self, rate_limiter: RateLimiter) -> Self {
         self.rate_limiter = Some(rate_limiter);
         self
     }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VmDriveCacheType {
+pub enum DriveCacheType {
     Unsafe,
     Writeback,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VmIoEngine {
+pub enum DriveIoEngine {
     Sync,
     Async,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmRateLimiter {
-    bandwidth: VmTokenBucket,
-    ops: VmTokenBucket,
+pub struct RateLimiter {
+    bandwidth: TokenBucket,
+    ops: TokenBucket,
 }
 
-impl VmRateLimiter {
-    pub fn new(bandwidth: VmTokenBucket, ops: VmTokenBucket) -> Self {
+impl RateLimiter {
+    pub fn new(bandwidth: TokenBucket, ops: TokenBucket) -> Self {
         Self { bandwidth, ops }
     }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmTokenBucket {
+pub struct TokenBucket {
     size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     one_time_burst: Option<u64>,
     refill_time: u64,
 }
 
-impl VmTokenBucket {
+impl TokenBucket {
     pub fn new(size: u64, refill_time: u64) -> Self {
         Self {
             size,
@@ -275,11 +275,11 @@ impl VmTokenBucket {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmLogger {
+pub struct LoggerSystem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) log_path: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    level: Option<VmLogLevel>,
+    level: Option<LogLevel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     show_level: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -288,7 +288,7 @@ pub struct VmLogger {
     module: Option<String>,
 }
 
-impl VmLogger {
+impl LoggerSystem {
     pub fn new() -> Self {
         Self {
             log_path: None,
@@ -304,7 +304,7 @@ impl VmLogger {
         self
     }
 
-    pub fn level(mut self, level: VmLogLevel) -> Self {
+    pub fn level(mut self, level: LogLevel) -> Self {
         self.level = Some(level);
         self
     }
@@ -326,7 +326,7 @@ impl VmLogger {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VmLogLevel {
+pub enum LogLevel {
     Off,
     Trace,
     Debug,
@@ -336,7 +336,7 @@ pub enum VmLogLevel {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmMachineConfiguration {
+pub struct MachineConfiguration {
     vcpu_count: u8,
     mem_size_mib: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -344,10 +344,10 @@ pub struct VmMachineConfiguration {
     #[serde(skip_serializing_if = "Option::is_none")]
     track_dirty_pages: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    huge_pages: Option<VmHugePages>,
+    huge_pages: Option<HugePages>,
 }
 
-impl VmMachineConfiguration {
+impl MachineConfiguration {
     pub fn new(vcpu_count: u8, mem_size_mib: usize) -> Self {
         Self {
             vcpu_count,
@@ -368,7 +368,7 @@ impl VmMachineConfiguration {
         self
     }
 
-    pub fn huge_pages(mut self, huge_pages: VmHugePages) -> Self {
+    pub fn huge_pages(mut self, huge_pages: HugePages) -> Self {
         self.huge_pages = Some(huge_pages);
         self
     }
@@ -389,24 +389,24 @@ impl VmMachineConfiguration {
         self.track_dirty_pages
     }
 
-    pub fn get_huge_pages(&self) -> Option<VmHugePages> {
+    pub fn get_huge_pages(&self) -> Option<HugePages> {
         self.huge_pages
     }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VmHugePages {
+pub enum HugePages {
     None,
     #[serde(rename = "2M")]
     Hugetlbfs2M,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmMetricsSystem {
+pub struct MetricsSystem {
     pub(crate) metrics_path: PathBuf,
 }
 
-impl VmMetricsSystem {
+impl MetricsSystem {
     pub fn new(metrics_path: impl Into<PathBuf>) -> Self {
         Self {
             metrics_path: metrics_path.into(),
@@ -415,15 +415,15 @@ impl VmMetricsSystem {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmMmdsConfiguration {
-    version: VmMmdsVersion,
+pub struct MmdsConfiguration {
+    version: MmdsVersion,
     network_interfaces: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ipv4_address: Option<Ipv4Addr>,
 }
 
-impl VmMmdsConfiguration {
-    pub fn new(version: VmMmdsVersion, network_interfaces: Vec<String>) -> Self {
+impl MmdsConfiguration {
+    pub fn new(version: MmdsVersion, network_interfaces: Vec<String>) -> Self {
         Self {
             version,
             network_interfaces,
@@ -438,41 +438,41 @@ impl VmMmdsConfiguration {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VmMmdsVersion {
+pub enum MmdsVersion {
     V1,
     V2,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmEntropy {
+pub struct EntropyDevice {
     #[serde(skip_serializing_if = "Option::is_none")]
-    rate_limiter: Option<VmRateLimiter>,
+    rate_limiter: Option<RateLimiter>,
 }
 
-impl VmEntropy {
+impl EntropyDevice {
     pub fn new() -> Self {
         Self { rate_limiter: None }
     }
 
-    pub fn rate_limiter(mut self, rate_limiter: VmRateLimiter) -> Self {
+    pub fn rate_limiter(mut self, rate_limiter: RateLimiter) -> Self {
         self.rate_limiter = Some(rate_limiter);
         self
     }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmNetworkInterface {
+pub struct NetworkInterface {
     pub(crate) iface_id: String,
     host_dev_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     guest_mac: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    rx_rate_limiter: Option<VmRateLimiter>,
+    rx_rate_limiter: Option<RateLimiter>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tx_rate_limiter: Option<VmRateLimiter>,
+    tx_rate_limiter: Option<RateLimiter>,
 }
 
-impl VmNetworkInterface {
+impl NetworkInterface {
     pub fn new(iface_id: impl Into<String>, host_dev_name: impl Into<String>) -> Self {
         Self {
             iface_id: iface_id.into(),
@@ -488,27 +488,27 @@ impl VmNetworkInterface {
         self
     }
 
-    pub fn rx_rate_limiter(mut self, rx_rate_limiter: VmRateLimiter) -> Self {
+    pub fn rx_rate_limiter(mut self, rx_rate_limiter: RateLimiter) -> Self {
         self.rx_rate_limiter = Some(rx_rate_limiter);
         self
     }
 
-    pub fn tx_rate_limiter(mut self, tx_rate_limiter: VmRateLimiter) -> Self {
+    pub fn tx_rate_limiter(mut self, tx_rate_limiter: RateLimiter) -> Self {
         self.tx_rate_limiter = Some(tx_rate_limiter);
         self
     }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmUpdateNetworkInterface {
+pub struct UpdateNetworkInterface {
     pub(crate) iface_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    rx_rate_limiter: Option<VmRateLimiter>,
+    rx_rate_limiter: Option<RateLimiter>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tx_rate_limiter: Option<VmRateLimiter>,
+    tx_rate_limiter: Option<RateLimiter>,
 }
 
-impl VmUpdateNetworkInterface {
+impl UpdateNetworkInterface {
     pub fn new(iface_id: impl Into<String>) -> Self {
         Self {
             iface_id: iface_id.into(),
@@ -517,26 +517,26 @@ impl VmUpdateNetworkInterface {
         }
     }
 
-    pub fn rx_rate_limiter(mut self, rx_rate_limiter: VmRateLimiter) -> Self {
+    pub fn rx_rate_limiter(mut self, rx_rate_limiter: RateLimiter) -> Self {
         self.rx_rate_limiter = Some(rx_rate_limiter);
         self
     }
 
-    pub fn tx_rate_limiter(mut self, tx_rate_limiter: VmRateLimiter) -> Self {
+    pub fn tx_rate_limiter(mut self, tx_rate_limiter: RateLimiter) -> Self {
         self.tx_rate_limiter = Some(tx_rate_limiter);
         self
     }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmCreateSnapshot {
+pub struct CreateSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
-    snapshot_type: Option<VmSnapshotType>,
+    snapshot_type: Option<SnapshotType>,
     pub(crate) snapshot_path: PathBuf,
     pub(crate) mem_file_path: PathBuf,
 }
 
-impl VmCreateSnapshot {
+impl CreateSnapshot {
     pub fn new(snapshot_path: impl Into<PathBuf>, mem_file_path: impl Into<PathBuf>) -> Self {
         Self {
             snapshot_type: None,
@@ -545,30 +545,30 @@ impl VmCreateSnapshot {
         }
     }
 
-    pub fn snapshot_type(mut self, snapshot_type: VmSnapshotType) -> Self {
+    pub fn snapshot_type(mut self, snapshot_type: SnapshotType) -> Self {
         self.snapshot_type = Some(snapshot_type);
         self
     }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VmSnapshotType {
+pub enum SnapshotType {
     Full,
     Diff,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmLoadSnapshot {
+pub struct LoadSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     enable_diff_snapshots: Option<bool>,
-    pub(crate) mem_backend: VmMemoryBackend,
+    pub(crate) mem_backend: MemoryBackend,
     pub(crate) snapshot_path: PathBuf,
     #[serde(skip_serializing_if = "Option::is_none")]
     resume_vm: Option<bool>,
 }
 
-impl VmLoadSnapshot {
-    pub fn new(snapshot_path: impl Into<PathBuf>, mem_backend: VmMemoryBackend) -> Self {
+impl LoadSnapshot {
+    pub fn new(snapshot_path: impl Into<PathBuf>, mem_backend: MemoryBackend) -> Self {
         Self {
             enable_diff_snapshots: None,
             mem_backend,
@@ -589,13 +589,13 @@ impl VmLoadSnapshot {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmMemoryBackend {
-    backend_type: VmMemoryBackendType,
+pub struct MemoryBackend {
+    backend_type: MemoryBackendType,
     pub(crate) backend_path: PathBuf,
 }
 
-impl VmMemoryBackend {
-    pub fn new(backend_type: VmMemoryBackendType, backend_path: impl Into<PathBuf>) -> Self {
+impl MemoryBackend {
+    pub fn new(backend_type: MemoryBackendType, backend_path: impl Into<PathBuf>) -> Self {
         Self {
             backend_type,
             backend_path: backend_path.into(),
@@ -604,34 +604,34 @@ impl VmMemoryBackend {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VmMemoryBackendType {
+pub enum MemoryBackendType {
     File,
     Uffd,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub(crate) struct VmFirecrackerVersion {
+pub(crate) struct ReprFirecrackerVersion {
     pub firecracker_version: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub(crate) struct VmUpdateState {
-    pub state: VmUpdatedState,
+pub(crate) struct ReprUpdateState {
+    pub state: ReprUpdatedState,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum VmUpdatedState {
+pub(crate) enum ReprUpdatedState {
     Paused,
     Resumed,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmVsock {
+pub struct VsockDevice {
     guest_cid: u32,
     pub(crate) uds_path: PathBuf,
 }
 
-impl VmVsock {
+impl VsockDevice {
     pub fn new(guest_cid: u32, uds_path: impl Into<PathBuf>) -> Self {
         Self {
             guest_cid,
@@ -643,85 +643,86 @@ impl VmVsock {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct VmInfo {
     pub id: String,
-    pub state: VmReturnedState,
+    #[serde(rename = "state")]
+    pub is_paused: IsPaused,
     pub vmm_version: String,
     pub app_name: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VmReturnedState {
+pub enum IsPaused {
     Running,
     Paused,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmEffectiveConfiguration {
-    pub balloon: Option<VmBalloon>,
-    pub drives: Vec<VmDrive>,
+pub struct EffectiveConfiguration {
+    pub balloon: Option<BalloonDevice>,
+    pub drives: Vec<Drive>,
     #[serde(rename = "boot-source")]
-    pub boot_source: Option<VmBootSource>,
-    pub logger: Option<VmLogger>,
+    pub boot_source: Option<BootSource>,
+    pub logger: Option<LoggerSystem>,
     #[serde(rename = "machine-config")]
-    pub machine_configuration: Option<VmMachineConfiguration>,
-    pub metrics: Option<VmMetricsSystem>,
+    pub machine_configuration: Option<MachineConfiguration>,
+    pub metrics: Option<MetricsSystem>,
     #[serde(rename = "mmds-config")]
-    pub mmds_configuration: Option<VmMmdsConfiguration>,
+    pub mmds_configuration: Option<MmdsConfiguration>,
     #[serde(rename = "network-interfaces")]
-    pub network_interfaces: Vec<VmNetworkInterface>,
-    pub vsock: Option<VmVsock>,
+    pub network_interfaces: Vec<NetworkInterface>,
+    pub vsock: Option<VsockDevice>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmCpuTemplate {
+pub struct CpuTemplate {
     pub kvm_capabilities: Vec<String>,
     #[cfg(target_arch = "x86_64")]
-    pub cpuid_modifiers: Vec<VmCpuidModifier>,
+    pub cpuid_modifiers: Vec<CpuidModifier>,
     #[cfg(target_arch = "x86_64")]
-    pub msr_modifiers: Vec<VmMsrModifier>,
+    pub msr_modifiers: Vec<MsrModifier>,
     #[cfg(target_arch = "aarch64")]
-    pub vcpu_features: Vec<VmVcpuFeature>,
+    pub vcpu_features: Vec<VcpuFeature>,
     #[cfg(target_arch = "aarch64")]
-    pub reg_modifiers: Vec<VmRegModifier>,
+    pub reg_modifiers: Vec<RegModifier>,
 }
 
 #[cfg(target_arch = "x86_64")]
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmCpuidModifier {
+pub struct CpuidModifier {
     pub leaf: String,
     pub subleaf: String,
     pub flags: u32,
-    pub modifiers: Vec<VmCpuidRegisterModifier>,
+    pub modifiers: Vec<CpuidRegisterModifier>,
 }
 
 #[cfg(target_arch = "x86_64")]
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmCpuidRegisterModifier {
+pub struct CpuidRegisterModifier {
     pub register: String,
     pub bitmap: String,
 }
 
 #[cfg(target_arch = "x86_64")]
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmMsrModifier {
+pub struct MsrModifier {
     pub addr: String,
     pub bitmap: String,
 }
 
 #[cfg(target_arch = "aarch64")]
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmVcpuFeature {
+pub struct VcpuFeature {
     pub index: u32,
     pub bitmap: String,
 }
 
 #[cfg(target_arch = "aarch64")]
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmRegModifier {
+pub struct RegModifier {
     pub addr: String,
     pub bitmap: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct VmApiError {
+pub(crate) struct ReprApiError {
     pub fault_message: String,
 }

@@ -5,7 +5,7 @@ use std::{
 
 use tokio::{fs, process::Command};
 
-/// A Firecracker installation encapsulates release binaries of the most important automatable
+/// A VMM installation encapsulates release binaries of the most important automatable
 /// Firecracker components: firecracker, jailer, snapshot-editor. Using a partial installation with only
 /// some of these binaries is neither recommended nor supported.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
