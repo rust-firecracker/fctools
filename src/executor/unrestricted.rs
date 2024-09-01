@@ -25,6 +25,7 @@ pub struct UnrestrictedVmmExecutor {
     remove_metrics_on_cleanup: bool,
     remove_logs_on_cleanup: bool,
     pipes_to_null: bool,
+    id: Option<String>,
 }
 
 impl UnrestrictedVmmExecutor {
@@ -35,6 +36,7 @@ impl UnrestrictedVmmExecutor {
             remove_metrics_on_cleanup: false,
             remove_logs_on_cleanup: false,
             pipes_to_null: false,
+            id: None,
         }
     }
 
@@ -62,18 +64,23 @@ impl UnrestrictedVmmExecutor {
         self.pipes_to_null = true;
         self
     }
+
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
 }
 
 #[async_trait]
 impl VmmExecutor for UnrestrictedVmmExecutor {
-    fn get_socket_path(&self) -> Option<PathBuf> {
+    fn get_socket_path(&self, _installation: &FirecrackerInstallation) -> Option<PathBuf> {
         match &self.firecracker_arguments.api_socket {
             FirecrackerApiSocket::Disabled => None,
             FirecrackerApiSocket::Enabled(path) => Some(path.clone()),
         }
     }
 
-    fn inner_to_outer_path(&self, inner_path: &Path) -> PathBuf {
+    fn inner_to_outer_path(&self, _installation: &FirecrackerInstallation, inner_path: &Path) -> PathBuf {
         inner_path.to_owned()
     }
 
@@ -83,6 +90,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
     async fn prepare(
         &self,
+        _installation: &FirecrackerInstallation,
         shell_spawner: &impl ShellSpawner,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
@@ -113,13 +121,17 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
     async fn invoke(
         &self,
-        shell_spawner: &impl ShellSpawner,
         installation: &FirecrackerInstallation,
+        shell_spawner: &impl ShellSpawner,
         config_override: FirecrackerConfigOverride,
     ) -> Result<Child, VmmExecutorError> {
         let arguments = self.firecracker_arguments.join(config_override);
         let mut shell_command = format!("{} {arguments}", installation.firecracker_path.to_string_lossy());
         apply_command_modifier_chain(&mut shell_command, &self.command_modifier_chain);
+        if let Some(ref id) = self.id {
+            shell_command.push_str(" --id");
+            shell_command.push_str(id);
+        }
 
         let child = shell_spawner
             .spawn(shell_command, self.pipes_to_null)
@@ -128,7 +140,11 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         Ok(child)
     }
 
-    async fn cleanup(&self, shell_spawner: &impl ShellSpawner) -> Result<(), VmmExecutorError> {
+    async fn cleanup(
+        &self,
+        _installation: &FirecrackerInstallation,
+        shell_spawner: &impl ShellSpawner,
+    ) -> Result<(), VmmExecutorError> {
         if let FirecrackerApiSocket::Enabled(ref socket_path) = self.firecracker_arguments.api_socket {
             if fs::try_exists(socket_path).await.map_err(VmmExecutorError::IoError)? {
                 force_chown(socket_path, shell_spawner).await?;

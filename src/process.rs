@@ -140,7 +140,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
         installation_arc: Arc<FirecrackerInstallation>,
         outer_paths: Vec<PathBuf>,
     ) -> Self {
-        let socket_path = executor_arc.get_socket_path();
+        let socket_path = executor_arc.get_socket_path(installation_arc.as_ref());
         Self {
             executor: executor_arc,
             shell_spawner: shell_spawner_arc,
@@ -159,6 +159,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
         let path_mappings = self
             .executor
             .prepare(
+                self.installation.as_ref(),
                 self.shell_spawner.as_ref(),
                 self.outer_paths
                     .take()
@@ -175,7 +176,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.child = Some(
             self.executor
-                .invoke(self.shell_spawner.as_ref(), self.installation.as_ref(), config_override)
+                .invoke(self.installation.as_ref(), self.shell_spawner.as_ref(), config_override)
                 .await
                 .map_err(VmmProcessError::ExecutorError)?,
         );
@@ -232,12 +233,13 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
 
     /// Gets the outer path to the VM process's socket, if one has been configured, via the executor.
     pub fn get_socket_path(&self) -> Option<PathBuf> {
-        self.executor.get_socket_path()
+        self.executor.get_socket_path(self.installation.as_ref())
     }
 
     /// Converts a given inner path to an outer path via the executor.
     pub fn inner_to_outer_path(&self, inner_path: impl AsRef<Path>) -> PathBuf {
-        self.executor.inner_to_outer_path(inner_path.as_ref())
+        self.executor
+            .inner_to_outer_path(self.installation.as_ref(), inner_path.as_ref())
     }
 
     /// Send a graceful shutdown request via Ctrl+Alt+Del to the VM process. Allowed on x86_64 as per Firecracker docs,
@@ -295,7 +297,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
     pub async fn cleanup(&mut self) -> Result<(), VmmProcessError> {
         self.ensure_exited_or_crashed()?;
         self.executor
-            .cleanup(self.shell_spawner.as_ref())
+            .cleanup(self.installation.as_ref(), self.shell_spawner.as_ref())
             .await
             .map_err(VmmProcessError::ExecutorError)?;
         Ok(())

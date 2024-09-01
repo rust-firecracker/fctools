@@ -154,7 +154,7 @@ impl<E: VmmExecutor, S: ShellSpawner> Vm<E, S> {
             outer_paths
         }
 
-        if executor.get_socket_path().is_none() {
+        if executor.get_socket_path(installation_arc.as_ref()).is_none() {
             return Err(VmError::DisabledApiSocketIsUnsupported);
         }
 

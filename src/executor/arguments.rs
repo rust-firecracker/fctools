@@ -8,7 +8,6 @@ use std::{
 pub struct FirecrackerArguments {
     // main
     pub(crate) api_socket: FirecrackerApiSocket,
-    id: Option<String>,
     config_path: Option<PathBuf>,
     // logging
     log_level: Option<FirecrackerLogLevel>,
@@ -36,7 +35,6 @@ impl FirecrackerArguments {
     pub fn new(api_socket: FirecrackerApiSocket) -> Self {
         Self {
             api_socket,
-            id: None,
             config_path: None,
             log_level: None,
             log_path: None,
@@ -51,11 +49,6 @@ impl FirecrackerArguments {
             disable_seccomp: false,
             seccomp_path: None,
         }
-    }
-
-    pub fn id(mut self, id: impl Into<String>) -> Self {
-        self.id = Some(id.into());
-        self
     }
 
     pub fn config_path(mut self, config_path: impl Into<PathBuf>) -> Self {
@@ -136,10 +129,6 @@ impl FirecrackerArguments {
                     ArgValue::Some(socket_path.to_string_lossy().into_owned()),
                 );
             }
-        }
-
-        if let Some(ref id) = self.id {
-            args.insert("id".into(), ArgValue::Some(id.to_owned()));
         }
 
         match config_override {

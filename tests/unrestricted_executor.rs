@@ -15,14 +15,15 @@ mod test_framework;
 #[test]
 fn unrestricted_executor_returns_socket_path_according_to_configuration() {
     assert_eq!(
-        UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Disabled)).get_socket_path(),
+        UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Disabled))
+            .get_socket_path(&get_fake_firecracker_installation()),
         None
     );
 
     let path = PathBuf::from("/a/certain/path");
     assert_eq!(
         UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Enabled(path.clone())))
-            .get_socket_path(),
+            .get_socket_path(&get_fake_firecracker_installation()),
         Some(path)
     );
 }
@@ -37,7 +38,11 @@ async fn unrestricted_executor_prepare_runs_with_existing_resources() {
     expected_hash_map.insert(existing_path.clone(), existing_path.clone());
     assert_eq!(
         executor
-            .prepare(&get_shell_spawner(), vec![existing_path.clone()])
+            .prepare(
+                &get_fake_firecracker_installation(),
+                &get_shell_spawner(),
+                vec![existing_path.clone()]
+            )
             .await
             .unwrap(),
         expected_hash_map
@@ -51,7 +56,13 @@ async fn unrestricted_executor_prepare_fails_with_missing_resources() {
     let path = get_tmp_path();
     let executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Disabled));
     assert_matches!(
-        executor.prepare(&get_shell_spawner(), vec![path.clone()]).await,
+        executor
+            .prepare(
+                &get_fake_firecracker_installation(),
+                &get_shell_spawner(),
+                vec![path.clone()]
+            )
+            .await,
         Err(VmmExecutorError::ExpectedResourceMissing(_))
     );
 }
@@ -63,7 +74,10 @@ async fn unrestricted_executor_prepare_removes_pre_existing_api_socket() {
     let executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Enabled(
         socket_path.clone(),
     )));
-    executor.prepare(&get_shell_spawner(), vec![]).await.unwrap();
+    executor
+        .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
+        .await
+        .unwrap();
     assert!(!try_exists(socket_path).await.unwrap());
 }
 
@@ -72,7 +86,10 @@ async fn unrestricted_executor_prepare_creates_log_file() {
     let log_path = get_tmp_path();
     let executor =
         UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Disabled).log_path(&log_path));
-    executor.prepare(&get_shell_spawner(), vec![]).await.unwrap();
+    executor
+        .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
+        .await
+        .unwrap();
     assert!(try_exists(&log_path).await.unwrap());
     remove_file(log_path).await.unwrap();
 }
@@ -83,7 +100,10 @@ async fn unrestricted_executor_prepare_creates_metrics_file() {
     let executor = UnrestrictedVmmExecutor::new(
         FirecrackerArguments::new(FirecrackerApiSocket::Disabled).metrics_path(&metrics_path),
     );
-    executor.prepare(&get_shell_spawner(), vec![]).await.unwrap();
+    executor
+        .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
+        .await
+        .unwrap();
     assert!(try_exists(&metrics_path).await.unwrap());
     remove_file(metrics_path).await.unwrap();
 }
@@ -94,8 +114,8 @@ async fn unrestricted_executor_invoke_reports_shell_spawner_error() {
     assert_matches!(
         executor
             .invoke(
-                &FailingShellSpawner::default(),
                 &get_fake_firecracker_installation(),
+                &FailingShellSpawner::default(),
                 FirecrackerConfigOverride::NoOverride,
             )
             .await,
@@ -110,8 +130,8 @@ async fn unrestricted_executor_invoke_applies_command_modifier_chain() {
         .command_modifier(AppendCommandModifier::new(" test"));
     let child = executor
         .invoke(
-            &get_shell_spawner(),
             &get_fake_firecracker_installation(),
+            &get_shell_spawner(),
             FirecrackerConfigOverride::NoOverride,
         )
         .await
@@ -129,7 +149,10 @@ async fn unrestricted_executor_cleanup_removes_api_socket() {
     let executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(FirecrackerApiSocket::Enabled(
         socket_path.clone(),
     )));
-    executor.cleanup(&get_shell_spawner()).await.unwrap();
+    executor
+        .cleanup(&get_fake_firecracker_installation(), &get_shell_spawner())
+        .await
+        .unwrap();
     assert!(!try_exists(socket_path).await.unwrap());
 }
 
@@ -147,7 +170,10 @@ async fn unrestricted_executor_cleanup_removes_log_and_metrics_file() {
     )
     .remove_logs_on_cleanup()
     .remove_metrics_on_cleanup();
-    executor.cleanup(&get_shell_spawner()).await.unwrap();
+    executor
+        .cleanup(&get_fake_firecracker_installation(), &get_shell_spawner())
+        .await
+        .unwrap();
 
     assert!(!try_exists(log_path).await.unwrap());
     assert!(!try_exists(metrics_path).await.unwrap());
@@ -164,7 +190,10 @@ async fn unrestricted_executor_cleanup_does_not_remove_log_and_metrics_files() {
             .log_path(&log_path)
             .metrics_path(&metrics_path),
     );
-    executor.cleanup(&get_shell_spawner()).await.unwrap();
+    executor
+        .cleanup(&get_fake_firecracker_installation(), &get_shell_spawner())
+        .await
+        .unwrap();
 
     assert!(try_exists(&log_path).await.unwrap());
     assert!(try_exists(&metrics_path).await.unwrap());

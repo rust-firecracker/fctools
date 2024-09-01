@@ -43,9 +43,9 @@ use uuid::Uuid;
 #[allow(unused)]
 pub fn get_fake_firecracker_installation() -> FirecrackerInstallation {
     FirecrackerInstallation {
-        firecracker_path: get_tmp_path(),
-        jailer_path: get_tmp_path(),
-        snapshot_editor_path: get_tmp_path(),
+        firecracker_path: get_tmp_path().join("firecracker"),
+        jailer_path: get_tmp_path().join("jailer"),
+        snapshot_editor_path: get_tmp_path().join("snapshot-editor"),
     }
 }
 
@@ -128,17 +128,17 @@ impl ShellSpawner for TestShellSpawner {
 
 #[async_trait]
 impl VmmExecutor for TestExecutor {
-    fn get_socket_path(&self) -> Option<PathBuf> {
+    fn get_socket_path(&self, installation: &FirecrackerInstallation) -> Option<PathBuf> {
         match self {
-            TestExecutor::Unrestricted(e) => e.get_socket_path(),
-            TestExecutor::Jailed(e) => e.get_socket_path(),
+            TestExecutor::Unrestricted(e) => e.get_socket_path(installation),
+            TestExecutor::Jailed(e) => e.get_socket_path(installation),
         }
     }
 
-    fn inner_to_outer_path(&self, inner_path: &Path) -> PathBuf {
+    fn inner_to_outer_path(&self, installation: &FirecrackerInstallation, inner_path: &Path) -> PathBuf {
         match self {
-            TestExecutor::Unrestricted(e) => e.inner_to_outer_path(inner_path),
-            TestExecutor::Jailed(e) => e.inner_to_outer_path(inner_path),
+            TestExecutor::Unrestricted(e) => e.inner_to_outer_path(installation, inner_path),
+            TestExecutor::Jailed(e) => e.inner_to_outer_path(installation, inner_path),
         }
     }
 
@@ -151,31 +151,36 @@ impl VmmExecutor for TestExecutor {
 
     async fn prepare(
         &self,
+        installation: &FirecrackerInstallation,
         shell_spawner: &impl ShellSpawner,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
         match self {
-            TestExecutor::Unrestricted(e) => e.prepare(shell_spawner, outer_paths).await,
-            TestExecutor::Jailed(e) => e.prepare(shell_spawner, outer_paths).await,
+            TestExecutor::Unrestricted(e) => e.prepare(installation, shell_spawner, outer_paths).await,
+            TestExecutor::Jailed(e) => e.prepare(installation, shell_spawner, outer_paths).await,
         }
     }
 
     async fn invoke(
         &self,
-        shell_spawner: &impl ShellSpawner,
         installation: &FirecrackerInstallation,
+        shell_spawner: &impl ShellSpawner,
         config_override: FirecrackerConfigOverride,
     ) -> Result<Child, VmmExecutorError> {
         match self {
-            TestExecutor::Unrestricted(e) => e.invoke(shell_spawner, installation, config_override).await,
-            TestExecutor::Jailed(e) => e.invoke(shell_spawner, installation, config_override).await,
+            TestExecutor::Unrestricted(e) => e.invoke(installation, shell_spawner, config_override).await,
+            TestExecutor::Jailed(e) => e.invoke(installation, shell_spawner, config_override).await,
         }
     }
 
-    async fn cleanup(&self, shell_spawner: &impl ShellSpawner) -> Result<(), VmmExecutorError> {
+    async fn cleanup(
+        &self,
+        installation: &FirecrackerInstallation,
+        shell_spawner: &impl ShellSpawner,
+    ) -> Result<(), VmmExecutorError> {
         match self {
-            TestExecutor::Unrestricted(e) => e.cleanup(shell_spawner).await,
-            TestExecutor::Jailed(e) => e.cleanup(shell_spawner).await,
+            TestExecutor::Unrestricted(e) => e.cleanup(installation, shell_spawner).await,
+            TestExecutor::Jailed(e) => e.cleanup(installation, shell_spawner).await,
         }
     }
 }

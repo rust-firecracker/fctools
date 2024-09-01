@@ -15,18 +15,29 @@ mod test_framework;
 
 #[test]
 fn jailed_executor_get_socket_path_returns_valid_path() {
-    assert_eq!(setup_executor(None, None, None, None, None).0.get_socket_path(), None);
+    assert_eq!(
+        setup_executor(None, None, None, None, None)
+            .0
+            .get_socket_path(&get_fake_firecracker_installation()),
+        None
+    );
 
     let path = get_tmp_path();
     let (executor, jail_path) = setup_executor(None, Some(path.clone()), None, None, None);
-    assert_eq!(executor.get_socket_path(), Some(jail_join(jail_path, path)));
+    assert_eq!(
+        executor.get_socket_path(&get_fake_firecracker_installation()),
+        Some(jail_join(jail_path, path))
+    );
 }
 
 #[test]
 fn jailed_executor_inner_to_outer_path_should_perform_transformation() {
     let (executor, jail_path) = setup_executor(None, None, None, None, None);
     for path in ["/a", "/b/c", "/d/e/f", "/g/h/i/j"].iter().map(PathBuf::from) {
-        assert_eq!(executor.inner_to_outer_path(&path), jail_join(&jail_path, path));
+        assert_eq!(
+            executor.inner_to_outer_path(&get_fake_firecracker_installation(), &path),
+            jail_join(&jail_path, path)
+        );
     }
 }
 
@@ -34,7 +45,10 @@ fn jailed_executor_inner_to_outer_path_should_perform_transformation() {
 async fn jailed_executor_prepare_creates_chroot_base_dir() {
     let chroot_base_dir = get_tmp_path();
     let (executor, _) = setup_executor(Some(chroot_base_dir.clone()), None, None, None, None);
-    executor.prepare(&get_shell_spawner(), vec![]).await.unwrap();
+    executor
+        .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
+        .await
+        .unwrap();
     assert!(metadata(&chroot_base_dir).await.unwrap().is_dir());
     remove_dir_all(chroot_base_dir).await.unwrap();
 }
@@ -42,7 +56,10 @@ async fn jailed_executor_prepare_creates_chroot_base_dir() {
 #[tokio::test]
 async fn jailed_executor_prepare_defaults_to_srv_jailer() {
     let (executor, jail_path) = setup_executor(None, None, None, None, None);
-    executor.prepare(&get_shell_spawner(), vec![]).await.unwrap();
+    executor
+        .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
+        .await
+        .unwrap();
     assert!(metadata(&jail_path).await.unwrap().is_dir());
     remove_dir_all(&jail_path).await.unwrap();
 }
@@ -54,7 +71,10 @@ async fn jailed_executor_prepare_deletes_existing_jail() {
     let jail_inner_path = jail_path.join("some_file.txt");
     File::create_new(&jail_inner_path).await.unwrap();
 
-    executor.prepare(&get_shell_spawner(), vec![]).await.unwrap();
+    executor
+        .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
+        .await
+        .unwrap();
     assert!(!try_exists(jail_inner_path).await.unwrap());
     assert!(try_exists(&jail_path).await.unwrap());
     remove_dir_all(jail_path).await.unwrap();
@@ -63,7 +83,10 @@ async fn jailed_executor_prepare_deletes_existing_jail() {
 #[tokio::test]
 async fn jailed_executor_prepare_creates_socket_parent_directory() {
     let (executor, jail_path) = setup_executor(None, Some(PathBuf::from("/parent_dir/socket")), None, None, None);
-    executor.prepare(&get_shell_spawner(), vec![]).await.unwrap();
+    executor
+        .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
+        .await
+        .unwrap();
     assert!(try_exists(jail_path.join("parent_dir")).await.unwrap());
     remove_dir_all(jail_path).await.unwrap();
 }
@@ -71,7 +94,10 @@ async fn jailed_executor_prepare_creates_socket_parent_directory() {
 #[tokio::test]
 async fn jailed_executor_prepare_creates_log_file() {
     let (executor, jail_path) = setup_executor(None, None, Some(PathBuf::from("/log.txt")), None, None);
-    executor.prepare(&get_shell_spawner(), vec![]).await.unwrap();
+    executor
+        .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
+        .await
+        .unwrap();
     assert!(try_exists(jail_path.join("log.txt")).await.unwrap());
     remove_dir_all(jail_path).await.unwrap();
 }
@@ -79,7 +105,10 @@ async fn jailed_executor_prepare_creates_log_file() {
 #[tokio::test]
 async fn jailed_executor_prepare_creates_metrics_file() {
     let (executor, jail_path) = setup_executor(None, None, None, Some(PathBuf::from("/metrics.txt")), None);
-    executor.prepare(&get_shell_spawner(), vec![]).await.unwrap();
+    executor
+        .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
+        .await
+        .unwrap();
     assert!(try_exists(jail_path.join("metrics.txt")).await.unwrap());
     remove_dir_all(jail_path).await.unwrap();
 }
@@ -90,7 +119,11 @@ async fn jailed_executor_prepare_checks_for_missing_resources() {
     let resource_path = get_tmp_path();
     assert_matches!(
         executor
-            .prepare(&get_shell_spawner(), vec![resource_path.clone()])
+            .prepare(
+                &get_fake_firecracker_installation(),
+                &get_shell_spawner(),
+                vec![resource_path.clone()]
+            )
             .await,
         Err(VmmExecutorError::ExpectedResourceMissing(_))
     );
@@ -120,8 +153,8 @@ async fn jailed_executor_invoke_applies_command_modifier_chain() {
         .command_modifier(AppendCommandModifier::new(" test"));
     let child = executor
         .invoke(
-            &get_shell_spawner(),
             &get_fake_firecracker_installation(),
+            &get_shell_spawner(),
             FirecrackerConfigOverride::NoOverride,
         )
         .await
@@ -135,9 +168,15 @@ async fn jailed_executor_invoke_applies_command_modifier_chain() {
 #[tokio::test]
 async fn jailed_executor_cleanup_recursively_removes_entire_jail() {
     let (executor, jail_path) = setup_executor(None, None, None, None, None);
-    executor.prepare(&get_shell_spawner(), vec![]).await.unwrap();
+    executor
+        .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
+        .await
+        .unwrap();
     assert!(try_exists(&jail_path).await.unwrap());
-    executor.cleanup(&get_shell_spawner()).await.unwrap();
+    executor
+        .cleanup(&get_fake_firecracker_installation(), &get_shell_spawner())
+        .await
+        .unwrap();
     assert!(!try_exists(jail_path).await.unwrap());
 }
 
@@ -153,7 +192,11 @@ async fn move_test_imp(jail_move_method: JailMoveMethod, try_cross_device: bool)
 
     assert_eq!(
         executor
-            .prepare(&get_shell_spawner(), vec![resource_path.clone()])
+            .prepare(
+                &get_fake_firecracker_installation(),
+                &get_shell_spawner(),
+                vec![resource_path.clone()]
+            )
             .await
             .unwrap()
             .get(&resource_path),
