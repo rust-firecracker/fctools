@@ -74,6 +74,7 @@ impl UnrestrictedVmmExecutor {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VmmId(String);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum VmmIdParseError {
     TooShort,
     TooLong,
@@ -82,27 +83,21 @@ pub enum VmmIdParseError {
 
 impl VmmId {
     pub fn new(id: impl Into<String>) -> Result<VmmId, VmmIdParseError> {
-        id.into().try_into()
-    }
-}
+        let id = id.into();
 
-impl TryFrom<String> for VmmId {
-    type Error = VmmIdParseError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        if value.len() < 5 {
+        if id.len() < 5 {
             return Err(VmmIdParseError::TooShort);
         }
 
-        if value.len() > 60 {
+        if id.len() > 60 {
             return Err(VmmIdParseError::TooLong);
         }
 
-        if value.chars().any(|c| !c.is_ascii_alphanumeric() && c != '-') {
+        if id.chars().any(|c| !c.is_ascii_alphanumeric() && c != '-') {
             return Err(VmmIdParseError::ContainsInvalidCharacter);
         }
 
-        Ok(Self(value))
+        Ok(Self(id))
     }
 }
 
@@ -115,6 +110,42 @@ impl AsRef<str> for VmmId {
 impl From<VmmId> for String {
     fn from(value: VmmId) -> Self {
         value.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::executor::unrestricted::{VmmId, VmmIdParseError};
+
+    #[test]
+    fn vmm_id_rejects_when_too_short() {
+        for l in 0..5 {
+            let str = (0..l).map(|_| "l").collect::<String>();
+            assert_eq!(VmmId::new(str), Err(VmmIdParseError::TooShort));
+        }
+    }
+
+    #[test]
+    fn vmm_id_rejects_when_too_long() {
+        for l in 61..100 {
+            let str = (0..l).map(|_| "L").collect::<String>();
+            assert_eq!(VmmId::new(str), Err(VmmIdParseError::TooLong));
+        }
+    }
+
+    #[test]
+    fn vmm_id_rejects_when_invalid_character() {
+        for c in ['~', '_', '$', '#', '+'] {
+            let str = (0..10).map(|_| c).collect::<String>();
+            assert_eq!(VmmId::new(str), Err(VmmIdParseError::ContainsInvalidCharacter));
+        }
+    }
+
+    #[test]
+    fn vmm_id_accepts_valid() {
+        for str in ["vmm-id", "longer-id", "L1Nda74-", "very-loNg-ID"] {
+            VmmId::new(str).unwrap();
+        }
     }
 }
 
@@ -176,7 +207,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         let mut shell_command = format!("{} {arguments}", installation.firecracker_path.to_string_lossy());
         apply_command_modifier_chain(&mut shell_command, &self.command_modifier_chain);
         if let Some(ref id) = self.id {
-            shell_command.push_str(" --id");
+            shell_command.push_str(" --id ");
             shell_command.push_str(id.as_ref());
         }
 

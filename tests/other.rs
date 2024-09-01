@@ -100,6 +100,15 @@ async fn same_user_shell_runs_under_correct_uid() {
 }
 
 #[tokio::test]
+async fn same_user_shell_can_null_pipes() {
+    let shell_spawner = SameUserShellSpawner::new(which::which("sh").unwrap());
+    let child = shell_spawner.spawn("echo".to_string(), true).await.unwrap();
+    assert!(child.stdout.is_none());
+    assert!(child.stderr.is_none());
+    assert!(child.stdin.is_none());
+}
+
+#[tokio::test]
 async fn su_shell_should_elevate() {
     elevation_test(SuShellSpawner::new).await;
 }
@@ -116,7 +125,14 @@ async fn elevation_test<S: ShellSpawner, F: FnOnce(String) -> S>(closure: F) {
         return;
     }
     let shell_spawner = closure(password.unwrap());
-    let child = shell_spawner.spawn("echo $UID".into(), false).await.unwrap();
-    let stdout = String::from_utf8_lossy(&child.wait_with_output().await.unwrap().stdout).into_owned();
-    assert_eq!(stdout, "0\n");
+    {
+        let child = shell_spawner.spawn("echo $UID".into(), false).await.unwrap();
+        let stdout = String::from_utf8_lossy(&child.wait_with_output().await.unwrap().stdout).into_owned();
+        assert_eq!(stdout, "0\n");
+    }
+
+    let child = shell_spawner.spawn("echo".to_string(), true).await.unwrap();
+    assert!(child.stdout.is_none());
+    assert!(child.stdin.is_some());
+    assert!(child.stderr.is_none());
 }

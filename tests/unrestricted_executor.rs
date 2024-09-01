@@ -2,9 +2,9 @@ use std::{collections::HashMap, path::PathBuf};
 
 use assert_matches::assert_matches;
 use fctools::executor::{
-    arguments::{VmmApiSocket, VmmArguments, ConfigurationFileOverride},
+    arguments::{ConfigurationFileOverride, VmmApiSocket, VmmArguments},
     command_modifier::{AppendCommandModifier, RewriteCommandModifier},
-    unrestricted::UnrestrictedVmmExecutor,
+    unrestricted::{UnrestrictedVmmExecutor, VmmId},
     VmmExecutor, VmmExecutorError,
 };
 use test_framework::{get_fake_firecracker_installation, get_shell_spawner, get_tmp_path, FailingShellSpawner};
@@ -71,9 +71,7 @@ async fn unrestricted_executor_prepare_fails_with_missing_resources() {
 async fn unrestricted_executor_prepare_removes_pre_existing_api_socket() {
     let socket_path = get_tmp_path();
     File::create_new(&socket_path).await.unwrap();
-    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(
-        socket_path.clone(),
-    )));
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())));
     executor
         .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
         .await
@@ -84,8 +82,7 @@ async fn unrestricted_executor_prepare_removes_pre_existing_api_socket() {
 #[tokio::test]
 async fn unrestricted_executor_prepare_creates_log_file() {
     let log_path = get_tmp_path();
-    let executor =
-        UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled).log_path(&log_path));
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled).log_path(&log_path));
     executor
         .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
         .await
@@ -97,9 +94,7 @@ async fn unrestricted_executor_prepare_creates_log_file() {
 #[tokio::test]
 async fn unrestricted_executor_prepare_creates_metrics_file() {
     let metrics_path = get_tmp_path();
-    let executor = UnrestrictedVmmExecutor::new(
-        VmmArguments::new(VmmApiSocket::Disabled).metrics_path(&metrics_path),
-    );
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled).metrics_path(&metrics_path));
     executor
         .prepare(&get_fake_firecracker_installation(), &get_shell_spawner(), vec![])
         .await
@@ -143,12 +138,44 @@ async fn unrestricted_executor_invoke_applies_command_modifier_chain() {
 }
 
 #[tokio::test]
+async fn unrestricted_executor_invoke_nulls_pipes() {
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled)).pipes_to_null();
+    let child = executor
+        .invoke(
+            &get_fake_firecracker_installation(),
+            &get_shell_spawner(),
+            ConfigurationFileOverride::NoOverride,
+        )
+        .await
+        .unwrap();
+    assert!(child.stdout.is_none());
+    assert!(child.stderr.is_none());
+    assert!(child.stdin.is_none());
+}
+
+#[tokio::test]
+async fn unrestricted_executor_can_set_vmm_id() {
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled))
+        .id(VmmId::new("some-vmm-id").unwrap())
+        .command_modifier(RewriteCommandModifier::new("echo"));
+    let child = executor
+        .invoke(
+            &get_fake_firecracker_installation(),
+            &get_shell_spawner(),
+            ConfigurationFileOverride::NoOverride,
+        )
+        .await
+        .unwrap();
+    let output = child.wait_with_output().await.unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout.trim(), "--id some-vmm-id");
+}
+
+#[tokio::test]
 async fn unrestricted_executor_cleanup_removes_api_socket() {
     let socket_path = get_tmp_path();
     File::create_new(&socket_path).await.unwrap();
-    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(
-        socket_path.clone(),
-    )));
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())));
     executor
         .cleanup(&get_fake_firecracker_installation(), &get_shell_spawner())
         .await
