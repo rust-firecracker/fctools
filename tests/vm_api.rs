@@ -4,7 +4,7 @@ use fctools::{
     process::HyperResponseExt,
     vm::{
         api::VmApi,
-        models::{BalloonDevice, IsPaused, MetricsSystem, UpdateBalloonDevice, UpdateBalloonStatistics, VmInfo},
+        models::{BalloonDevice, MetricsSystem, UpdateBalloonDevice, UpdateBalloonStatistics},
         ShutdownMethod, VmError, VmState,
     },
 };
@@ -18,7 +18,7 @@ mod test_framework;
 #[test]
 fn vm_api_can_catch_api_errors() {
     VmBuilder::new()
-        .balloon(BalloonDevice::new(64, false))
+        .balloon_device(BalloonDevice::new(64, false))
         .run(|mut vm| async move {
             // trying to set up balloon stats after being disabled pre-boot is a bad request
             let error = vm
@@ -48,7 +48,8 @@ fn vm_api_can_send_custom_request() {
             .await
             .unwrap();
         assert!(response.status().is_success());
-        serde_json::from_str::<VmInfo>(&response.recv_to_string().await.unwrap()).unwrap();
+        let content = response.recv_to_string().await.unwrap();
+        assert!(content.starts_with('{'));
         shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
     });
 }
@@ -70,7 +71,7 @@ fn vm_api_can_receive_info() {
     VmBuilder::new().run(|mut vm| async move {
         let info = vm.api_get_info().await.unwrap();
         assert_eq!(info.app_name, "Firecracker");
-        assert_eq!(info.is_paused, IsPaused::Running);
+        assert!(!info.is_paused);
         shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
     });
 }
@@ -88,7 +89,7 @@ fn vm_api_can_flush_metrics() {
 #[test]
 fn vm_api_can_get_balloon() {
     VmBuilder::new()
-        .balloon(BalloonDevice::new(64, false))
+        .balloon_device(BalloonDevice::new(64, false))
         .run(|mut vm| async move {
             let balloon = vm.api_get_balloon_device().await.unwrap();
             assert_eq!(balloon.get_stats_polling_interval_s(), 0);
@@ -101,7 +102,7 @@ fn vm_api_can_get_balloon() {
 #[test]
 fn vm_api_can_update_balloon() {
     VmBuilder::new()
-        .balloon(BalloonDevice::new(64, false))
+        .balloon_device(BalloonDevice::new(64, false))
         .run(|mut vm| async move {
             vm.api_update_balloon_device(UpdateBalloonDevice::new(50))
                 .await
@@ -115,7 +116,7 @@ fn vm_api_can_update_balloon() {
 #[test]
 fn vm_api_can_get_balloon_statistics() {
     VmBuilder::new()
-        .balloon(BalloonDevice::new(64, false).stats_polling_interval_s(1))
+        .balloon_device(BalloonDevice::new(64, false).stats_polling_interval_s(1))
         .run(|mut vm| async move {
             let statistics = vm.api_get_balloon_statistics().await.unwrap();
             assert_ne!(statistics.actual_mib, 0);
@@ -126,7 +127,7 @@ fn vm_api_can_get_balloon_statistics() {
 #[test]
 fn vm_api_can_update_balloon_statistics() {
     VmBuilder::new()
-        .balloon(BalloonDevice::new(64, false).stats_polling_interval_s(1))
+        .balloon_device(BalloonDevice::new(64, false).stats_polling_interval_s(1))
         .run(|mut vm| async move {
             vm.api_update_balloon_statistics(UpdateBalloonStatistics::new(3))
                 .await

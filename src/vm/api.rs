@@ -10,9 +10,10 @@ use crate::{executor::VmmExecutor, process::HyperResponseExt, shell_spawner::She
 use super::{
     configuration::VmConfigurationData,
     models::{
-        BalloonDevice, BalloonStatistics, CreateSnapshot, EffectiveConfiguration, LoadSnapshot, MachineConfiguration,
-        ReprAction, ReprActionType, ReprApiError, ReprFirecrackerVersion, ReprUpdateState, ReprUpdatedState,
-        UpdateBalloonDevice, UpdateBalloonStatistics, UpdateDrive, UpdateNetworkInterface, VmInfo,
+        BalloonDevice, BalloonStatistics, CreateSnapshot, EffectiveConfiguration, Info, LoadSnapshot,
+        MachineConfiguration, ReprAction, ReprActionType, ReprApiError, ReprFirecrackerVersion, ReprInfo, ReprIsPaused,
+        ReprUpdateState, ReprUpdatedState, UpdateBalloonDevice, UpdateBalloonStatistics, UpdateDrive,
+        UpdateNetworkInterface,
     },
     snapshot::SnapshotData,
     Vm, VmError, VmState,
@@ -27,7 +28,7 @@ pub trait VmApi {
         new_is_paused: Option<bool>,
     ) -> Result<Response<Incoming>, VmError>;
 
-    async fn api_get_info(&mut self) -> Result<VmInfo, VmError>;
+    async fn api_get_info(&mut self) -> Result<Info, VmError>;
 
     async fn api_flush_metrics(&mut self) -> Result<(), VmError>;
 
@@ -94,9 +95,15 @@ impl<E: VmmExecutor, S: ShellSpawner> VmApi for Vm<E, S> {
         Ok(response)
     }
 
-    async fn api_get_info(&mut self) -> Result<VmInfo, VmError> {
+    async fn api_get_info(&mut self) -> Result<Info, VmError> {
         self.ensure_paused_or_running()?;
-        send_api_request_with_response(self, "/", "GET", None::<i32>).await
+        let repr: ReprInfo = send_api_request_with_response(self, "/", "GET", None::<i32>).await?;
+        Ok(Info {
+            id: repr.id,
+            is_paused: repr.is_paused == ReprIsPaused::Paused,
+            vmm_version: repr.vmm_version,
+            app_name: repr.app_name,
+        })
     }
 
     async fn api_flush_metrics(&mut self) -> Result<(), VmError> {

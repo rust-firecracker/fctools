@@ -30,7 +30,7 @@ mod test_framework;
 #[test]
 fn vm_can_boot_via_api_calls() {
     VmBuilder::new()
-        .boot_method(InitMethod::ViaApiCalls)
+        .init_method(InitMethod::ViaApiCalls)
         .run(|mut vm| async move {
             shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
         });
@@ -39,7 +39,7 @@ fn vm_can_boot_via_api_calls() {
 #[test]
 fn vm_can_boot_via_json() {
     VmBuilder::new()
-        .boot_method(InitMethod::ViaJsonConfiguration(get_tmp_path()))
+        .init_method(InitMethod::ViaJsonConfiguration(get_tmp_path()))
         .run(|mut vm| async move {
             shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
         });
@@ -62,7 +62,7 @@ fn vm_can_be_shut_down_via_pause_then_kill() {
 #[test]
 fn vm_processes_logger_path() {
     VmBuilder::new()
-        .logger(LoggerSystem::new().log_path(get_tmp_path()))
+        .logger_system(LoggerSystem::new().log_path(get_tmp_path()))
         .run(|mut vm| async move {
             let log_path = vm.get_accessible_paths().log_path.clone().unwrap();
             assert!(metadata(&log_path).await.unwrap().is_file());
@@ -86,7 +86,7 @@ fn vm_processes_metrics_path() {
 #[test]
 fn vm_processes_vsock_multiplexer_path() {
     VmBuilder::new()
-        .vsock(VsockDevice::new(rand::thread_rng().next_u32(), get_tmp_path()))
+        .vsock_device(VsockDevice::new(rand::thread_rng().next_u32(), get_tmp_path()))
         .run(|mut vm| async move {
             let vsock_multiplexer_path = vm.get_accessible_paths().vsock_multiplexer_path.clone().unwrap();
             assert!(metadata(&vsock_multiplexer_path).await.unwrap().file_type().is_socket());

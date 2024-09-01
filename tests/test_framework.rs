@@ -308,12 +308,12 @@ struct NetworkData {
 
 #[allow(unused)]
 pub struct VmBuilder {
-    boot_method: InitMethod,
-    logger: Option<LoggerSystem>,
+    init_method: InitMethod,
+    logger_system: Option<LoggerSystem>,
     metrics_system: Option<MetricsSystem>,
-    vsock: Option<VsockDevice>,
+    vsock_device: Option<VsockDevice>,
     pre_start_hook: Option<(PreStartHook, PreStartHook)>,
-    balloon: Option<BalloonDevice>,
+    balloon_device: Option<BalloonDevice>,
     unrestricted_network: Option<NetworkData>,
     jailed_network: Option<NetworkData>,
     boot_arg_append: String,
@@ -339,12 +339,12 @@ impl SnapshottingContext {
 impl VmBuilder {
     pub fn new() -> Self {
         Self {
-            boot_method: InitMethod::ViaApiCalls,
-            logger: None,
+            init_method: InitMethod::ViaApiCalls,
+            logger_system: None,
             metrics_system: None,
-            vsock: None,
+            vsock_device: None,
             pre_start_hook: None,
-            balloon: None,
+            balloon_device: None,
             unrestricted_network: None,
             jailed_network: None,
             boot_arg_append: String::new(),
@@ -352,13 +352,13 @@ impl VmBuilder {
         }
     }
 
-    pub fn boot_method(mut self, applier: InitMethod) -> Self {
-        self.boot_method = applier;
+    pub fn init_method(mut self, init_method: InitMethod) -> Self {
+        self.init_method = init_method;
         self
     }
 
-    pub fn logger(mut self, logger: LoggerSystem) -> Self {
-        self.logger = Some(logger);
+    pub fn logger_system(mut self, logger_system: LoggerSystem) -> Self {
+        self.logger_system = Some(logger_system);
         self
     }
 
@@ -367,8 +367,8 @@ impl VmBuilder {
         self
     }
 
-    pub fn vsock(mut self, vsock: VsockDevice) -> Self {
-        self.vsock = Some(vsock);
+    pub fn vsock_device(mut self, vsock_device: VsockDevice) -> Self {
+        self.vsock_device = Some(vsock_device);
         self
     }
 
@@ -377,8 +377,8 @@ impl VmBuilder {
         self
     }
 
-    pub fn balloon(mut self, balloon: BalloonDevice) -> Self {
-        self.balloon = Some(balloon);
+    pub fn balloon_device(mut self, balloon_device: BalloonDevice) -> Self {
+        self.balloon_device = Some(balloon_device);
         self
     }
 
@@ -495,7 +495,7 @@ impl VmBuilder {
             TestShellSpawner::Su(SuShellSpawner::new(std::env::var("ROOT_PWD").expect("No ROOT_PWD set")));
 
         // add components from builder to data
-        if let Some(logger) = self.logger {
+        if let Some(logger) = self.logger_system {
             unrestricted_data = unrestricted_data.logger_system(logger.clone());
             jailed_data = jailed_data.logger_system(logger);
         }
@@ -505,12 +505,12 @@ impl VmBuilder {
             jailed_data = jailed_data.metrics_system(metrics_system);
         }
 
-        if let Some(vsock) = self.vsock {
+        if let Some(vsock) = self.vsock_device {
             unrestricted_data = unrestricted_data.vsock_device(vsock.clone());
             jailed_data = jailed_data.vsock_device(vsock);
         }
 
-        if let Some(balloon) = self.balloon {
+        if let Some(balloon) = self.balloon_device {
             unrestricted_data = unrestricted_data.balloon_device(balloon.clone());
             jailed_data = jailed_data.balloon_device(balloon);
         }
@@ -544,7 +544,7 @@ impl VmBuilder {
                     Self::test_worker(
                         self.unrestricted_network,
                         VmConfiguration::New {
-                            init_method: self.boot_method.clone(),
+                            init_method: self.init_method.clone(),
                             data: unrestricted_data
                         },
                         SnapshottingContext::new(false, unrestricted_shell_spawner),
@@ -555,7 +555,7 @@ impl VmBuilder {
                     Self::test_worker(
                         self.jailed_network,
                         VmConfiguration::New {
-                            init_method: self.boot_method,
+                            init_method: self.init_method,
                             data: jailed_data
                         },
                         SnapshottingContext::new(true, jailed_shell_spawner.clone()),

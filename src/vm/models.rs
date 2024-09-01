@@ -640,36 +640,44 @@ impl VsockDevice {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Info {
+    pub id: String,
+    pub is_paused: bool,
+    pub vmm_version: String,
+    pub app_name: String,
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VmInfo {
+pub(crate) struct ReprInfo {
     pub id: String,
     #[serde(rename = "state")]
-    pub is_paused: IsPaused,
+    pub is_paused: ReprIsPaused,
     pub vmm_version: String,
     pub app_name: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum IsPaused {
+pub(crate) enum ReprIsPaused {
     Running,
     Paused,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct EffectiveConfiguration {
-    pub balloon: Option<BalloonDevice>,
+    pub balloon_device: Option<BalloonDevice>,
     pub drives: Vec<Drive>,
     #[serde(rename = "boot-source")]
     pub boot_source: Option<BootSource>,
-    pub logger: Option<LoggerSystem>,
+    pub logger_system: Option<LoggerSystem>,
     #[serde(rename = "machine-config")]
     pub machine_configuration: Option<MachineConfiguration>,
-    pub metrics: Option<MetricsSystem>,
+    pub metrics_system: Option<MetricsSystem>,
     #[serde(rename = "mmds-config")]
     pub mmds_configuration: Option<MmdsConfiguration>,
     #[serde(rename = "network-interfaces")]
     pub network_interfaces: Vec<NetworkInterface>,
-    pub vsock: Option<VsockDevice>,
+    pub vsock_device: Option<VsockDevice>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
