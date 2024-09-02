@@ -67,16 +67,11 @@ pub struct VmConfigurationData {
     pub(crate) entropy_device: Option<EntropyDevice>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum InitMethod {
+    #[default]
     ViaApiCalls,
     ViaJsonConfiguration(PathBuf),
-}
-
-impl Default for InitMethod {
-    fn default() -> Self {
-        InitMethod::ViaApiCalls
-    }
 }
 
 impl VmConfigurationData {
@@ -163,19 +158,19 @@ impl VmConfigurationData {
         &self.network_interfaces
     }
 
-    pub fn get_balloon(&self) -> Option<&BalloonDevice> {
+    pub fn get_balloon_device(&self) -> Option<&BalloonDevice> {
         self.balloon_device.as_ref()
     }
 
-    pub fn get_vsock(&self) -> Option<&VsockDevice> {
+    pub fn get_vsock_device(&self) -> Option<&VsockDevice> {
         self.vsock_device.as_ref()
     }
 
-    pub fn get_logger(&self) -> Option<&LoggerSystem> {
+    pub fn get_logger_system(&self) -> Option<&LoggerSystem> {
         self.logger_system.as_ref()
     }
 
-    pub fn get_metrics(&self) -> Option<&MetricsSystem> {
+    pub fn get_metrics_system(&self) -> Option<&MetricsSystem> {
         self.metrics_system.as_ref()
     }
 
@@ -183,7 +178,7 @@ impl VmConfigurationData {
         self.mmds_configuration.as_ref()
     }
 
-    pub fn get_entropy(&self) -> Option<&EntropyDevice> {
+    pub fn get_entropy_device(&self) -> Option<&EntropyDevice> {
         self.entropy_device.as_ref()
     }
 }

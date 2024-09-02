@@ -28,6 +28,8 @@ pub struct SnapshotEditor<'a> {
 pub enum SnapshotEditorError {
     #[error("Forking the snapshot-editor process failed: `{0}`")]
     ProcessForkFailed(tokio::io::Error),
+    #[error("Waiting on the exit of the snapshot-editor process failed: `{0}`")]
+    ProcessWaitFailed(tokio::io::Error),
     #[error("The snapshot-editor exited with a non-zero exit status: `{0}`")]
     ExitedWithNonZeroStatus(ExitStatus),
     #[error("A given path was not in UTF-8. Non-UTF-8 paths are unsupported.")]
@@ -116,10 +118,15 @@ impl<'a> SnapshotEditor<'a> {
         let mut command = Command::new(self.path);
         command.args(args);
         command.stdout(Stdio::piped());
-        command.stderr(Stdio::piped());
+        command.stderr(Stdio::null());
         command.stdin(Stdio::null());
 
-        let output = command.output().await.map_err(SnapshotEditorError::ProcessForkFailed)?;
+        let child = command.spawn().map_err(SnapshotEditorError::ProcessForkFailed)?;
+        let output = child
+            .wait_with_output()
+            .await
+            .map_err(SnapshotEditorError::ProcessWaitFailed)?;
+
         if !output.status.success() {
             return Err(SnapshotEditorError::ExitedWithNonZeroStatus(output.status));
         }
