@@ -367,8 +367,8 @@ impl VmBuilder {
         self
     }
 
-    pub fn vsock_device(mut self, vsock_device: VsockDevice) -> Self {
-        self.vsock_device = Some(vsock_device);
+    pub fn vsock_device(mut self) -> Self {
+        self.vsock_device = Some(VsockDevice::new(rand::thread_rng().next_u32(), get_tmp_path()));
         self
     }
 

@@ -96,12 +96,12 @@ impl<E: VmmExecutor, S: ShellSpawner> VsockExt for Vm<E, S> {
     }
 
     fn vsock_listen(&mut self, host_port: u32) -> Result<UnixListener, VsockError> {
-        let mut socket_path = self
+        let mut socket_path = dbg!(self
             .get_accessible_paths()
             .vsock_multiplexer_path
             .clone()
-            .ok_or(VsockError::VsockNotConfigured)?;
-        socket_path.push(format!("_{host_port}"));
+            .ok_or(VsockError::VsockNotConfigured)?);
+        socket_path.as_mut_os_string().push(format!("_{host_port}"));
         self.register_vsock_listener_path(socket_path.clone());
         UnixListener::bind(socket_path).map_err(VsockError::CannotBind)
     }

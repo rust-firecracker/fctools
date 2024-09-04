@@ -9,7 +9,7 @@ use fctools::{
     vm::{
         api::VmApi,
         configuration::InitMethod,
-        models::{CreateSnapshot, LoggerSystem, MetricsSystem, VsockDevice},
+        models::{CreateSnapshot, LoggerSystem, MetricsSystem},
         snapshot::SnapshotData,
         ShutdownMethod, VmState,
     },
@@ -85,14 +85,12 @@ fn vm_processes_metrics_path() {
 
 #[test]
 fn vm_processes_vsock_multiplexer_path() {
-    VmBuilder::new()
-        .vsock_device(VsockDevice::new(rand::thread_rng().next_u32(), get_tmp_path()))
-        .run(|mut vm| async move {
-            let vsock_multiplexer_path = vm.get_accessible_paths().vsock_multiplexer_path.clone().unwrap();
-            assert!(metadata(&vsock_multiplexer_path).await.unwrap().file_type().is_socket());
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
-            assert!(!try_exists(vsock_multiplexer_path).await.unwrap());
-        });
+    VmBuilder::new().vsock_device().run(|mut vm| async move {
+        let vsock_multiplexer_path = vm.get_accessible_paths().vsock_multiplexer_path.clone().unwrap();
+        assert!(metadata(&vsock_multiplexer_path).await.unwrap().file_type().is_socket());
+        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        assert!(!try_exists(vsock_multiplexer_path).await.unwrap());
+    });
 }
 
 #[test]
