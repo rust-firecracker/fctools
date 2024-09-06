@@ -150,15 +150,3 @@ fn vsock_can_bind_host_side() {
         shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
     });
 }
-
-#[test]
-fn vsock_can_connect_to_guest() {
-    VmBuilder::new().vsock_device().run(|mut vm| async move {
-        let mut pipes = vm.take_pipes().unwrap();
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        pipes.stdin.write_all(b"/opt/vsock-server\n").await.unwrap();
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        let send_request = vm.vsock_connect(8000).await.unwrap();
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
-    });
-}

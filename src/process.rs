@@ -20,8 +20,7 @@ use tokio::{
 
 use crate::{
     executor::{
-        arguments::ConfigurationFileOverride, force_chown, installation::VmmInstallation, VmmExecutor,
-        VmmExecutorError,
+        arguments::ConfigurationFileOverride, force_chown, installation::VmmInstallation, VmmExecutor, VmmExecutorError,
     },
     shell_spawner::ShellSpawner,
 };
@@ -118,12 +117,7 @@ pub enum VmmProcessError {
 
 impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
     /// Create a new process instance while moving in its components.
-    pub fn new(
-        executor: E,
-        shell_spawner: S,
-        installation: VmmInstallation,
-        outer_paths: Vec<PathBuf>,
-    ) -> Self {
+    pub fn new(executor: E, shell_spawner: S, installation: VmmInstallation, outer_paths: Vec<PathBuf>) -> Self {
         Self::new_arced(
             Arc::new(executor),
             Arc::new(shell_spawner),
@@ -327,7 +321,7 @@ impl<E: VmmExecutor, S: ShellSpawner> VmmProcess<E, S> {
     }
 
     fn update_state(&mut self) {
-        if let Some(child) = &mut self.child {
+        if let Some(ref mut child) = self.child {
             if let Ok(Some(exit_status)) = child.try_wait() {
                 if exit_status.success() {
                     self.state = VmmProcessState::Exited;
