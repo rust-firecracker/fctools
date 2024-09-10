@@ -115,7 +115,11 @@ async fn su_shell_should_elevate() {
 
 #[tokio::test]
 async fn sudo_shell_should_elevate() {
-    elevation_test(SudoShellSpawner::with_password).await;
+    elevation_test(|password| SudoShellSpawner {
+        sudo_path: which::which("sudo").unwrap(),
+        password: Some(password),
+    })
+    .await;
 }
 
 async fn elevation_test<S: ShellSpawner, F: FnOnce(String) -> S>(closure: F) {

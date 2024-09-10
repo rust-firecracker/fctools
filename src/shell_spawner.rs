@@ -126,27 +126,11 @@ impl ShellSpawner for SuShellSpawner {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SudoShellSpawner {
     /// The path to the "sudo" binary on the system, typically: /usr/bin/sudo.
-    sudo_path: PathBuf,
+    pub sudo_path: PathBuf,
     /// Optionally, the password needed to authenticate. Sudo often doesn't prompt for it if the
     /// user has already logged in, but it's recommended to pass it anyway so that authentication
     /// doesn't unexpectedly start failing.
-    password: Option<String>,
-}
-
-impl SudoShellSpawner {
-    pub fn with_password(password: impl Into<String>) -> Self {
-        Self {
-            sudo_path: PathBuf::from("/usr/bin/sudo"),
-            password: Some(password.into()),
-        }
-    }
-
-    pub fn without_password() -> Self {
-        Self {
-            sudo_path: PathBuf::from("/usr/bin/sudo"),
-            password: None,
-        }
-    }
+    pub password: Option<String>,
 }
 
 #[async_trait]
@@ -167,13 +151,12 @@ impl ShellSpawner for SudoShellSpawner {
             .stdout(get_stdio(pipes_to_null))
             .stdin(Stdio::piped());
         let mut child = command.spawn()?;
-
         let stdin_ref = child
             .stdin
             .as_mut()
             .ok_or_else(|| io::Error::other("Stdin not received"))?;
         if let Some(ref password) = self.password {
-            stdin_ref.write(format!("{password}\n").as_bytes()).await?;
+            stdin_ref.write_all(format!("{password}\n").as_bytes()).await?;
         } else {
             return Err(io::Error::other(
                 "Sudo requested a password but it wasn't provided in the shell instance",
@@ -189,5 +172,9 @@ impl ShellSpawner for SudoShellSpawner {
 fn shell_spawners_have_correct_increases_privileges_flags() {
     assert!(!SameUserShellSpawner::new(which::which("sh").unwrap()).increases_privileges());
     assert!(SuShellSpawner::new("password").increases_privileges());
-    assert!(SudoShellSpawner::without_password().increases_privileges());
+    assert!(SudoShellSpawner {
+        sudo_path: which::which("sudo").unwrap(),
+        password: None
+    }
+    .increases_privileges());
 }

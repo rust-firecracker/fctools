@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # common
-async-trait = "0.1.81"
+async-trait = "0.1.82"
 thiserror = "1.0.63"
 tokio = { version = "1.40.0", features = [
     "process",
@@ -24,15 +24,15 @@ http-body-util = { version = "0.1.2", optional = true }
 hyper-client-sockets = { version = "0.1.0", features = [
     "unix",
 ], optional = true }
-hyper-util = { version = "0.1.7", features = [
+hyper-util = { version = "0.1.8", features = [
     "client-legacy",
     "client",
     "http1",
 ], optional = true }
 http = { version = "1.1.0", optional = true }
 # vm
-serde = { version = "1.0.209", features = ["derive"], optional = true }
-serde_json = { version = "1.0.127", optional = true }
+serde = { version = "1.0.210", features = ["derive"], optional = true }
+serde_json = { version = "1.0.128", optional = true }
 # extensions
 cidr = { version = "0.2.3", optional = true }
 
