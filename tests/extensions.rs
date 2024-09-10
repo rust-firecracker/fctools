@@ -1,19 +1,14 @@
 use std::time::Duration;
 
 use fctools::{
-    ext::{metrics::spawn_metrics_task, snapshot_editor::SnapshotEditorExt, vsock_http::VsockExt},
+    ext::{metrics::spawn_metrics_task, snapshot_editor::SnapshotEditorExt},
     vm::{
         api::VmApi,
         models::{CreateSnapshot, MetricsSystem, SnapshotType},
         ShutdownMethod,
     },
 };
-use rand::RngCore;
 use test_framework::{get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, VmBuilder};
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::UnixStream,
-};
 
 mod test_framework;
 
@@ -131,22 +126,4 @@ fn metrics_task_can_be_cancelled_via_join_handle() {
             );
             shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
         });
-}
-
-#[test]
-fn vsock_can_bind_host_side() {
-    VmBuilder::new().vsock_device().run(|mut vm| async move {
-        let listener = vm.vsock_listen(rand::thread_rng().next_u32()).unwrap();
-        tokio::task::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
-            stream.write_all(b"response").await.unwrap();
-        });
-
-        let stream = UnixStream::connect(vm.get_accessible_paths().vsock_listener_paths.iter().next().unwrap())
-            .await
-            .unwrap();
-        let mut lines = BufReader::new(stream).lines();
-        assert_eq!(lines.next_line().await.unwrap().unwrap(), "response");
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
-    });
 }

@@ -51,15 +51,15 @@ file-lock = "2.1.11"
 fctools = { path = ".", features = ["full"] }
 
 [features]
-default = []
 full = [
     "vm",
     "metrics-ext",
     "fcnet-ext",
-    "vsock-http-ext",
+    "hyper-vsock-ext",
     "link-local-ext",
     "snapshot-editor-ext",
 ]
+default = []
 # layers
 shell-spawner = []
 executor = ["shell-spawner", "dep:libc"]
@@ -76,6 +76,6 @@ vm = ["process", "dep:serde", "dep:serde_json"]
 # extensions
 metrics-ext = ["dep:serde", "dep:serde_json"]
 fcnet-ext = ["shell-spawner", "dep:cidr"]
-vsock-http-ext = ["vm", "hyper-client-sockets/firecracker"]
+hyper-vsock-ext = ["vm", "hyper-client-sockets/firecracker"]
 link-local-ext = ["dep:cidr"]
 snapshot-editor-ext = ["executor"]
