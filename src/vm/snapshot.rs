@@ -5,6 +5,7 @@ use super::{
     models::{LoadSnapshot, MemoryBackend, MemoryBackendType},
 };
 
+/// The data associated with a snapshot created for a VM.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotData {
     pub(super) snapshot_path: PathBuf,
@@ -13,6 +14,8 @@ pub struct SnapshotData {
 }
 
 impl SnapshotData {
+    /// Copy over the data of this snapshot to the given destinations, also modifying the data to refer
+    /// to these new destinations.
     pub async fn copy(
         &mut self,
         new_snapshot_path: PathBuf,
@@ -28,6 +31,8 @@ impl SnapshotData {
         Ok(())
     }
 
+    /// Move out the data of this snapshot to the given destinations, mitigating the overhead of copying
+    /// when acceptable and also modifying references to these new destinations.
     pub async fn move_out(
         &mut self,
         new_snapshot_path: PathBuf,
@@ -43,6 +48,7 @@ impl SnapshotData {
         Ok(())
     }
 
+    /// Remove the data of this snapshot.
     pub async fn remove(self) -> Result<(), tokio::io::Error> {
         tokio::try_join!(
             tokio::fs::remove_file(&self.snapshot_path),
@@ -51,6 +57,8 @@ impl SnapshotData {
         Ok(())
     }
 
+    /// Transform this snapshot into a VmConfiguration. A file will be used as the snapshot memory backend and not a
+    /// userfaultfd/UFFD, and resume_vm and enable_diff_snapshots can be used to customize the corresponding options.
     pub fn into_configuration(self, resume_vm: Option<bool>, enable_diff_snapshots: Option<bool>) -> VmConfiguration {
         let mut load_snapshot = LoadSnapshot::new(
             self.snapshot_path,

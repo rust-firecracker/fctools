@@ -301,12 +301,17 @@ pub enum MetricsTaskError {
     Send(SendError<Metrics>),
 }
 
+/// A spawned Tokio task that gathers Firecracker's metrics.
 #[derive(Debug)]
 pub struct MetricsTask {
+    /// The join handle to the task that can be used to abort it or check on it.
     pub join_handle: JoinHandle<Result<(), MetricsTaskError>>,
+    /// An asynchronous channel receiver that can be used to fetch the metrics sent out by the task.
     pub receiver: mpsc::Receiver<Metrics>,
 }
 
+/// Spawn a dedicated Tokio task that gathers Firecracker's metrics from the given metrics path, with the asynchronous channel
+/// using the provided upper bound (buffer).
 pub fn spawn_metrics_task(metrics_path: impl AsRef<Path> + Send + 'static, buffer: usize) -> MetricsTask {
     let (sender, receiver) = mpsc::channel(buffer);
 

@@ -6,6 +6,7 @@ use tonic::transport::{Channel, Endpoint};
 
 use crate::{executor::VmmExecutor, shell_spawner::ShellSpawner, vm::Vm};
 
+/// An error emitted by the gRPC-over-vsock extension.
 #[derive(Debug, thiserror::Error)]
 pub enum VsockGrpcError {
     #[error("A vsock device was not configured for this VM")]
@@ -16,14 +17,22 @@ pub enum VsockGrpcError {
     ConnectionFailed(tonic::transport::Error),
 }
 
+/// An extension that allows connecting to guest applications that expose a gRPC server being tunneled over
+/// the Firecracker vsock device. The established tonic Channel-s can be used with codegen or any other type
+/// of tonic client.
 #[async_trait::async_trait]
 pub trait VsockGrpcExt {
+    /// Connect to a guest port over gRPC eagerly, i.e. by establishing the connection right away.
+    /// configure_endpoint can be used as a function to customize Endpoint options via its builder.
     async fn vsock_connect_over_grpc(
         &self,
         guest_port: u32,
         configure_endpoint: impl (FnOnce(Endpoint) -> Endpoint) + Send,
     ) -> Result<Channel, VsockGrpcError>;
 
+    /// Connect to a guest port over gRPC lazily, i.e. not actually establishing the connection until
+    /// first usage of the Channel.
+    /// configure_endpoint can be used as a function to customize Endpoint options via its builder.
     fn vsock_lazily_connect_over_grpc(
         &self,
         guest_port: u32,

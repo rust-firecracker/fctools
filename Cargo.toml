@@ -2,6 +2,12 @@
 name = "fctools"
 version = "0.1.0"
 edition = "2021"
+description = "An exhaustive, highly modular and extensible host SDK for the Firecracker microVM manager."
+license = "MIT"
+keywords = ["firecracker", "microvm", "sdk"]
+categories = ["virtualization"]
+repository = "https://github.com/kanpov/fctools"
+readme = "README.md"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -50,7 +56,9 @@ serde = { version = "1.0.210", features = ["derive"], optional = true }
 serde_json = { version = "1.0.128", optional = true }
 # extensions
 cidr = { version = "0.3.0", optional = true }
-tonic = { version = "0.12.3", optional = true }
+tonic = { version = "0.12.3", optional = true, default-features = false, features = [
+    "transport",
+] }
 tower-service = { version = "0.3.3", optional = true }
 
 [dev-dependencies]

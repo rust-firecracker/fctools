@@ -7,12 +7,17 @@ use super::models::{
     MetricsSystem, MmdsConfiguration, NetworkInterface, VsockDevice,
 };
 
+/// A configuration for a VM, either being new or having been restored from a snapshot. fctools seamlessly exposes
+/// the same amount of features for both new and restored VMs, and this layer abstracts away most snapshot-related
+/// work.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VmConfiguration {
+    /// The VM is new, thus its initialization process is controlled.
     New {
         init_method: InitMethod,
         data: VmConfigurationData,
     },
+    /// The VM is restored from a snapshot, thus its initialization process is derived from that of the snapshot.
     RestoredFromSnapshot {
         load_snapshot: LoadSnapshot,
         data: VmConfigurationData,
@@ -20,6 +25,7 @@ pub enum VmConfiguration {
 }
 
 impl VmConfiguration {
+    /// Get a mutable reference to the data inside this configuration.
     pub fn data_mut(&mut self) -> &mut VmConfigurationData {
         match self {
             VmConfiguration::New {
@@ -33,6 +39,7 @@ impl VmConfiguration {
         }
     }
 
+    /// Get a shared reference to the data inside this configuration.
     pub fn data(&self) -> &VmConfigurationData {
         match self {
             VmConfiguration::New {
@@ -47,6 +54,8 @@ impl VmConfiguration {
     }
 }
 
+/// The full data of various devices associated with a VM. Even when restoring from a snapshot, this information
+/// is required for initialization to proceed.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct VmConfigurationData {
     #[serde(rename = "boot-source")]
@@ -67,10 +76,16 @@ pub struct VmConfigurationData {
     pub(crate) entropy_device: Option<EntropyDevice>,
 }
 
+/// A method of initialization used when booting a new (not restored from snapshot) VM.
+/// The performance differences between using both have proven negligible.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum InitMethod {
+    /// Issue sequential calls to the Management API to perform initialization and boot.
     #[default]
     ViaApiCalls,
+    /// Create an intermittent Firecracker JSON configuration that is serialized to the
+    /// given inner path, and pass it to Firecracker in order for initialization and boot
+    /// to be performed automatically.
     ViaJsonConfiguration(PathBuf),
 }
 

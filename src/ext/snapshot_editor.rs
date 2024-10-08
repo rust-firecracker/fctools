@@ -7,7 +7,10 @@ use tokio::process::Command;
 
 use crate::executor::installation::VmmInstallation;
 
+/// An extension that provides bindings to functionality exposed by Firecracker's "snapshot-editor" binary.
+/// Internally this performs sanity checks and then forks and awaits a "snapshot-editor" process.
 pub trait SnapshotEditorExt {
+    /// Get a SnapshotEditor bindings struct that is bound to this installation's lifetime.
     fn snapshot_editor(&self) -> SnapshotEditor<'_>;
 }
 
@@ -19,11 +22,13 @@ impl SnapshotEditorExt for VmmInstallation {
     }
 }
 
+/// A struct exposing bindings to a "snapshot-editor" binary of this installation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SnapshotEditor<'a> {
     path: &'a PathBuf,
 }
 
+/// An error that can be emitted by a "snapshot-editor" invocation.
 #[derive(Debug, thiserror::Error)]
 pub enum SnapshotEditorError {
     #[error("Forking the snapshot-editor process failed: `{0}`")]
@@ -37,6 +42,7 @@ pub enum SnapshotEditorError {
 }
 
 impl<'a> SnapshotEditor<'a> {
+    /// Rebase base_memory_path onto diff_memory_path.
     pub async fn rebase_memory(
         &self,
         base_memory_path: impl AsRef<Path> + Send,
@@ -60,6 +66,7 @@ impl<'a> SnapshotEditor<'a> {
         .map(|_| ())
     }
 
+    /// Get the version of a given snapshot.
     pub async fn get_snapshot_version(
         &self,
         snapshot_path: impl AsRef<Path> + Send,
@@ -78,6 +85,8 @@ impl<'a> SnapshotEditor<'a> {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
+    /// Get dbg!-produced vCPU states of a given snapshot. The dbg! format is difficult to parse,
+    /// so the merit of invoking this programmatically is limited.
     pub async fn get_snapshot_vcpu_states(
         &self,
         snapshot_path: impl AsRef<Path> + Send,
@@ -96,6 +105,8 @@ impl<'a> SnapshotEditor<'a> {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
+    /// Get a dbg!-produced full dump of a VM's state. The dbg! format is difficult to parse,
+    /// so the merit of invoking this programmatically is limited.
     pub async fn get_snapshot_vm_state(
         &self,
         snapshot_path: impl AsRef<Path> + Send,

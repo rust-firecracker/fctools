@@ -10,6 +10,7 @@ use hyper_util::rt::TokioExecutor;
 
 use crate::{executor::VmmExecutor, shell_spawner::ShellSpawner, vm::Vm};
 
+/// An error that can be emitted by the HTTP-over-vsock extension.
 #[derive(Debug, thiserror::Error)]
 pub enum VsockHttpError {
     #[error("A vsock device was not configured for this VM")]
@@ -22,6 +23,7 @@ pub enum VsockHttpError {
     CannotBind(tokio::io::Error),
 }
 
+/// An error that can be emitted by the VsockHttpPool abstraction.
 #[derive(Debug, thiserror::Error)]
 pub enum VsockHttpPoolError {
     #[error("A vsock URI cannot be constructed: `{0}`")]
@@ -30,6 +32,8 @@ pub enum VsockHttpPoolError {
     ConnectionPoolError(hyper_util::client::legacy::Error),
 }
 
+/// A managed HTTP connection pool using vsock. Currently the underlying implementation is backed by hyper-util,
+/// but this may change in the future without any changes to the exposed API.
 pub struct VsockHttpPool {
     client: hyper_util::client::legacy::Client<HyperFirecrackerConnector, Full<Bytes>>,
     socket_path: PathBuf,
@@ -37,6 +41,8 @@ pub struct VsockHttpPool {
 }
 
 impl VsockHttpPool {
+    /// Send a HTTP request via this pool. Since this is a pool and not a single connection, only shared access to
+    /// the pool is needed.
     pub async fn send_request(
         &self,
         uri: impl AsRef<str> + Send,
@@ -52,10 +58,14 @@ impl VsockHttpPool {
     }
 }
 
+/// An extension that allows connecting to guest applications that expose a plain-HTTP (REST or any other) server being tunneled over
+/// the Firecracker vsock device.
 #[async_trait]
 pub trait VsockHttpExt {
+    /// Eagerly make a single HTTP connection to the given guest port, without support for connection pooling.
     async fn vsock_connect_over_http(&self, guest_port: u32) -> Result<SendRequest<Full<Bytes>>, VsockHttpError>;
 
+    /// Make a lazy HTTP connection pool (backed by hyper-util) that pools multiple connections internally to the given guest port.
     fn vsock_create_http_connection_pool(&self, guest_port: u32) -> Result<VsockHttpPool, VsockHttpError>;
 }
 

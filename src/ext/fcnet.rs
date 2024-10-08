@@ -7,6 +7,7 @@ use cidr::IpInet;
 
 use crate::shell_spawner::ShellSpawner;
 
+/// The configuration of one or multiple invocations of the "fcnet" binary.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FcnetConfiguration {
     iptables_path: Option<PathBuf>,
@@ -143,10 +144,12 @@ pub enum FcnetError {
 }
 
 impl FcnetConfiguration {
+    /// Invoke "fcnet" with this configuration with an add operation.
     pub async fn add(&self, fcnet_path: impl AsRef<Path>, shell_spawner: &impl ShellSpawner) -> Result<(), FcnetError> {
         self.exec("--add", fcnet_path, shell_spawner).await
     }
 
+    /// Invoke "fcnet" with this configuration with an check operation.
     pub async fn check(
         &self,
         fcnet_path: impl AsRef<Path>,
@@ -155,6 +158,7 @@ impl FcnetConfiguration {
         self.exec("--check", fcnet_path, shell_spawner).await
     }
 
+    /// Invoke "fcnet" with this configuration with a delete operation.
     pub async fn delete(
         &self,
         fcnet_path: impl AsRef<Path>,
@@ -163,10 +167,13 @@ impl FcnetConfiguration {
         self.exec("--del", fcnet_path, shell_spawner).await
     }
 
+    /// Format a CLI command that uses the iproute2 utility ("ip") to set up the routing table in the guest.
     pub fn get_guest_routing_command(&self) -> String {
         format!("ip route add default via {}", self.get_tap_ip_str())
     }
 
+    /// Format a kernel boot argument that can be added so that all routing setup in the guest is performed
+    /// by the kernel automatically with iproute2 not needed in the guest.
     pub fn get_guest_ip_boot_arg(&self, guest_ip: &IpInet, guest_iface_name: impl AsRef<str>) -> String {
         format!(
             "ip={}::{}:{}::{}:off",

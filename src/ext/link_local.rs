@@ -2,6 +2,8 @@ use std::net::Ipv4Addr;
 
 use cidr::Ipv4Inet;
 
+/// A link-local IPv4 subnet. Internally this type is incredibly lean, not storing any
+/// actual IPv4 addresses but rather only a u16, a u8 and a u32.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LinkLocalSubnet {
     subnet_index: u16,
@@ -13,6 +15,7 @@ const LINK_LOCAL_OCTET_1: u8 = 169;
 const LINK_LOCAL_OCTET_2: u8 = 254;
 const LINK_LOCAL_IP_AMOUNT: u32 = 65536;
 
+/// An error that can be returned by operations with a LinkLocalSubnet.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LinkLocalSubnetError {
     #[error("The given subnet is not link-local (fits into 169.254.0.0/16)")]
@@ -47,6 +50,9 @@ const fn validate_network_length_and_subnet_index(
 }
 
 impl LinkLocalSubnet {
+    /// Try to create a new link-local subnet with the given network length (mask-short) and "subnet index", i.e. its offset relative
+    /// to the beginning of all allocatable link-local subnets with this network length. Sanity checks to the integer values are
+    /// always applied.
     pub const fn new(subnet_index: u16, network_length: u8) -> Result<Self, LinkLocalSubnetError> {
         if let Err(err) = validate_network_length_and_subnet_index(network_length, subnet_index) {
             return Err(err);
@@ -59,6 +65,7 @@ impl LinkLocalSubnet {
         })
     }
 
+    /// Try to convert an Ipv4Inet into a link-local subnet.
     pub const fn from_inet(inet: &Ipv4Inet) -> Result<Self, LinkLocalSubnetError> {
         if !inet.address().is_link_local() {
             return Err(LinkLocalSubnetError::NotLinkLocal);
@@ -89,14 +96,18 @@ impl LinkLocalSubnet {
         self.network_length
     }
 
+    /// Return the amount of "theoretical" IPs in this subnet, which includes 2 IPv4 addresses that can't
+    /// be used by Internet hosts.
     pub const fn ip_amount(&self) -> u32 {
         self.ip_amount
     }
 
+    /// Return the amount of IPs in this subnet that can be used by Internet hosts.
     pub const fn host_ip_amount(&self) -> u32 {
         self.ip_amount - 2
     }
 
+    /// Get a "theoretical" IPv4 address within this subnet that is offset by the given IP index.
     #[inline(always)]
     pub fn get_ip(&self, ip_index: u32) -> Result<Ipv4Inet, LinkLocalSubnetError> {
         if ip_index >= self.ip_amount() {
@@ -106,6 +117,7 @@ impl LinkLocalSubnet {
         self.get_ip_imp(self.ip_amount() as u32 * self.subnet_index as u32 + ip_index)
     }
 
+    /// Get a host IPv4 address within this subnet that is offset by the given IP index.
     #[inline(always)]
     pub fn get_host_ip(&self, ip_index: u32) -> Result<Ipv4Inet, LinkLocalSubnetError> {
         if ip_index >= self.host_ip_amount() {
@@ -131,6 +143,8 @@ impl LinkLocalSubnet {
         Ipv4Inet::new(addr, self.network_length).map_err(|_| LinkLocalSubnetError::UnexpectedOverflow)
     }
 
+    /// Get all "theoretical" IP addresses (sequentially) within this subnet. Unlike other methods on this struct,
+    /// this one should not return an error unless there's a problem in the library.
     #[inline(always)]
     pub fn get_ips(&self) -> Result<Vec<Ipv4Inet>, LinkLocalSubnetError> {
         let ip_amount = self.ip_amount();
@@ -147,6 +161,8 @@ impl LinkLocalSubnet {
         Ok(ips)
     }
 
+    /// Get host "theoretical" IP addresses (sequentially) within this subnet. Unlike other methods on this struct,
+    /// this one should not return an error unless there's a problem in the library.
     #[inline(always)]
     pub fn get_host_ips(&self) -> Result<Vec<Ipv4Inet>, LinkLocalSubnetError> {
         let host_ip_amount = self.host_ip_amount();
