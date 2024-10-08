@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 # common
-async-trait = "0.1.82"
-thiserror = "1.0.63"
+async-trait = "0.1.83"
+thiserror = "1.0.64"
 tokio = { version = "1.40.0", features = [
     "process",
     "io-util",
@@ -16,15 +16,15 @@ tokio = { version = "1.40.0", features = [
     "sync",
 ] }
 # executor
-libc = { version = "0.2.158", optional = true }
+libc = { version = "0.2.159", optional = true }
 # process
 hyper = { version = "1.4.1", features = ["client"], optional = true }
-bytes = { version = "1.7.1", optional = true }
+bytes = { version = "1.7.2", optional = true }
 http-body-util = { version = "0.1.2", optional = true }
 hyper-client-sockets = { version = "0.1.0", features = [
     "unix",
 ], optional = true }
-hyper-util = { version = "0.1.8", features = [
+hyper-util = { version = "0.1.9", features = [
     "client-legacy",
     "client",
     "http1",
@@ -34,16 +34,15 @@ http = { version = "1.1.0", optional = true }
 serde = { version = "1.0.210", features = ["derive"], optional = true }
 serde_json = { version = "1.0.128", optional = true }
 # extensions
-cidr = { version = "0.2.3", optional = true }
+cidr = { version = "0.3.0", optional = true }
 
 [dev-dependencies]
 assert_matches = "1.5.0"
 rand = "0.8.5"
-run_script = "0.10.1"
 tokio = { version = "1.39.2", features = ["macros", "rt-multi-thread"] }
 uuid = { version = "1.10.0", features = ["v4"] }
 which = "6.0.3"
-futures-util = { version = "0.3.30", default-features = false, features = [
+futures-util = { version = "0.3.31", default-features = false, features = [
     "std",
 ] }
 file-lock = "2.1.11"
