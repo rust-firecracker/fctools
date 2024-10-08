@@ -3,6 +3,23 @@ name = "fctools"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.docs.rs]
+all-features = true
+
+[profile.dev]
+debug = false
+strip = "debuginfo"
+panic = "abort"
+opt-level = 0
+
+[profile.dev.package."*"]
+opt-level = 3
+strip = "symbols"
+
+[profile.bench.build-override]
+opt-level = 3
+strip = "symbols"
+
 [dependencies]
 # common
 async-trait = "0.1.83"
