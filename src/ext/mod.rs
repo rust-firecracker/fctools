@@ -1,7 +1,9 @@
 #[cfg(feature = "fcnet-ext")]
 pub mod fcnet;
-#[cfg(feature = "hyper-vsock-ext")]
-pub mod hyper_vsock;
+#[cfg(feature = "grpc-vsock-ext")]
+pub mod grpc_vsock;
+#[cfg(feature = "http-vsock-ext")]
+pub mod http_vsock;
 #[cfg(feature = "link-local-ext")]
 pub mod link_local;
 #[cfg(feature = "metrics-ext")]
