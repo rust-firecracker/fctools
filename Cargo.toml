@@ -8,6 +8,7 @@ keywords = ["firecracker", "microvm", "sdk"]
 categories = ["virtualization"]
 repository = "https://github.com/kanpov/fctools"
 readme = "README.md"
+exclude = ["/testdata", ".gitattributes", ".gitignore", ".rustfmt.toml"]
 
 [package.metadata.docs.rs]
 all-features = true
