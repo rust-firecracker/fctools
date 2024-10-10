@@ -4,15 +4,20 @@ use std::{
     os::unix::process::ExitStatusExt,
     path::{Path, PathBuf},
     process::ExitStatus,
+    sync::Arc,
 };
 
 use arguments::ConfigurationFileOverride;
 use async_trait::async_trait;
 use installation::VmmInstallation;
 use jailed::JailRenamerError;
-use tokio::{fs, process::Child, task::JoinError};
+use tokio::{
+    fs,
+    process::Child,
+    task::{JoinError, JoinSet},
+};
 
-use crate::shell_spawner::ShellSpawner;
+use crate::{fs_backend::FsBackend, shell_spawner::ShellSpawner};
 
 pub mod arguments;
 pub mod command_modifier;
@@ -22,8 +27,8 @@ pub mod unrestricted;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VmmExecutorError {
-    #[error("An async I/O error occurred: `{0}`")]
-    IoError(io::Error),
+    #[error("A non-FS I/O error occurred: `{0}")]
+    IoError(std::io::Error),
     #[error("Forking an auxiliary shell via the spawner to force chown/mkdir failed: `{0}`")]
     ShellForkFailed(io::Error),
     #[error("A forced shell chown command exited with a non-zero exit status: `{0}`")]
@@ -63,7 +68,8 @@ pub trait VmmExecutor: Send + Sync {
     async fn prepare(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: &impl ShellSpawner,
+        shell_spawner: Arc<impl ShellSpawner>,
+        fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError>;
 
@@ -71,7 +77,8 @@ pub trait VmmExecutor: Send + Sync {
     async fn invoke(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: &impl ShellSpawner,
+        shell_spawner: Arc<impl ShellSpawner>,
+        fs_backend: Arc<impl FsBackend>,
         config_override: ConfigurationFileOverride,
     ) -> Result<Child, VmmExecutorError>;
 
@@ -79,7 +86,8 @@ pub trait VmmExecutor: Send + Sync {
     async fn cleanup(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: &impl ShellSpawner,
+        shell_spawner: Arc<impl ShellSpawner>,
+        fs_backend: Arc<impl FsBackend>,
     ) -> Result<(), VmmExecutorError>;
 }
 
@@ -136,5 +144,25 @@ async fn create_file_with_tree(path: impl AsRef<Path>) -> Result<(), VmmExecutor
     }
 
     fs::File::create(path).await.map_err(VmmExecutorError::IoError)?;
+    Ok(())
+}
+
+async fn join_on_set(mut join_set: JoinSet<Result<(), VmmExecutorError>>) -> Result<(), VmmExecutorError> {
+    while let Some(result) = join_set.join_next().await {
+        match result {
+            Ok(result) => match result {
+                Ok(_) => {}
+                Err(err) => {
+                    join_set.abort_all();
+                    return Err(err);
+                }
+            },
+            Err(err) => {
+                join_set.abort_all();
+                return Err(VmmExecutorError::TaskJoinFailed(err));
+            }
+        }
+    }
+
     Ok(())
 }
