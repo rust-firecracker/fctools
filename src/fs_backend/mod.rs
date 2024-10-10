@@ -13,4 +13,10 @@ pub trait FsOperation<R: Send + 'static> {
 
 pub trait FsBackend: Send + Sync + 'static {
     fn check_exists(&self, path: &Path) -> impl FsOperation<bool>;
+
+    fn remove_file(&self, path: &Path) -> impl FsOperation<()>;
+
+    fn create_dir_all(&self, path: &Path) -> impl FsOperation<()>;
+
+    fn create_file(&self, path: &Path) -> impl FsOperation<()>;
 }

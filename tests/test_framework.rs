@@ -172,12 +172,11 @@ impl VmmExecutor for TestExecutor {
         &self,
         installation: &VmmInstallation,
         shell_spawner: Arc<impl ShellSpawner>,
-        fs_backend: Arc<impl FsBackend>,
         config_override: ConfigurationFileOverride,
     ) -> Result<Child, VmmExecutorError> {
         match self {
-            TestExecutor::Unrestricted(e) => e.invoke(installation, shell_spawner, fs_backend, config_override).await,
-            TestExecutor::Jailed(e) => e.invoke(installation, shell_spawner, fs_backend, config_override).await,
+            TestExecutor::Unrestricted(e) => e.invoke(installation, shell_spawner, config_override).await,
+            TestExecutor::Jailed(e) => e.invoke(installation, shell_spawner, config_override).await,
         }
     }
 

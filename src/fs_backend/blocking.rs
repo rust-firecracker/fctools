@@ -1,4 +1,4 @@
-use std::future::Future;
+use std::{future::Future, path::Path};
 
 use tokio::task::JoinSet;
 
@@ -37,8 +37,23 @@ impl<R: Send + 'static> FsOperation<R> for BlockingFsOperation<R> {
 pub struct BlockingFsBackend;
 
 impl FsBackend for BlockingFsBackend {
-    fn check_exists(&self, path: &std::path::Path) -> impl FsOperation<bool> {
+    fn check_exists(&self, path: &Path) -> impl FsOperation<bool> {
         let path = path.to_owned();
         BlockingFsOperation::new(move || std::fs::exists(path))
+    }
+
+    fn remove_file(&self, path: &Path) -> impl FsOperation<()> {
+        let path = path.to_owned();
+        BlockingFsOperation::new(move || std::fs::remove_file(path))
+    }
+
+    fn create_dir_all(&self, path: &Path) -> impl FsOperation<()> {
+        let path = path.to_owned();
+        BlockingFsOperation::new(move || std::fs::create_dir_all(path))
+    }
+
+    fn create_file(&self, path: &Path) -> impl FsOperation<()> {
+        let path = path.to_owned();
+        BlockingFsOperation::new(move || std::fs::File::create(path).map(|_| ()))
     }
 }

@@ -186,7 +186,6 @@ async fn jailed_executor_invoke_applies_command_modifier_chain() {
         .invoke(
             &get_fake_firecracker_installation(),
             get_shell_spawner(),
-            get_fs_backend(),
             ConfigurationFileOverride::NoOverride,
         )
         .await

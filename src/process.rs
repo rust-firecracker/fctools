@@ -182,12 +182,7 @@ impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> VmmProcess<E, S, F> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.child = Some(
             self.executor
-                .invoke(
-                    self.installation.as_ref(),
-                    self.shell_spawner.clone(),
-                    self.fs_backend.clone(),
-                    config_override,
-                )
+                .invoke(self.installation.as_ref(), self.shell_spawner.clone(), config_override)
                 .await
                 .map_err(VmmProcessError::ExecutorError)?,
         );

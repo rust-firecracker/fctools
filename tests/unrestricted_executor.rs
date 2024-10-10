@@ -130,7 +130,6 @@ async fn unrestricted_executor_invoke_reports_shell_spawner_error() {
             .invoke(
                 &get_fake_firecracker_installation(),
                 Arc::new(FailingShellSpawner::default()),
-                get_fs_backend(),
                 ConfigurationFileOverride::NoOverride,
             )
             .await,
@@ -147,7 +146,6 @@ async fn unrestricted_executor_invoke_applies_command_modifier_chain() {
         .invoke(
             &get_fake_firecracker_installation(),
             get_shell_spawner(),
-            get_fs_backend(),
             ConfigurationFileOverride::NoOverride,
         )
         .await
@@ -165,7 +163,6 @@ async fn unrestricted_executor_invoke_nulls_pipes() {
         .invoke(
             &get_fake_firecracker_installation(),
             get_shell_spawner(),
-            get_fs_backend(),
             ConfigurationFileOverride::NoOverride,
         )
         .await
@@ -184,7 +181,6 @@ async fn unrestricted_executor_can_set_vmm_id() {
         .invoke(
             &get_fake_firecracker_installation(),
             get_shell_spawner(),
-            get_fs_backend(),
             ConfigurationFileOverride::NoOverride,
         )
         .await

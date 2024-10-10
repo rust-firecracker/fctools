@@ -130,10 +130,10 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
 
         // Ensure argument paths exist
         if let Some(ref log_path) = self.vmm_arguments.log_path {
-            create_file_with_tree(jail_path.jail_join(log_path)).await?;
+            create_file_with_tree(fs_backend.clone(), jail_path.jail_join(log_path)).await?;
         }
         if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
-            create_file_with_tree(jail_path.jail_join(metrics_path)).await?;
+            create_file_with_tree(fs_backend.clone(), jail_path.jail_join(metrics_path)).await?;
         }
 
         // Apply jail renamer and move in the resources in parallel (via a join set)
@@ -193,7 +193,6 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         &self,
         installation: &VmmInstallation,
         shell_spawner: Arc<impl ShellSpawner>,
-        fs_backend: Arc<impl FsBackend>,
         config_override: ConfigurationFileOverride,
     ) -> Result<Child, VmmExecutorError> {
         let jailer_args = self.jailer_arguments.join(&installation.firecracker_path);
@@ -214,8 +213,8 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     async fn cleanup(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl ShellSpawner>,
-        fs_backend: Arc<impl FsBackend>,
+        _shell_spawner: Arc<impl ShellSpawner>,
+        _fs_backend: Arc<impl FsBackend>,
     ) -> Result<(), VmmExecutorError> {
         let jail_path = self.get_jail_path(installation);
         let jail_parent_path = jail_path

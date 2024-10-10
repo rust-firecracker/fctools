@@ -17,7 +17,10 @@ use tokio::{
     task::{JoinError, JoinSet},
 };
 
-use crate::{fs_backend::FsBackend, shell_spawner::ShellSpawner};
+use crate::{
+    fs_backend::{FsBackend, FsOperation},
+    shell_spawner::ShellSpawner,
+};
 
 pub mod arguments;
 pub mod command_modifier;
@@ -78,7 +81,6 @@ pub trait VmmExecutor: Send + Sync {
         &self,
         installation: &VmmInstallation,
         shell_spawner: Arc<impl ShellSpawner>,
-        fs_backend: Arc<impl FsBackend>,
         config_override: ConfigurationFileOverride,
     ) -> Result<Child, VmmExecutorError>;
 
@@ -134,16 +136,20 @@ async fn force_mkdir(path: &Path, shell_spawner: &impl ShellSpawner) -> Result<(
     Ok(())
 }
 
-async fn create_file_with_tree(path: impl AsRef<Path>) -> Result<(), VmmExecutorError> {
-    let path = path.as_ref();
-
+async fn create_file_with_tree(fs_backend: Arc<impl FsBackend>, path: PathBuf) -> Result<(), VmmExecutorError> {
     if let Some(parent_path) = path.parent() {
-        fs::create_dir_all(parent_path)
+        fs_backend
+            .create_dir_all(parent_path)
+            .block_on()
             .await
             .map_err(VmmExecutorError::IoError)?;
     }
 
-    fs::File::create(path).await.map_err(VmmExecutorError::IoError)?;
+    fs_backend
+        .create_file(&path)
+        .block_on()
+        .await
+        .map_err(VmmExecutorError::IoError)?;
     Ok(())
 }
 
