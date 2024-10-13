@@ -35,7 +35,7 @@ pub trait VsockGrpcExt {
     fn vsock_lazily_connect_over_grpc(
         &self,
         guest_port: u32,
-        configure_endpoint: impl (FnOnce(Endpoint) -> Endpoint) + Send,
+        configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
     ) -> Result<Channel, VsockGrpcError>;
 }
 
@@ -55,7 +55,7 @@ impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> VsockGrpcExt for Vm<E, S, F>
     fn vsock_lazily_connect_over_grpc(
         &self,
         guest_port: u32,
-        configure_endpoint: impl (FnOnce(Endpoint) -> Endpoint) + Send,
+        configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
     ) -> Result<Channel, VsockGrpcError> {
         let (endpoint, service) = create_endpoint_and_service(&self, guest_port, configure_endpoint)?;
         Ok(endpoint.connect_with_connector_lazy(service))
@@ -66,7 +66,7 @@ impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> VsockGrpcExt for Vm<E, S, F>
 fn create_endpoint_and_service<E: VmmExecutor, S: ShellSpawner, F: FsBackend>(
     vm: &Vm<E, S, F>,
     guest_port: u32,
-    configure_endpoint: impl (FnOnce(Endpoint) -> Endpoint) + Send,
+    configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
 ) -> Result<(Endpoint, FirecrackerTowerService), VsockGrpcError> {
     let uds_path = vm
         .get_accessible_paths()
