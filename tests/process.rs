@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bytes::Bytes;
 use fctools::{
     executor::arguments::ConfigurationFileOverride,
@@ -7,7 +9,7 @@ use http::Uri;
 use http_body_util::Full;
 use hyper::Request;
 use hyper_client_sockets::{HyperUnixStream, UnixUriExt};
-use test_framework::{env_get_shutdown_timeout, run_vmm_process_test, TestVmmProcess};
+use test_framework::{run_vmm_process_test, TestOptions, TestVmmProcess};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 mod test_framework;
@@ -173,10 +175,13 @@ async fn vmm_inner_to_outer_path_performs_transformation() {
 }
 
 async fn shutdown(process: &mut TestVmmProcess) {
-    if tokio::time::timeout(env_get_shutdown_timeout(), async {
-        process.send_ctrl_alt_del().await.unwrap();
-        process.wait_for_exit().await.unwrap();
-    })
+    if tokio::time::timeout(
+        Duration::from_millis(TestOptions::get().await.waits.shutdown_timeout_ms),
+        async {
+            process.send_ctrl_alt_del().await.unwrap();
+            process.wait_for_exit().await.unwrap();
+        },
+    )
     .await
     .is_err()
     {

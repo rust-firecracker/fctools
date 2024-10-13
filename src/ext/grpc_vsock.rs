@@ -1,10 +1,11 @@
 use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
+use async_trait::async_trait;
 use http::Uri;
 use hyper_client_sockets::HyperFirecrackerStream;
 use tonic::transport::{Channel, Endpoint};
 
-use crate::{executor::VmmExecutor, shell_spawner::ShellSpawner, vm::Vm};
+use crate::{executor::VmmExecutor, fs_backend::FsBackend, shell_spawner::ShellSpawner, vm::Vm};
 
 /// An error emitted by the gRPC-over-vsock extension.
 #[derive(Debug, thiserror::Error)]
@@ -20,7 +21,7 @@ pub enum VsockGrpcError {
 /// An extension that allows connecting to guest applications that expose a gRPC server being tunneled over
 /// the Firecracker vsock device. The established tonic Channel-s can be used with codegen or any other type
 /// of tonic client.
-#[async_trait::async_trait]
+#[async_trait]
 pub trait VsockGrpcExt {
     /// Connect to a guest port over gRPC eagerly, i.e. by establishing the connection right away.
     /// configure_endpoint can be used as a function to customize Endpoint options via its builder.
@@ -40,8 +41,8 @@ pub trait VsockGrpcExt {
     ) -> Result<Channel, VsockGrpcError>;
 }
 
-#[async_trait::async_trait]
-impl<E: VmmExecutor, S: ShellSpawner> VsockGrpcExt for Vm<E, S> {
+#[async_trait]
+impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> VsockGrpcExt for Vm<E, S, F> {
     async fn vsock_connect_over_grpc(
         &self,
         guest_port: u32,
@@ -65,8 +66,8 @@ impl<E: VmmExecutor, S: ShellSpawner> VsockGrpcExt for Vm<E, S> {
 }
 
 #[inline]
-fn create_endpoint_and_service<E: VmmExecutor, S: ShellSpawner>(
-    vm: &Vm<E, S>,
+fn create_endpoint_and_service<E: VmmExecutor, S: ShellSpawner, F: FsBackend>(
+    vm: &Vm<E, S, F>,
     guest_port: u32,
     configure_endpoint: impl (FnOnce(Endpoint) -> Endpoint) + Send,
 ) -> Result<(Endpoint, FirecrackerTowerService), VsockGrpcError> {

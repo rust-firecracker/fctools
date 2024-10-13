@@ -3,7 +3,9 @@ use std::{
     process::Stdio,
 };
 
-use tokio::{fs, process::Command};
+use tokio::process::Command;
+
+use crate::fs_backend::FsBackend;
 
 /// A VMM installation encapsulates release binaries of the most important automatable
 /// Firecracker components: firecracker, jailer, snapshot-editor. Using a partial installation with only
@@ -19,7 +21,7 @@ pub struct VmmInstallation {
 #[derive(Debug, thiserror::Error)]
 pub enum VmmInstallationError {
     #[error("Accessing a file via tokio I/O failed: `{0}`")]
-    FilesystemError(tokio::io::Error),
+    FilesystemError(std::io::Error),
     #[error("A binary inside the installation doesn't exist")]
     BinaryMissing,
     #[error("A binary inside the installation does not have execution permissions")]
@@ -31,17 +33,40 @@ pub enum VmmInstallationError {
 }
 
 impl VmmInstallation {
-    /// Verify the installation by ensuring all binaries exist, are executable and yield the correct type and version when forked.
-    pub async fn verify(&self, expected_version: impl AsRef<str>) -> Result<(), VmmInstallationError> {
-        verify_imp(&self.firecracker_path, expected_version.as_ref(), "Firecracker").await?;
-        verify_imp(&self.jailer_path, expected_version.as_ref(), "Jailer").await?;
-        verify_imp(&self.snapshot_editor_path, expected_version.as_ref(), "snapshot-editor").await?;
+    /// Verify the installation using the given filesystem backend by ensuring all binaries exist,
+    /// are executable and yield the correct type and version when forked.
+    pub async fn verify(
+        &self,
+        fs_backend: &impl FsBackend,
+        expected_version: impl AsRef<str>,
+    ) -> Result<(), VmmInstallationError> {
+        verify_imp(
+            fs_backend,
+            &self.firecracker_path,
+            expected_version.as_ref(),
+            "Firecracker",
+        )
+        .await?;
+        verify_imp(fs_backend, &self.jailer_path, expected_version.as_ref(), "Jailer").await?;
+        verify_imp(
+            fs_backend,
+            &self.snapshot_editor_path,
+            expected_version.as_ref(),
+            "snapshot-editor",
+        )
+        .await?;
         Ok(())
     }
 }
 
-async fn verify_imp(path: &Path, expected_version: &str, expected_name: &str) -> Result<(), VmmInstallationError> {
-    if !fs::try_exists(path)
+async fn verify_imp(
+    fs_backend: &impl FsBackend,
+    path: &Path,
+    expected_version: &str,
+    expected_name: &str,
+) -> Result<(), VmmInstallationError> {
+    if !fs_backend
+        .check_exists(path)
         .await
         .map_err(VmmInstallationError::FilesystemError)?
     {
@@ -54,7 +79,7 @@ async fn verify_imp(path: &Path, expected_version: &str, expected_name: &str) ->
         .output()
         .await
         .map_err(|_| VmmInstallationError::BinaryNotExecutable)?;
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stdout = dbg!(String::from_utf8_lossy(&output.stdout).into_owned());
 
     if !stdout.starts_with(expected_name) {
         return Err(VmmInstallationError::BinaryIsOfIncorrectType);

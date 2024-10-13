@@ -1,2 +1,6 @@
-*.ext4 filter=lfs diff=lfs merge=lfs -text
-vmlinux-6.1 filter=lfs diff=lfs merge=lfs -text
+testdata/toolchain/firecracker filter=lfs diff=lfs merge=lfs -text
+testdata/toolchain/firecracker-wrong-version filter=lfs diff=lfs merge=lfs -text
+testdata/toolchain/jailer filter=lfs diff=lfs merge=lfs -text
+testdata/toolchain/snapshot-editor filter=lfs diff=lfs merge=lfs -text
+testdata/assets/kernel filter=lfs diff=lfs merge=lfs -text
+testdata/assets/rootfs.ext4 filter=lfs diff=lfs merge=lfs -text

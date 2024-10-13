@@ -1,4 +1,4 @@
-use std::{os::unix::fs::FileTypeExt, sync::Arc};
+use std::{os::unix::fs::FileTypeExt, sync::Arc, time::Duration};
 
 use fctools::{
     executor::{
@@ -6,6 +6,7 @@ use fctools::{
         jailed::{FlatJailRenamer, JailedVmmExecutor},
         unrestricted::UnrestrictedVmmExecutor,
     },
+    fs_backend::blocking::BlockingFsBackend,
     vm::{
         api::VmApi,
         configuration::InitMethod,
@@ -17,8 +18,8 @@ use fctools::{
 use futures_util::FutureExt;
 use rand::RngCore;
 use test_framework::{
-    env_get_boot_socket_wait, env_get_boot_wait, get_real_firecracker_installation, get_tmp_path, shutdown_test_vm,
-    SnapshottingContext, TestExecutor, TestVm, VmBuilder,
+    get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, SnapshottingContext, TestExecutor, TestOptions,
+    TestVm, VmBuilder,
 };
 use tokio::{
     fs::{metadata, try_exists},
@@ -190,12 +191,15 @@ fn vm_can_snapshot_after_original_has_exited() {
             .api_create_snapshot(CreateSnapshot::new(get_tmp_path(), get_tmp_path()))
             .await
             .unwrap();
-        snapshot.copy(get_tmp_path(), get_tmp_path()).await.unwrap();
+        snapshot
+            .copy(&BlockingFsBackend, get_tmp_path(), get_tmp_path())
+            .await
+            .unwrap();
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
 
         restore_vm_from_snapshot(snapshot.clone(), snapshotting_context).await;
-        snapshot.remove().await.unwrap();
+        snapshot.remove(&BlockingFsBackend).await.unwrap();
     });
 }
 
@@ -227,13 +231,18 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, snapshotting_context: 
     let mut vm = TestVm::prepare_arced(
         Arc::new(executor),
         snapshotting_context.shell_spawner,
+        Arc::new(BlockingFsBackend),
         Arc::new(get_real_firecracker_installation()),
         snapshot.into_configuration(Some(true), None),
     )
     .await
     .unwrap();
-    vm.start(env_get_boot_socket_wait()).await.unwrap();
-    tokio::time::sleep(env_get_boot_wait()).await;
+    vm.start(Duration::from_millis(
+        TestOptions::get().await.waits.boot_socket_timeout_ms,
+    ))
+    .await
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(TestOptions::get().await.waits.boot_wait_ms)).await;
 
     vm.api_get_info().await.unwrap();
     shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;

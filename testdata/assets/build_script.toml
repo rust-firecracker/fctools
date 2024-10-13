@@ -51,5 +51,13 @@ nameserver 1.1.1.1
 destination = "/etc/resolv.conf"
 
 [export.directories]
-include = [ "/bin", "/etc", "/home", "/lib", "/lib64", "/root", "/sbin", "/usr" ]
-create = [ "/var/lib/dpkg", "/dev", "/proc", "/sys", "/run", "/tmp", "/var/lib/systemd" ]
+include = ["/bin", "/etc", "/home", "/lib", "/lib64", "/root", "/sbin", "/usr"]
+create = [
+    "/var/lib/dpkg",
+    "/dev",
+    "/proc",
+    "/sys",
+    "/run",
+    "/tmp",
+    "/var/lib/systemd",
+]

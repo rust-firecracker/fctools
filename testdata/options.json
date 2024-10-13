@@ -1,0 +1,12 @@
+{
+    "toolchain": {
+        "version": "v1.9.1",
+        "snapshot_version": "v3.0.0"
+    },
+    "waits": {
+        "shutdown_timeout_ms": 7500,
+        "boot_wait_ms": 3000,
+        "boot_socket_timeout_ms": 7500
+    },
+    "network_interface": "wlp7s0"
+}
