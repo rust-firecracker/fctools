@@ -26,8 +26,8 @@ use crate::{
     shell_spawner::ShellSpawner,
 };
 
-/// A VMM process is layer 3 of FCTools: an abstraction that manages a VMM process. It is
-/// tied to the given VMM executor E and shell spawner S.
+/// A VMM process is layer 3 of fctools: an abstraction that manages a VMM process. It is
+/// tied to the given VMM executor E, shell spawner S and filesystem backend F.
 #[derive(Debug)]
 pub struct VmmProcess<E: VmmExecutor, S: ShellSpawner, F: FsBackend> {
     executor: Arc<E>,

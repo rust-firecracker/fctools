@@ -24,9 +24,12 @@ pub mod models;
 pub mod snapshot;
 
 /// A VM is layer 4 of fctools and the highest level of abstraction, representing not the VMM, but the actual virtual machine.
-/// It seamlessly and performantly automates away tasks not handled by a VMM process on its own, such as: preserving full
-/// executor compatibility, moving resources in and out, transforming resource paths from inner to outer and vice versa,
-/// removing VM traces, creating snapshots.
+///
+/// It seamlessly and performantly automates away tasks not handled by a VMM process on its own, such as: moving resources in and out,
+/// transforming resource paths from inner to outer and vice versa, removing VM traces, creating snapshots, binding to the exact
+/// endpoints of the API server, fallback-based shutdown.
+///
+/// A VM is tied to an executor E, shell spawner S and filesystem backend F.
 #[derive(Debug)]
 pub struct Vm<E: VmmExecutor, S: ShellSpawner, F: FsBackend> {
     vmm_process: VmmProcess<E, S, F>,
