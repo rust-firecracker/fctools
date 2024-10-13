@@ -2,11 +2,12 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use tokio::{
-    fs::File,
     io::{AsyncBufReadExt, BufReader},
     sync::mpsc::{self, error::SendError},
     task::JoinHandle,
 };
+
+use crate::fs_backend::FsBackend;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Metrics {
@@ -310,13 +311,24 @@ pub struct MetricsTask {
     pub receiver: mpsc::Receiver<Metrics>,
 }
 
-/// Spawn a dedicated Tokio task that gathers Firecracker's metrics from the given metrics path, with the asynchronous channel
-/// using the provided upper bound (buffer).
-pub fn spawn_metrics_task(metrics_path: impl AsRef<Path> + Send + 'static, buffer: usize) -> MetricsTask {
+/// Spawn a dedicated Tokio task that gathers Firecracker's metrics from the given metrics path
+/// using the provided filesystem backend, with an asynchronous MPSC channel limited by the
+/// provided upper bound (buffer).
+pub fn spawn_metrics_task(
+    fs_backend: &'static impl FsBackend,
+    metrics_path: impl AsRef<Path> + Send + 'static,
+    buffer: usize,
+) -> MetricsTask {
     let (sender, receiver) = mpsc::channel(buffer);
 
     let join_handle = tokio::task::spawn(async move {
-        let mut buf_reader = BufReader::new(File::open(metrics_path).await.map_err(MetricsTaskError::Io)?).lines();
+        let mut buf_reader = BufReader::new(
+            fs_backend
+                .open_file(metrics_path.as_ref())
+                .await
+                .map_err(MetricsTaskError::Io)?,
+        )
+        .lines();
         loop {
             let line = match buf_reader.next_line().await {
                 Ok(Some(line)) => line,
