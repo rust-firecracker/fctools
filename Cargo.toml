@@ -34,7 +34,6 @@ thiserror = "1.0.64"
 tokio = { version = "1.40.0", features = [
     "process",
     "io-util",
-    "fs",
     "time",
     "rt",
     "sync",
@@ -65,7 +64,7 @@ tower-service = { version = "0.3.3", optional = true }
 [dev-dependencies]
 assert_matches = "1.5.0"
 rand = "0.8.5"
-tokio = { version = "1.39.2", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.39.2", features = ["macros", "rt-multi-thread", "fs"] }
 uuid = { version = "1.10.0", features = ["v4"] }
 which = "6.0.3"
 futures-util = { version = "0.3.31", default-features = false, features = [

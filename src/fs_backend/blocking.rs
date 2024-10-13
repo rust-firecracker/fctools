@@ -72,6 +72,11 @@ impl FsBackend for BlockingFsBackend {
         BlockingFsOperation::new(move || std::fs::write(path, content))
     }
 
+    fn rename_file(&self, source_path: &Path, destination_path: &Path) -> impl FsOperation<()> {
+        let (source_path, destination_path) = (source_path.to_owned(), destination_path.to_owned());
+        BlockingFsOperation::new(move || std::fs::rename(source_path, destination_path))
+    }
+
     fn remove_dir_all(&self, path: &Path) -> impl FsOperation<()> {
         let path = path.to_owned();
         BlockingFsOperation::new(move || std::fs::remove_dir_all(path))

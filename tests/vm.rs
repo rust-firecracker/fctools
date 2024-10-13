@@ -191,12 +191,15 @@ fn vm_can_snapshot_after_original_has_exited() {
             .api_create_snapshot(CreateSnapshot::new(get_tmp_path(), get_tmp_path()))
             .await
             .unwrap();
-        snapshot.copy(get_tmp_path(), get_tmp_path()).await.unwrap();
+        snapshot
+            .copy(&BlockingFsBackend, get_tmp_path(), get_tmp_path())
+            .await
+            .unwrap();
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
 
         restore_vm_from_snapshot(snapshot.clone(), snapshotting_context).await;
-        snapshot.remove().await.unwrap();
+        snapshot.remove(&BlockingFsBackend).await.unwrap();
     });
 }
 

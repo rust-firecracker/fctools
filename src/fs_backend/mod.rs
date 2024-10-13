@@ -9,6 +9,9 @@ use tokio::task::JoinSet;
 #[cfg(feature = "blocking-fs-backend")]
 pub mod blocking;
 
+/// An operation that has been scheduled by the FS backend. Such an operation must only be invoked once
+/// IntoFuture is used or it is offloaded onto a JoinSet.
+#[must_use = "FsOperations do nothing unless awaited or polled as a future, or offloaded onto a JoinSet"]
 pub trait FsOperation<R: Send + 'static>:
     IntoFuture<
         Output = Result<R, std::io::Error>,
@@ -18,6 +21,9 @@ pub trait FsOperation<R: Send + 'static>:
     fn offload<E: From<std::io::Error> + Send + 'static>(self, join_set: &mut JoinSet<Result<R, E>>);
 }
 
+/// A filesystem backend provides fctools with filesystem operations on the host OS. The primary two viable
+/// implementations of a filesystem backend on a modern Linux system are either blocking epoll wrapped in
+/// Tokio's spawn_blocking, or asynchronous io-uring.
 pub trait FsBackend: Send + Sync + 'static {
     fn check_exists(&self, path: &Path) -> impl FsOperation<bool>;
 
@@ -28,6 +34,8 @@ pub trait FsBackend: Send + Sync + 'static {
     fn create_file(&self, path: &Path) -> impl FsOperation<()>;
 
     fn write_all_to_file(&self, path: &Path, content: String) -> impl FsOperation<()>;
+
+    fn rename_file(&self, source_path: &Path, destination_path: &Path) -> impl FsOperation<()>;
 
     fn remove_dir_all(&self, path: &Path) -> impl FsOperation<()>;
 

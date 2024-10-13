@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use fctools::{
     executor::installation::{VmmInstallation, VmmInstallationError},
+    fs_backend::blocking::BlockingFsBackend,
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner, SudoShellSpawner},
 };
 use test_framework::{get_test_path, TestOptions};
@@ -21,7 +22,9 @@ async fn installation_does_not_verify_for_missing_files() {
         snapshot_editor_path: random_path(),
     };
     assert_matches::assert_matches!(
-        installation.verify(&TestOptions::get().await.toolchain.version).await,
+        installation
+            .verify(&BlockingFsBackend, &TestOptions::get().await.toolchain.version)
+            .await,
         Err(VmmInstallationError::BinaryMissing)
     );
 }
@@ -40,7 +43,9 @@ async fn installation_does_not_verify_for_non_executable_files() {
         snapshot_editor_path: non_executable_path().await,
     };
     assert_matches::assert_matches!(
-        installation.verify(&TestOptions::get().await.toolchain.version).await,
+        installation
+            .verify(&BlockingFsBackend, &TestOptions::get().await.toolchain.version)
+            .await,
         Err(VmmInstallationError::BinaryNotExecutable)
     );
 }
@@ -53,7 +58,9 @@ async fn installation_does_not_verify_for_incorrect_binary_type() {
         snapshot_editor_path: get_test_path("toolchain/firecracker"),
     };
     assert_matches::assert_matches!(
-        installation.verify(&TestOptions::get().await.toolchain.version).await,
+        installation
+            .verify(&BlockingFsBackend, &TestOptions::get().await.toolchain.version)
+            .await,
         Err(VmmInstallationError::BinaryIsOfIncorrectType)
     );
 }
@@ -66,7 +73,9 @@ async fn installation_does_not_verify_for_incorrect_binary_version() {
         snapshot_editor_path: get_test_path("toolchain/snapshot-editor"),
     };
     assert_matches::assert_matches!(
-        installation.verify(&TestOptions::get().await.toolchain.version).await,
+        installation
+            .verify(&BlockingFsBackend, &TestOptions::get().await.toolchain.version)
+            .await,
         Err(VmmInstallationError::BinaryDoesNotMatchExpectedVersion)
     );
 }
@@ -79,7 +88,7 @@ async fn installation_verifies_for_correct_parameters() {
         snapshot_editor_path: get_test_path("toolchain/snapshot-editor"),
     };
     installation
-        .verify(&TestOptions::get().await.toolchain.version)
+        .verify(&BlockingFsBackend, &TestOptions::get().await.toolchain.version)
         .await
         .unwrap();
 }
