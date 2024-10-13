@@ -161,16 +161,10 @@ impl ShellSpawner for TestShellSpawner {
         }
     }
 
-    fn spawn(
-        &self,
-        shell_command: String,
-        pipes_to_null: bool,
-    ) -> impl Future<Output = Result<Child, tokio::io::Error>> {
+    async fn spawn(&self, shell_command: String, pipes_to_null: bool) -> Result<Child, tokio::io::Error> {
         match self {
-            TestShellSpawner::Su(s) => Box::pin(s.spawn(shell_command, pipes_to_null)),
-            TestShellSpawner::SameUser(s) => {
-                Box::pin(s.spawn(shell_command, pipes_to_null)) as Pin<Box<dyn Future<Output = _> + Send>>
-            }
+            TestShellSpawner::Su(s) => s.spawn(shell_command, pipes_to_null).await,
+            TestShellSpawner::SameUser(s) => s.spawn(shell_command, pipes_to_null).await,
         }
     }
 }
