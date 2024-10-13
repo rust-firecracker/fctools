@@ -194,6 +194,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                     force_chown(&socket_path, shell_spawner.as_ref()).await?;
                     fs_backend.remove_file(&socket_path).await?;
                 }
+
                 Ok(())
             });
         }

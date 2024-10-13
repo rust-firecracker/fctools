@@ -5,9 +5,6 @@ use tokio::io::{AsyncRead, AsyncSeek, AsyncWrite};
 #[cfg(feature = "blocking-fs-backend")]
 pub mod blocking;
 
-#[cfg(feature = "tokio-uring-fs-backend")]
-pub mod tokio_uring;
-
 /// A trait for a file handle emitted by filesystem backend that is Send and Unpin and can be read from,
 /// written to and seeked. Serves to hide the underlying File struct behind a Pin<Box<dyn FsFileHandle>>
 /// trait object.

@@ -1,8 +1,7 @@
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
 use fctools::{
     ext::{metrics::spawn_metrics_task, snapshot_editor::SnapshotEditorExt},
-    fs_backend::{tokio_uring::TokioUringFsBackend, FsBackend},
     vm::{
         api::VmApi,
         models::{CreateSnapshot, MetricsSystem, SnapshotType},
@@ -127,11 +126,4 @@ fn metrics_task_can_be_cancelled_via_join_handle() {
             );
             shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
         });
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn ur_works() {
-    let backend = TokioUringFsBackend::start_with_defaults();
-    dbg!(backend.check_exists(&PathBuf::from("/t")).await.unwrap());
-    backend.terminate().unwrap();
 }
