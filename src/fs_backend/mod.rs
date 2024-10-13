@@ -1,18 +1,12 @@
 use std::{future::Future, ops::Deref, path::Path, sync::Arc};
 
-use tokio::io::{AsyncRead, AsyncSeek, AsyncWrite};
-
 #[cfg(feature = "blocking-fs-backend")]
 pub mod blocking;
 
 #[cfg(feature = "proxy-fs-backend")]
 pub mod proxy;
 
-/// A trait for a file handle emitted by filesystem backend that is Send and Unpin and can be read from,
-/// written to and seeked. Serves to hide the underlying File struct behind a Pin<Box<dyn FsFileHandle>>
-/// trait object.
-pub trait FsFileHandle: AsyncRead + AsyncSeek + AsyncWrite + Send + Unpin {}
-
+/// An error emitted by an FS backend, being either an owned or an arced value of a std::io::Error.
 #[derive(Debug)]
 pub enum FsBackendError {
     Owned(std::io::Error),
@@ -20,6 +14,7 @@ pub enum FsBackendError {
 }
 
 impl FsBackendError {
+    /// Consume this FcBackendError into an arc that can further be cloned.
     pub fn into_cloneable(self) -> Arc<std::io::Error> {
         match self {
             FsBackendError::Owned(error) => Arc::new(error),

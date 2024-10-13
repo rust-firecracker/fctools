@@ -1,10 +1,8 @@
 use std::path::Path;
 
-use super::{FsBackend, FsBackendError, FsFileHandle};
+use super::{FsBackend, FsBackendError};
 
 pub struct BlockingFsBackend;
-
-impl FsFileHandle for tokio::fs::File {}
 
 impl FsBackend for BlockingFsBackend {
     async fn check_exists(&self, path: &Path) -> Result<bool, FsBackendError> {
