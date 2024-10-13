@@ -5,8 +5,8 @@ use tokio::io::{AsyncRead, AsyncSeek, AsyncWrite};
 #[cfg(feature = "blocking-fs-backend")]
 pub mod blocking;
 
-#[cfg(feature = "thread-bridge-fs-backend")]
-pub mod thread_bridge;
+#[cfg(feature = "proxy-fs-backend")]
+pub mod proxy;
 
 /// A trait for a file handle emitted by filesystem backend that is Send and Unpin and can be read from,
 /// written to and seeked. Serves to hide the underlying File struct behind a Pin<Box<dyn FsFileHandle>>
@@ -60,11 +60,7 @@ pub trait FsBackend: Send + Sync + 'static {
 
     fn create_file(&self, path: &Path) -> impl Future<Output = Result<(), FsBackendError>> + Send;
 
-    fn write_all_to_file(
-        &self,
-        path: &Path,
-        content: String,
-    ) -> impl Future<Output = Result<(), FsBackendError>> + Send;
+    fn write_file(&self, path: &Path, content: String) -> impl Future<Output = Result<(), FsBackendError>> + Send;
 
     fn rename_file(
         &self,

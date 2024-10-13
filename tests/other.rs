@@ -4,7 +4,8 @@ use fctools::{
     executor::installation::{VmmInstallation, VmmInstallationError},
     fs_backend::{
         blocking::BlockingFsBackend,
-        thread_bridge::{ThreadBridgeFsBackend, TokioSpawnTask},
+        proxy::{ProxyFsBackend, TokioSpawnTask},
+        FsBackend,
     },
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner, SudoShellSpawner},
 };
@@ -168,14 +169,15 @@ async fn elevation_test<S: ShellSpawner, F: FnOnce(String) -> S>(closure: F) {
 
 #[tokio::test]
 async fn tbridge_test() {
-    let bridge = ThreadBridgeFsBackend::new(1000, BlockingFsBackend, TokioSpawnTask, |mut bridge| {
+    let backend = ProxyFsBackend::new(1000, BlockingFsBackend, TokioSpawnTask, |mut server| {
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap()
-            .block_on(bridge.run());
+            .block_on(server.run());
     });
 
-    bridge.ping().await.unwrap();
-    bridge.terminate().await.unwrap();
+    backend.ping().await.unwrap();
+    dbg!(backend.remove_dir_all(&PathBuf::from("/tmp")).await);
+    backend.stop().await.unwrap();
 }

@@ -352,7 +352,7 @@ impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> Vm<E, S, F> {
                 config_override = ConfigurationFileOverride::Enable(inner_path.clone());
                 prepare_file(self.fs_backend.clone(), inner_path.clone(), true).await?;
                 self.fs_backend
-                    .write_all_to_file(
+                    .write_file(
                         &self.vmm_process.inner_to_outer_path(inner_path),
                         serde_json::to_string(data).map_err(VmError::SerdeError)?,
                     )

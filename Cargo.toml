@@ -82,13 +82,13 @@ full = [
     "link-local-ext",
     "snapshot-editor-ext",
     "blocking-fs-backend",
-    "thread-bridge-fs-backend",
+    "proxy-fs-backend",
 ]
 default = []
 # fs backends
 fs-backend = []
 blocking-fs-backend = ["fs-backend", "tokio/fs"]
-thread-bridge-fs-backend = ["fs-backend", "dep:uuid"]
+proxy-fs-backend = ["fs-backend", "dep:uuid"]
 # layers
 shell-spawner = []
 executor = ["fs-backend", "shell-spawner", "dep:libc"]

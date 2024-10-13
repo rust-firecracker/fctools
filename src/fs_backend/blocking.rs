@@ -26,7 +26,7 @@ impl FsBackend for BlockingFsBackend {
             .map_err(FsBackendError::Owned)
     }
 
-    async fn write_all_to_file(&self, path: &Path, content: String) -> Result<(), FsBackendError> {
+    async fn write_file(&self, path: &Path, content: String) -> Result<(), FsBackendError> {
         tokio::fs::write(path, content).await.map_err(FsBackendError::Owned)
     }
 
