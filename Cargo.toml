@@ -1,6 +1,6 @@
 [package]
 name = "fctools"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "An exhaustive, highly modular and extensible host SDK for the Firecracker microVM manager."
 license = "MIT"
