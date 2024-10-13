@@ -183,17 +183,11 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let fs_backend = fs_backend.clone();
             let shell_spawner = shell_spawner.clone();
             join_set.spawn(async move {
-                if !fs_backend
-                    .check_exists(&path)
-                    .block_on()
-                    .await
-                    .map_err(VmmExecutorError::IoError)?
-                {
-                    return Err(VmmExecutorError::ExpectedResourceMissing(path.clone()));
+                if !fs_backend.check_exists(&path).await? {
+                    return Err(VmmExecutorError::ExpectedResourceMissing(path));
                 }
 
-                force_chown(&path, shell_spawner.as_ref()).await?;
-                Ok(())
+                force_chown(&path, shell_spawner.as_ref()).await
             });
         }
 
@@ -201,20 +195,10 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let fs_backend = fs_backend.clone();
             let shell_spawner = shell_spawner.clone();
             join_set.spawn(async move {
-                if fs_backend
-                    .check_exists(&socket_path)
-                    .block_on()
-                    .await
-                    .map_err(VmmExecutorError::IoError)?
-                {
+                if fs_backend.check_exists(&socket_path).await? {
                     force_chown(&socket_path, shell_spawner.as_ref()).await?;
-                    fs_backend
-                        .remove_file(&socket_path)
-                        .block_on()
-                        .await
-                        .map_err(VmmExecutorError::IoError)?;
+                    fs_backend.remove_file(&socket_path).await?;
                 }
-
                 Ok(())
             });
         }
@@ -258,51 +242,29 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         shell_spawner: Arc<impl ShellSpawner>,
         fs_backend: Arc<impl FsBackend>,
     ) -> Result<(), VmmExecutorError> {
-        let mut join_set = JoinSet::new();
+        let mut join_set: JoinSet<Result<(), VmmExecutorError>> = JoinSet::new();
 
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
             let shell_spawner = shell_spawner.clone();
             let fs_backend = fs_backend.clone();
             join_set.spawn(async move {
-                if fs_backend
-                    .check_exists(&socket_path)
-                    .block_on()
-                    .await
-                    .map_err(VmmExecutorError::IoError)?
-                {
+                if fs_backend.check_exists(&socket_path).await? {
                     force_chown(&socket_path, shell_spawner.as_ref()).await?;
-                    fs_backend
-                        .remove_file(&socket_path)
-                        .block_on()
-                        .await
-                        .map_err(VmmExecutorError::IoError)?;
+                    fs_backend.remove_file(&socket_path).await?;
                 }
                 Ok(())
             });
         }
 
         if self.remove_logs_on_cleanup {
-            if let Some(log_path) = self.vmm_arguments.log_path.clone() {
-                let fs_backend = fs_backend.clone();
-                join_set.spawn(async move {
-                    fs_backend
-                        .remove_file(&log_path)
-                        .block_on()
-                        .await
-                        .map_err(VmmExecutorError::IoError)
-                });
+            if let Some(ref log_path) = self.vmm_arguments.log_path {
+                fs_backend.remove_file(&log_path).offload(&mut join_set);
             }
         }
 
         if self.remove_metrics_on_cleanup {
-            if let Some(metrics_path) = self.vmm_arguments.metrics_path.clone() {
-                join_set.spawn(async move {
-                    fs_backend
-                        .remove_file(&metrics_path)
-                        .block_on()
-                        .await
-                        .map_err(VmmExecutorError::IoError)
-                });
+            if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
+                fs_backend.remove_file(&metrics_path).offload(&mut join_set);
             }
         }
 

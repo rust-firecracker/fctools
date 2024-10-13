@@ -1,14 +1,21 @@
-use std::{future::Future, path::Path};
+use std::{
+    future::{Future, IntoFuture},
+    path::Path,
+    pin::Pin,
+};
 
 use tokio::task::JoinSet;
 
 #[cfg(feature = "blocking-io-backend")]
 pub mod blocking;
 
-pub trait FsOperation<R: Send + 'static> {
-    fn offload<I>(self, join_set: &mut JoinSet<Result<R, std::io::Error>>);
-
-    fn block_on(self) -> impl Future<Output = Result<R, std::io::Error>> + Send;
+pub trait FsOperation<R: Send + 'static>:
+    IntoFuture<
+        Output = Result<R, std::io::Error>,
+        IntoFuture = Pin<Box<dyn Future<Output = Result<R, std::io::Error>> + Send>>,
+    > + Sized
+{
+    fn offload<E: From<std::io::Error> + Send + 'static>(self, join_set: &mut JoinSet<Result<R, E>>);
 }
 
 pub trait FsBackend: Send + Sync + 'static {

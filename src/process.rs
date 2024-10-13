@@ -115,6 +115,8 @@ pub enum VmmProcessError {
         "Attempted to take out the process' pipes when they had already been taken or were redirected to /dev/null"
     )]
     PipesNulledOrAlreadyTaken,
+    #[error("An I/O error occurred: `{0}`")]
+    IoError(std::io::Error),
 }
 
 impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> VmmProcess<E, S, F> {

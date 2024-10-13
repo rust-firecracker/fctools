@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    io,
     os::unix::process::ExitStatusExt,
     path::{Path, PathBuf},
     process::ExitStatus,
@@ -17,10 +16,7 @@ use tokio::{
     task::{JoinError, JoinSet},
 };
 
-use crate::{
-    fs_backend::{FsBackend, FsOperation},
-    shell_spawner::ShellSpawner,
-};
+use crate::{fs_backend::FsBackend, shell_spawner::ShellSpawner};
 
 pub mod arguments;
 pub mod command_modifier;
@@ -33,7 +29,7 @@ pub enum VmmExecutorError {
     #[error("A non-FS I/O error occurred: `{0}")]
     IoError(std::io::Error),
     #[error("Forking an auxiliary shell via the spawner to force chown/mkdir failed: `{0}`")]
-    ShellForkFailed(io::Error),
+    ShellForkFailed(std::io::Error),
     #[error("A forced shell chown command exited with a non-zero exit status: `{0}`")]
     ChownExitedWithWrongStatus(ExitStatus),
     #[error("A forced shell mkdir command exited with a non-zero exit status: `{0}`")]
@@ -41,7 +37,7 @@ pub enum VmmExecutorError {
     #[error("Joining on a spawned async task failed: `{0}`")]
     TaskJoinFailed(JoinError),
     #[error("Spawning an auxiliary or primary shell via the spawner failed: `{0}`")]
-    ShellSpawnFailed(io::Error),
+    ShellSpawnFailed(std::io::Error),
     #[error("A passed-in resource at the path `{0}` was expected but doesn't exist or isn't accessible")]
     ExpectedResourceMissing(PathBuf),
     #[error("A directory that is supposed to have a parent in the filesystem has none")]
@@ -52,6 +48,12 @@ pub enum VmmExecutorError {
     InstallationHasNoFilename,
     #[error("Another error occurred: `{0}`")]
     Other(Box<dyn std::error::Error + Send>),
+}
+
+impl From<std::io::Error> for VmmExecutorError {
+    fn from(value: std::io::Error) -> Self {
+        VmmExecutorError::IoError(value)
+    }
 }
 
 /// A VMM executor is layer 2 of FCTools: manages a VMM process by setting up the environment, correctly invoking
@@ -119,7 +121,7 @@ pub(crate) async fn force_chown(path: &Path, shell_spawner: &impl ShellSpawner) 
 
 async fn force_mkdir(path: &Path, shell_spawner: &impl ShellSpawner) -> Result<(), VmmExecutorError> {
     if !shell_spawner.increases_privileges() {
-        fs::create_dir_all(path).await.map_err(VmmExecutorError::IoError)?;
+        fs::create_dir_all(path).await?;
         return Ok(());
     }
 
@@ -138,18 +140,10 @@ async fn force_mkdir(path: &Path, shell_spawner: &impl ShellSpawner) -> Result<(
 
 async fn create_file_with_tree(fs_backend: Arc<impl FsBackend>, path: PathBuf) -> Result<(), VmmExecutorError> {
     if let Some(parent_path) = path.parent() {
-        fs_backend
-            .create_dir_all(parent_path)
-            .block_on()
-            .await
-            .map_err(VmmExecutorError::IoError)?;
+        fs_backend.create_dir_all(parent_path).await?;
     }
 
-    fs_backend
-        .create_file(&path)
-        .block_on()
-        .await
-        .map_err(VmmExecutorError::IoError)?;
+    fs_backend.create_file(&path).await?;
     Ok(())
 }
 

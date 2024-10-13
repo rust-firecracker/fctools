@@ -1,4 +1,8 @@
-use std::{future::Future, path::Path};
+use std::{
+    future::{Future, IntoFuture},
+    path::Path,
+    pin::Pin,
+};
 
 use tokio::task::JoinSet;
 
@@ -17,19 +21,25 @@ impl<R: Send + 'static> BlockingFsOperation<R> {
 }
 
 impl<R: Send + 'static> FsOperation<R> for BlockingFsOperation<R> {
-    fn offload<I>(self, join_set: &mut JoinSet<Result<R, std::io::Error>>) {
-        join_set.spawn_blocking(self.action);
+    fn offload<E: From<std::io::Error> + Send + 'static>(self, join_set: &mut JoinSet<Result<R, E>>) {
+        join_set.spawn_blocking(move || (self.action)().map_err(E::from));
     }
+}
 
-    fn block_on(self) -> impl Future<Output = Result<R, std::io::Error>> + Send {
-        async move {
+impl<R: Send + 'static> IntoFuture for BlockingFsOperation<R> {
+    type Output = Result<R, std::io::Error>;
+
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'static>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
             match tokio::task::spawn_blocking(self.action).await {
                 Ok(result) => result,
                 Err(err) => Err(std::io::Error::other(format!(
                     "Joining on a blocking task failed: {err}"
                 ))),
             }
-        }
+        })
     }
 }
 
