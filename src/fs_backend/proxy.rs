@@ -173,6 +173,9 @@ enum ProxyResponseBody {
     UnitAction(Result<(), Arc<std::io::Error>>),
 }
 
+/// SpawnTask is a lean trait that abstracts over spawning a single future onto an async runtime.
+/// This is needed so that not just Tokio can be used in the proxy thread, but also something like
+/// glommio or tokio-uring.
 pub trait SpawnTask {
     fn spawn<F>(&self, future: F)
     where
@@ -180,6 +183,7 @@ pub trait SpawnTask {
         F::Output: Send + 'static;
 }
 
+/// A SpawnTask implementation for a Tokio current_thread or multi_thread runtime.
 pub struct TokioSpawnTask;
 
 impl SpawnTask for TokioSpawnTask {
@@ -246,6 +250,7 @@ impl ProxyFsBackend {
         })
     }
 
+    /// Ping the proxy thread to determine whether the communication channels are still intact.
     pub async fn ping(&self) -> Result<(), FsBackendError> {
         match self.request(ProxyRequestBody::Ping).await? {
             ProxyResponseBody::Pong => Ok(()),
@@ -253,6 +258,7 @@ impl ProxyFsBackend {
         }
     }
 
+    /// Stop the proxy thread, should be always called to ensure the proxy thread doesn't hang up the whole process.
     pub async fn stop(self) -> Result<(), FsBackendError> {
         match self.request(ProxyRequestBody::Stop).await? {
             ProxyResponseBody::Stopped => Ok(()),
@@ -260,6 +266,7 @@ impl ProxyFsBackend {
         }
     }
 
+    /// Get a reference to the proxy thread's JoinHandle.
     pub fn thread_join_handle(&self) -> &std::thread::JoinHandle<()> {
         &self.thread_join_handle
     }
