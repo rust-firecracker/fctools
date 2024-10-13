@@ -3,11 +3,11 @@ use std::{
     future::Future,
     io::Write,
     path::{Path, PathBuf},
+    pin::Pin,
     sync::Arc,
     time::Duration,
 };
 
-use async_trait::async_trait;
 use cidr::IpInet;
 use fctools::{
     executor::{
@@ -31,7 +31,6 @@ use fctools::{
         ShutdownMethod,
     },
 };
-use futures_util::future::BoxFuture;
 use rand::{Rng, RngCore};
 use serde::Deserialize;
 use tokio::{
@@ -131,7 +130,6 @@ pub fn get_fs_backend() -> Arc<impl FsBackend> {
 #[derive(Default)]
 pub struct FailingShellSpawner {}
 
-#[async_trait]
 impl ShellSpawner for FailingShellSpawner {
     fn increases_privileges(&self) -> bool {
         false
@@ -155,7 +153,6 @@ pub enum TestShellSpawner {
     SameUser(SameUserShellSpawner),
 }
 
-#[async_trait]
 impl ShellSpawner for TestShellSpawner {
     fn increases_privileges(&self) -> bool {
         match self {
@@ -164,15 +161,20 @@ impl ShellSpawner for TestShellSpawner {
         }
     }
 
-    async fn spawn(&self, shell_command: String, pipes_to_null: bool) -> Result<Child, tokio::io::Error> {
+    fn spawn(
+        &self,
+        shell_command: String,
+        pipes_to_null: bool,
+    ) -> impl Future<Output = Result<Child, tokio::io::Error>> {
         match self {
-            TestShellSpawner::Su(s) => s.spawn(shell_command, pipes_to_null).await,
-            TestShellSpawner::SameUser(s) => s.spawn(shell_command, pipes_to_null).await,
+            TestShellSpawner::Su(s) => Box::pin(s.spawn(shell_command, pipes_to_null)),
+            TestShellSpawner::SameUser(s) => {
+                Box::pin(s.spawn(shell_command, pipes_to_null)) as Pin<Box<dyn Future<Output = _> + Send>>
+            }
         }
     }
 }
 
-#[async_trait]
 impl VmmExecutor for TestExecutor {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
         match self {
@@ -319,7 +321,7 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
 #[allow(unused)]
 pub type TestVm = fctools::vm::Vm<TestExecutor, TestShellSpawner, BlockingFsBackend>;
 
-type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> BoxFuture<()>>;
+type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>>;
 
 struct NetworkData {
     network_interface: NetworkInterface,
@@ -394,7 +396,10 @@ impl VmBuilder {
         self
     }
 
-    pub fn pre_start_hook(mut self, hook: impl Fn(&mut TestVm) -> BoxFuture<()> + Clone + 'static) -> Self {
+    pub fn pre_start_hook(
+        mut self,
+        hook: impl Fn(&mut TestVm) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> + Clone + 'static,
+    ) -> Self {
         self.pre_start_hook = Some((Box::new(hook.clone()), Box::new(hook)));
         self
     }

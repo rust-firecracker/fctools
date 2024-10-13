@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    future::Future,
     os::unix::process::ExitStatusExt,
     path::{Path, PathBuf},
     process::ExitStatus,
@@ -7,7 +8,6 @@ use std::{
 };
 
 use arguments::ConfigurationFileOverride;
-use async_trait::async_trait;
 use installation::VmmInstallation;
 use jailed::JailRenamerError;
 use tokio::{
@@ -57,7 +57,6 @@ impl From<std::io::Error> for VmmExecutorError {
 
 /// A VMM executor is layer 2 of fctools: manages the environment of a VMM process, correctly invoking the process,
 /// setting up and subsequently cleaning the environment. This allows modularity between different modes of VMM execution.
-#[async_trait]
 pub trait VmmExecutor: Send + Sync {
     /// Get the host location of the VMM socket, if one exists.
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf>;
@@ -69,29 +68,29 @@ pub trait VmmExecutor: Send + Sync {
     fn traceless(&self) -> bool;
 
     /// Prepare all transient resources for the VM invocation.
-    async fn prepare(
+    fn prepare(
         &self,
         installation: &VmmInstallation,
         shell_spawner: Arc<impl ShellSpawner>,
         fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
-    ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError>;
+    ) -> impl Future<Output = Result<HashMap<PathBuf, PathBuf>, VmmExecutorError>> + Send;
 
     /// Invoke the VM on the given FirecrackerInstallation and return the spawned tokio Child.
-    async fn invoke(
+    fn invoke(
         &self,
         installation: &VmmInstallation,
         shell_spawner: Arc<impl ShellSpawner>,
         config_override: ConfigurationFileOverride,
-    ) -> Result<Child, VmmExecutorError>;
+    ) -> impl Future<Output = Result<Child, VmmExecutorError>> + Send;
 
     /// Clean up all transient resources of the VM invocation.
-    async fn cleanup(
+    fn cleanup(
         &self,
         installation: &VmmInstallation,
         shell_spawner: Arc<impl ShellSpawner>,
         fs_backend: Arc<impl FsBackend>,
-    ) -> Result<(), VmmExecutorError>;
+    ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
 pub(crate) async fn force_chown(path: &Path, shell_spawner: &impl ShellSpawner) -> Result<(), VmmExecutorError> {
@@ -153,13 +152,12 @@ async fn create_file_with_tree(fs_backend: Arc<impl FsBackend>, path: PathBuf) -
 async fn join_on_set(mut join_set: JoinSet<Result<(), VmmExecutorError>>) -> Result<(), VmmExecutorError> {
     while let Some(result) = join_set.join_next().await {
         match result {
-            Ok(result) => match result {
-                Ok(_) => {}
-                Err(err) => {
+            Ok(result) => {
+                if let Err(err) = result {
                     join_set.abort_all();
                     return Err(err);
                 }
-            },
+            }
             Err(err) => {
                 join_set.abort_all();
                 return Err(VmmExecutorError::TaskJoinFailed(err));

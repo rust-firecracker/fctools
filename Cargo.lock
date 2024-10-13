@@ -202,12 +202,10 @@ name = "fctools"
 version = "0.1.1"
 dependencies = [
  "assert_matches",
- "async-trait",
  "bytes",
  "cidr",
  "fctools",
  "file-lock",
- "futures-util",
  "http",
  "http-body-util",
  "hyper",
@@ -278,7 +276,6 @@ dependencies = [
  "futures-task",
  "pin-project-lite",
  "pin-utils",
- "slab",
 ]
 
 [[package]]

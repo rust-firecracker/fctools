@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use async_trait::async_trait;
 use tokio::{process::Child, task::JoinSet};
 
 use crate::{
@@ -153,7 +152,6 @@ mod tests {
     }
 }
 
-#[async_trait]
 impl VmmExecutor for UnrestrictedVmmExecutor {
     fn get_socket_path(&self, _installation: &VmmInstallation) -> Option<PathBuf> {
         match &self.vmm_arguments.api_socket {

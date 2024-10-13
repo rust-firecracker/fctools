@@ -1,12 +1,12 @@
 use std::{
     collections::HashMap,
+    future::Future,
     io,
     path::{Path, PathBuf},
     process::ExitStatus,
     sync::Arc,
 };
 
-use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use http::{Request, Response, StatusCode, Uri};
 use http_body_util::{BodyExt, Full};
@@ -353,19 +353,19 @@ impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> VmmProcess<E, S, F> {
 
 /// An extension to a hyper Response<Incoming> (returned by the Firecracker API socket) that allows
 /// easy streaming of the response body.
-#[async_trait]
-pub trait HyperResponseExt {
+pub trait HyperResponseExt: Send {
     /// Stream the entire response body into a byte buffer (BytesMut).
-    async fn recv_to_buf(&mut self) -> Result<BytesMut, hyper::Error>;
+    fn recv_to_buf(&mut self) -> impl Future<Output = Result<BytesMut, hyper::Error>> + Send;
 
     /// Stream the entire response body into an owned string.
-    async fn recv_to_string(&mut self) -> Result<String, hyper::Error> {
-        let buf = self.recv_to_buf().await?;
-        Ok(String::from_utf8_lossy(&buf).into_owned())
+    fn recv_to_string(&mut self) -> impl Future<Output = Result<String, hyper::Error>> + Send {
+        async {
+            let buf = self.recv_to_buf().await?;
+            Ok(String::from_utf8_lossy(&buf).into_owned())
+        }
     }
 }
 
-#[async_trait]
 impl HyperResponseExt for Response<Incoming> {
     async fn recv_to_buf(&mut self) -> Result<BytesMut, hyper::Error> {
         let mut buf = BytesMut::with_capacity(self.body().size_hint().lower() as usize);

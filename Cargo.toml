@@ -29,7 +29,6 @@ strip = "symbols"
 
 [dependencies]
 # common
-async-trait = "0.1.83"
 thiserror = "1.0.64"
 tokio = { version = "1.40.0", features = [
     "process",
@@ -67,9 +66,6 @@ rand = "0.8.5"
 tokio = { version = "1.39.2", features = ["macros", "rt-multi-thread", "fs"] }
 uuid = { version = "1.10.0", features = ["v4"] }
 which = "6.0.3"
-futures-util = { version = "0.3.31", default-features = false, features = [
-    "std",
-] }
 file-lock = "2.1.11"
 
 fctools = { path = ".", features = ["full"] }

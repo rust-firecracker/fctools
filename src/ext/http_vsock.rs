@@ -1,6 +1,5 @@
-use std::path::PathBuf;
+use std::{future::Future, path::PathBuf};
 
-use async_trait::async_trait;
 use bytes::Bytes;
 use http::{Request, Response, Uri};
 use http_body_util::Full;
@@ -60,16 +59,17 @@ impl VsockHttpPool {
 
 /// An extension that allows connecting to guest applications that expose a plain-HTTP (REST or any other) server being tunneled over
 /// the Firecracker vsock device.
-#[async_trait]
 pub trait VsockHttpExt {
     /// Eagerly make a single HTTP connection to the given guest port, without support for connection pooling.
-    async fn vsock_connect_over_http(&self, guest_port: u32) -> Result<SendRequest<Full<Bytes>>, VsockHttpError>;
+    fn vsock_connect_over_http(
+        &self,
+        guest_port: u32,
+    ) -> impl Future<Output = Result<SendRequest<Full<Bytes>>, VsockHttpError>> + Send;
 
     /// Make a lazy HTTP connection pool (backed by hyper-util) that pools multiple connections internally to the given guest port.
     fn vsock_create_http_connection_pool(&self, guest_port: u32) -> Result<VsockHttpPool, VsockHttpError>;
 }
 
-#[async_trait]
 impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> VsockHttpExt for Vm<E, S, F> {
     async fn vsock_connect_over_http(&self, guest_port: u32) -> Result<SendRequest<Full<Bytes>>, VsockHttpError> {
         let uds_path = self

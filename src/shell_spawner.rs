@@ -1,6 +1,5 @@
-use std::{io, path::PathBuf, process::Stdio};
+use std::{future::Future, io, path::PathBuf, process::Stdio};
 
-use async_trait::async_trait;
 use tokio::{
     io::AsyncWriteExt,
     process::{Child, Command},
@@ -9,7 +8,6 @@ use tokio::{
 /// ShellSpawner is layer 1 of fctools and concerns itself with spawning a rootful or rootless shell process.
 /// The command delegated to the shell is either a firecracker or jailer invocation for starting the respective
 /// processes, or an elevated chown/mkdir invocation from the executors.
-#[async_trait]
 pub trait ShellSpawner: Send + Sync + 'static {
     /// Whether the child processes spawned by this shell spawner have the same user and group ID as that of the
     /// main process itself (e.g. whether the shell spawner increases privileges for the child process).
@@ -17,7 +15,11 @@ pub trait ShellSpawner: Send + Sync + 'static {
 
     /// Spawn the shell and enter shell_command in it, with the shell exiting as soon as the command completes.
     /// The returned tokio Child must be the shell's process.
-    async fn spawn(&self, shell_command: String, pipes_to_null: bool) -> Result<Child, io::Error>;
+    fn spawn(
+        &self,
+        shell_command: String,
+        pipes_to_null: bool,
+    ) -> impl Future<Output = Result<Child, io::Error>> + Send;
 }
 
 /// A shell spawner that doesn't do privilege escalation and simply launches the given shell
@@ -53,7 +55,6 @@ fn get_stdio(pipes_to_null: bool) -> Stdio {
     }
 }
 
-#[async_trait]
 impl ShellSpawner for SameUserShellSpawner {
     fn increases_privileges(&self) -> bool {
         false
@@ -96,7 +97,6 @@ impl SuShellSpawner {
     }
 }
 
-#[async_trait]
 impl ShellSpawner for SuShellSpawner {
     fn increases_privileges(&self) -> bool {
         true
@@ -133,7 +133,6 @@ pub struct SudoShellSpawner {
     pub password: Option<String>,
 }
 
-#[async_trait]
 impl ShellSpawner for SudoShellSpawner {
     fn increases_privileges(&self) -> bool {
         true

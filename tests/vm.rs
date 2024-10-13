@@ -15,7 +15,6 @@ use fctools::{
         ShutdownMethod, VmState,
     },
 };
-use futures_util::FutureExt;
 use rand::RngCore;
 use test_framework::{
     get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, SnapshottingContext, TestExecutor, TestOptions,
@@ -119,10 +118,9 @@ fn vm_translates_inner_to_outer_paths() {
 fn vm_can_take_pipes() {
     VmBuilder::new()
         .pre_start_hook(|vm| {
-            async {
+            Box::pin(async {
                 vm.take_pipes().unwrap_err(); // cannot take out pipes before start
-            }
-            .boxed()
+            })
         })
         .run(|mut vm| async move {
             let pipes = vm.take_pipes().unwrap();
@@ -144,10 +142,9 @@ fn vm_can_take_pipes() {
 fn vm_tracks_state_with_graceful_exit() {
     VmBuilder::new()
         .pre_start_hook(|vm| {
-            async {
+            Box::pin(async {
                 assert_eq!(vm.state(), VmState::NotStarted);
-            }
-            .boxed()
+            })
         })
         .run(|mut vm| async move {
             assert_eq!(vm.state(), VmState::Running);

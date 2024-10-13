@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use async_trait::async_trait;
 use tokio::{process::Child, task::JoinSet};
 
 use crate::{
@@ -71,7 +70,6 @@ pub enum JailMoveMethod {
     HardLinkWithCopyFallback,
 }
 
-#[async_trait]
 impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
         match &self.vmm_arguments.api_socket {

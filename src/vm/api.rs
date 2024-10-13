@@ -1,4 +1,5 @@
-use async_trait::async_trait;
+use std::future::Future;
+
 use bytes::Bytes;
 use http::{Request, Response};
 use http_body_util::Full;
@@ -22,63 +23,75 @@ use super::{
 /// An extension to Vm providing up-to-date, exhaustive and easy-to-use bindings to the Firecracker Management API.
 /// If the bindings here prove to be in some way inadequate, api_custom_request allows you to also call the Management
 /// API with an arbitrary HTTP request, although bypassing some safeguards imposed by the provided bindings.
-#[async_trait]
 pub trait VmApi {
-    async fn api_custom_request(
+    fn api_custom_request(
         &mut self,
         route: impl AsRef<str> + Send,
         request: Request<Full<Bytes>>,
         new_is_paused: Option<bool>,
-    ) -> Result<Response<Incoming>, VmError>;
+    ) -> impl Future<Output = Result<Response<Incoming>, VmError>> + Send;
 
-    async fn api_get_info(&mut self) -> Result<Info, VmError>;
+    fn api_get_info(&mut self) -> impl Future<Output = Result<Info, VmError>> + Send;
 
-    async fn api_flush_metrics(&mut self) -> Result<(), VmError>;
+    fn api_flush_metrics(&mut self) -> impl Future<Output = Result<(), VmError>> + Send;
 
-    async fn api_get_balloon_device(&mut self) -> Result<BalloonDevice, VmError>;
+    fn api_get_balloon_device(&mut self) -> impl Future<Output = Result<BalloonDevice, VmError>> + Send;
 
-    async fn api_update_balloon_device(&mut self, update_balloon: UpdateBalloonDevice) -> Result<(), VmError>;
+    fn api_update_balloon_device(
+        &mut self,
+        update_balloon: UpdateBalloonDevice,
+    ) -> impl Future<Output = Result<(), VmError>> + Send;
 
-    async fn api_get_balloon_statistics(&mut self) -> Result<BalloonStatistics, VmError>;
+    fn api_get_balloon_statistics(&mut self) -> impl Future<Output = Result<BalloonStatistics, VmError>> + Send;
 
-    async fn api_update_balloon_statistics(
+    fn api_update_balloon_statistics(
         &mut self,
         update_balloon_statistics: UpdateBalloonStatistics,
-    ) -> Result<(), VmError>;
+    ) -> impl Future<Output = Result<(), VmError>> + Send;
 
-    async fn api_update_drive(&mut self, update_drive: UpdateDrive) -> Result<(), VmError>;
+    fn api_update_drive(&mut self, update_drive: UpdateDrive) -> impl Future<Output = Result<(), VmError>> + Send;
 
-    async fn api_update_network_interface(
+    fn api_update_network_interface(
         &mut self,
         update_network_interface: UpdateNetworkInterface,
-    ) -> Result<(), VmError>;
+    ) -> impl Future<Output = Result<(), VmError>> + Send;
 
-    async fn api_get_machine_configuration(&mut self) -> Result<MachineConfiguration, VmError>;
+    fn api_get_machine_configuration(&mut self) -> impl Future<Output = Result<MachineConfiguration, VmError>> + Send;
 
-    async fn api_create_snapshot(&mut self, create_snapshot: CreateSnapshot) -> Result<SnapshotData, VmError>;
+    fn api_create_snapshot(
+        &mut self,
+        create_snapshot: CreateSnapshot,
+    ) -> impl Future<Output = Result<SnapshotData, VmError>> + Send;
 
-    async fn api_get_firecracker_version(&mut self) -> Result<String, VmError>;
+    fn api_get_firecracker_version(&mut self) -> impl Future<Output = Result<String, VmError>> + Send;
 
-    async fn api_get_effective_configuration(&mut self) -> Result<EffectiveConfiguration, VmError>;
+    fn api_get_effective_configuration(
+        &mut self,
+    ) -> impl Future<Output = Result<EffectiveConfiguration, VmError>> + Send;
 
-    async fn api_pause(&mut self) -> Result<(), VmError>;
+    fn api_pause(&mut self) -> impl Future<Output = Result<(), VmError>> + Send;
 
-    async fn api_resume(&mut self) -> Result<(), VmError>;
+    fn api_resume(&mut self) -> impl Future<Output = Result<(), VmError>> + Send;
 
-    async fn api_create_mmds<T: Serialize + Send>(&mut self, value: T) -> Result<(), VmError>;
+    fn api_create_mmds<T: Serialize + Send>(&mut self, value: T) -> impl Future<Output = Result<(), VmError>> + Send;
 
-    async fn api_update_mmds<T: Serialize + Send>(&mut self, value: T) -> Result<(), VmError>;
+    fn api_update_mmds<T: Serialize + Send>(&mut self, value: T) -> impl Future<Output = Result<(), VmError>> + Send;
 
-    async fn api_get_mmds<T: DeserializeOwned>(&mut self) -> Result<T, VmError>;
+    fn api_get_mmds<T: DeserializeOwned>(&mut self) -> impl Future<Output = Result<T, VmError>> + Send;
 
-    async fn api_create_mmds_untyped(&mut self, value: &serde_json::Value) -> Result<(), VmError>;
+    fn api_create_mmds_untyped(
+        &mut self,
+        value: &serde_json::Value,
+    ) -> impl Future<Output = Result<(), VmError>> + Send;
 
-    async fn api_update_mmds_untyped(&mut self, value: &serde_json::Value) -> Result<(), VmError>;
+    fn api_update_mmds_untyped(
+        &mut self,
+        value: &serde_json::Value,
+    ) -> impl Future<Output = Result<(), VmError>> + Send;
 
-    async fn api_get_mmds_untyped(&mut self) -> Result<serde_json::Value, VmError>;
+    fn api_get_mmds_untyped(&mut self) -> impl Future<Output = Result<serde_json::Value, VmError>> + Send;
 }
 
-#[async_trait]
 impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> VmApi for Vm<E, S, F> {
     async fn api_custom_request(
         &mut self,
