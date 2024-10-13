@@ -66,4 +66,24 @@ impl FsBackend for BlockingFsBackend {
         let path = path.to_owned();
         BlockingFsOperation::new(move || std::fs::File::create(path).map(|_| ()))
     }
+
+    fn write_all_to_file(&self, path: &Path, content: String) -> impl FsOperation<()> {
+        let path = path.to_owned();
+        BlockingFsOperation::new(move || std::fs::write(path, content))
+    }
+
+    fn remove_dir_all(&self, path: &Path) -> impl FsOperation<()> {
+        let path = path.to_owned();
+        BlockingFsOperation::new(move || std::fs::remove_dir_all(path))
+    }
+
+    fn copy(&self, source_path: &Path, destination_path: &Path) -> impl FsOperation<()> {
+        let (source_path, destination_path) = (source_path.to_owned(), destination_path.to_owned());
+        BlockingFsOperation::new(move || std::fs::copy(source_path, destination_path).map(|_| ()))
+    }
+
+    fn hard_link(&self, source_path: &Path, destination_path: &Path) -> impl FsOperation<()> {
+        let (source_path, destination_path) = (source_path.to_owned(), destination_path.to_owned());
+        BlockingFsOperation::new(move || std::fs::hard_link(source_path, destination_path))
+    }
 }

@@ -6,7 +6,7 @@ use std::{
 
 use tokio::task::JoinSet;
 
-#[cfg(feature = "blocking-io-backend")]
+#[cfg(feature = "blocking-fs-backend")]
 pub mod blocking;
 
 pub trait FsOperation<R: Send + 'static>:
@@ -26,4 +26,12 @@ pub trait FsBackend: Send + Sync + 'static {
     fn create_dir_all(&self, path: &Path) -> impl FsOperation<()>;
 
     fn create_file(&self, path: &Path) -> impl FsOperation<()>;
+
+    fn write_all_to_file(&self, path: &Path, content: String) -> impl FsOperation<()>;
+
+    fn remove_dir_all(&self, path: &Path) -> impl FsOperation<()>;
+
+    fn copy(&self, source_path: &Path, destination_path: &Path) -> impl FsOperation<()>;
+
+    fn hard_link(&self, source_path: &Path, destination_path: &Path) -> impl FsOperation<()>;
 }

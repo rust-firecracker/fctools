@@ -7,7 +7,10 @@ use std::{
 use async_trait::async_trait;
 use tokio::{process::Child, task::JoinSet};
 
-use crate::{fs_backend::FsBackend, shell_spawner::ShellSpawner};
+use crate::{
+    fs_backend::{FsBackend, FsOperation},
+    shell_spawner::ShellSpawner,
+};
 
 use super::{
     arguments::{ConfigurationFileOverride, JailerArguments, VmmApiSocket, VmmArguments},
@@ -97,54 +100,45 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             Some(dir) => &dir,
             None => &PathBuf::from("/srv/jailer"),
         };
-        if !tokio::fs::try_exists(chroot_base_dir)
-            .await
-            .map_err(VmmExecutorError::IoError)?
-        {
-            force_mkdir(chroot_base_dir, shell_spawner.as_ref()).await?;
+        if !fs_backend.check_exists(&chroot_base_dir).await? {
+            force_mkdir(fs_backend.as_ref(), chroot_base_dir, shell_spawner.as_ref()).await?;
         }
         force_chown(chroot_base_dir, shell_spawner.as_ref()).await?; // grants access to jail as well
 
         // Create jail and delete previous one if necessary
         let jail_path = self.get_jail_path(installation);
-        if tokio::fs::try_exists(&jail_path)
-            .await
-            .map_err(VmmExecutorError::IoError)?
-        {
-            tokio::fs::remove_dir_all(&jail_path)
-                .await
-                .map_err(VmmExecutorError::IoError)?;
+        if fs_backend.check_exists(&jail_path).await? {
+            fs_backend.remove_dir_all(&jail_path).await?;
         }
-        tokio::fs::create_dir_all(&jail_path)
-            .await
-            .map_err(VmmExecutorError::IoError)?;
+        fs_backend.create_dir_all(&jail_path).await?;
+
+        let mut join_set = JoinSet::new();
 
         // Ensure socket parent directory exists so that the firecracker process can bind inside of it
         if let VmmApiSocket::Enabled(ref socket_path) = self.vmm_arguments.api_socket {
             if let Some(socket_parent_dir) = socket_path.parent() {
-                tokio::fs::create_dir_all(jail_path.jail_join(socket_parent_dir))
-                    .await
-                    .map_err(VmmExecutorError::IoError)?;
+                fs_backend
+                    .create_dir_all(&jail_path.jail_join(socket_parent_dir))
+                    .offload(&mut join_set);
             }
         }
 
         // Ensure argument paths exist
         if let Some(ref log_path) = self.vmm_arguments.log_path {
-            create_file_with_tree(fs_backend.clone(), jail_path.jail_join(log_path)).await?;
+            join_set.spawn(create_file_with_tree(fs_backend.clone(), jail_path.jail_join(log_path)));
         }
         if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
-            create_file_with_tree(fs_backend.clone(), jail_path.jail_join(metrics_path)).await?;
+            join_set.spawn(create_file_with_tree(
+                fs_backend.clone(),
+                jail_path.jail_join(metrics_path),
+            ));
         }
 
         // Apply jail renamer and move in the resources in parallel (via a join set)
         let mut path_mappings = HashMap::with_capacity(outer_paths.len());
-        let mut join_set = JoinSet::new();
 
         for outer_path in outer_paths {
-            if !tokio::fs::try_exists(&outer_path)
-                .await
-                .map_err(VmmExecutorError::IoError)?
-            {
+            if !fs_backend.check_exists(&outer_path).await? {
                 return Err(VmmExecutorError::ExpectedResourceMissing(outer_path.clone()));
             }
 
@@ -157,21 +151,36 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             let expanded_inner_path = jail_path.jail_join(inner_path.as_ref());
             path_mappings.insert(outer_path.clone(), inner_path);
 
-            // Inexpensively clone into the future
             let jail_move_method = self.jail_move_method;
+            let fs_backend = fs_backend.clone();
 
-            join_set.spawn_blocking(move || {
+            join_set.spawn(async move {
                 if let Some(new_path_parent_dir) = expanded_inner_path.parent() {
-                    std::fs::create_dir_all(new_path_parent_dir)?;
+                    fs_backend
+                        .create_dir_all(new_path_parent_dir)
+                        .await
+                        .map_err(VmmExecutorError::IoError)?;
                 }
 
                 match jail_move_method {
-                    JailMoveMethod::Copy => std::fs::copy(outer_path, expanded_inner_path).map(|_| ()),
-                    JailMoveMethod::HardLink => std::fs::hard_link(outer_path, expanded_inner_path),
+                    JailMoveMethod::Copy => fs_backend
+                        .copy(&outer_path, &expanded_inner_path)
+                        .await
+                        .map_err(VmmExecutorError::IoError),
+                    JailMoveMethod::HardLink => fs_backend
+                        .hard_link(&outer_path, &expanded_inner_path)
+                        .await
+                        .map_err(VmmExecutorError::IoError),
                     JailMoveMethod::HardLinkWithCopyFallback => {
-                        let hardlink_result = std::fs::hard_link(&outer_path, &expanded_inner_path);
+                        let hardlink_result = fs_backend
+                            .hard_link(&outer_path, &expanded_inner_path)
+                            .await
+                            .map_err(VmmExecutorError::IoError);
                         if let Err(_) = hardlink_result {
-                            std::fs::copy(&outer_path, &expanded_inner_path).map(|_| ())
+                            fs_backend
+                                .copy(&outer_path, &expanded_inner_path)
+                                .await
+                                .map_err(VmmExecutorError::IoError)
                         } else {
                             hardlink_result
                         }
@@ -181,9 +190,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         }
 
         while let Some(result) = join_set.join_next().await {
-            result
-                .map_err(VmmExecutorError::TaskJoinFailed)?
-                .map_err(VmmExecutorError::IoError)?;
+            result.map_err(VmmExecutorError::TaskJoinFailed)??;
         }
 
         Ok(path_mappings)
@@ -214,15 +221,14 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         &self,
         installation: &VmmInstallation,
         _shell_spawner: Arc<impl ShellSpawner>,
-        _fs_backend: Arc<impl FsBackend>,
+        fs_backend: Arc<impl FsBackend>,
     ) -> Result<(), VmmExecutorError> {
         let jail_path = self.get_jail_path(installation);
         let jail_parent_path = jail_path
             .parent()
             .ok_or(VmmExecutorError::ExpectedDirectoryParentMissing)?;
-
-        // Delete entire jail (../{id}/root) recursively
-        tokio::fs::remove_dir_all(jail_parent_path)
+        fs_backend
+            .remove_dir_all(jail_parent_path)
             .await
             .map_err(VmmExecutorError::IoError)
     }

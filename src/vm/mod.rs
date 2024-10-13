@@ -16,7 +16,7 @@ use api::VmApi;
 use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
 use http::StatusCode;
 use models::LoadSnapshot;
-use tokio::{fs, task::JoinSet};
+use tokio::task::{JoinError, JoinSet};
 
 pub mod api;
 pub mod configuration;
@@ -30,6 +30,7 @@ pub mod snapshot;
 #[derive(Debug)]
 pub struct Vm<E: VmmExecutor, S: ShellSpawner, F: FsBackend> {
     vmm_process: VmmProcess<E, S, F>,
+    fs_backend: Arc<F>,
     is_paused: bool,
     original_configuration_data: VmConfigurationData,
     configuration: Option<VmConfiguration>,
@@ -71,6 +72,8 @@ impl std::fmt::Display for VmState {
 pub enum VmError {
     #[error("The underlying VMM process returned an error: `{0}`")]
     ProcessError(VmmProcessError),
+    #[error("Joining on an async task failed: `{0}`")]
+    TaskJoinFailed(JoinError),
     #[error("Expected the VM to be in the `{expected}` state, but it was actually in the `{actual}` state")]
     ExpectedState { expected: VmState, actual: VmState },
     #[error("Expected the VM to have exited or crashed, but it was actually in the `{actual}` state")]
@@ -104,6 +107,12 @@ pub enum VmError {
     DisabledApiSocketIsUnsupported,
     #[error("A path mapping was expected to be constructed by the executor, but was not returned")]
     MissingPathMapping,
+}
+
+impl From<std::io::Error> for VmError {
+    fn from(value: std::io::Error) -> Self {
+        VmError::IoError(value)
+    }
 }
 
 /// A shutdown method that can be applied to attempt to terminate both the guest operating system and the VMM.
@@ -200,7 +209,7 @@ impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> Vm<E, S, F> {
         let mut vmm_process = VmmProcess::new_arced(
             executor,
             shell_spawner_arc,
-            fs_backend_arc,
+            fs_backend_arc.clone(),
             installation_arc,
             outer_paths,
         );
@@ -254,42 +263,54 @@ impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> Vm<E, S, F> {
             }
         }
 
+        let mut prepare_join_set = JoinSet::new();
+
         if let Some(ref logger) = configuration.data().logger_system {
             if let Some(ref log_path) = logger.log_path {
                 let new_log_path = vmm_process.inner_to_outer_path(log_path);
-                prepare_file(&new_log_path, false).await?;
+                prepare_join_set.spawn(prepare_file(fs_backend_arc.clone(), new_log_path.clone(), false));
                 accessible_paths.log_path = Some(new_log_path);
             }
         }
 
         if let Some(ref metrics_system) = configuration.data().metrics_system {
             let new_metrics_path = vmm_process.inner_to_outer_path(&metrics_system.metrics_path);
-            prepare_file(&new_metrics_path, false).await?;
+            prepare_join_set.spawn(prepare_file(fs_backend_arc.clone(), new_metrics_path.clone(), false));
             accessible_paths.metrics_path = Some(new_metrics_path);
         }
 
         if let Some(ref vsock) = configuration.data().vsock_device {
             let new_uds_path = vmm_process.inner_to_outer_path(&vsock.uds_path);
-            prepare_file(&new_uds_path, true).await?;
+            prepare_join_set.spawn(prepare_file(fs_backend_arc.clone(), new_uds_path.clone(), true));
             accessible_paths.vsock_multiplexer_path = Some(new_uds_path);
         }
 
         if let Some(ref logger) = configuration.data().logger_system {
             if let Some(ref log_path) = logger.log_path {
                 let new_log_path = vmm_process.inner_to_outer_path(log_path);
-                prepare_file(&new_log_path, false).await?;
+                prepare_join_set.spawn(prepare_file(fs_backend_arc.clone(), new_log_path.clone(), false));
                 accessible_paths.log_path = Some(new_log_path);
             }
         }
 
         if let Some(ref metrics) = configuration.data().metrics_system {
             let new_metrics_path = vmm_process.inner_to_outer_path(&metrics.metrics_path);
-            prepare_file(&new_metrics_path, false).await?;
+            prepare_join_set.spawn(prepare_file(fs_backend_arc.clone(), new_metrics_path.clone(), false));
             accessible_paths.metrics_path = Some(new_metrics_path);
+        }
+
+        while let Some(result) = prepare_join_set.join_next().await {
+            match result {
+                Ok(result) => result?,
+                Err(err) => {
+                    return Err(VmError::TaskJoinFailed(err));
+                }
+            }
         }
 
         Ok(Self {
             vmm_process,
+            fs_backend: fs_backend_arc,
             is_paused: false,
             original_configuration_data,
             configuration: Some(configuration),
@@ -332,13 +353,14 @@ impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> Vm<E, S, F> {
         {
             if let InitMethod::ViaJsonConfiguration(inner_path) = init_method {
                 config_override = ConfigurationFileOverride::Enable(inner_path.clone());
-                prepare_file(inner_path, true).await?;
-                fs::write(
-                    self.vmm_process.inner_to_outer_path(inner_path),
-                    serde_json::to_string(data).map_err(VmError::SerdeError)?,
-                )
-                .await
-                .map_err(VmError::IoError)?;
+                prepare_file(self.fs_backend.clone(), inner_path.clone(), true).await?;
+                self.fs_backend
+                    .write_all_to_file(
+                        &self.vmm_process.inner_to_outer_path(inner_path),
+                        serde_json::to_string(data).map_err(VmError::SerdeError)?,
+                    )
+                    .await
+                    .map_err(VmError::IoError)?;
             }
         }
 
@@ -347,9 +369,10 @@ impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> Vm<E, S, F> {
             .await
             .map_err(VmError::ProcessError)?;
 
+        let fs_backend = self.fs_backend.clone();
         tokio::time::timeout(socket_wait_timeout, async move {
             loop {
-                if fs::try_exists(&socket_path).await? {
+                if fs_backend.check_exists(&socket_path).await? {
                     break;
                 }
             }
@@ -505,13 +528,13 @@ impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> Vm<E, S, F> {
     }
 }
 
-async fn prepare_file(path: &PathBuf, only_tree: bool) -> Result<(), VmError> {
+async fn prepare_file(fs_backend: Arc<impl FsBackend>, path: PathBuf, only_tree: bool) -> Result<(), VmError> {
     if let Some(parent_path) = path.parent() {
-        fs::create_dir_all(parent_path).await.map_err(VmError::IoError)?;
+        fs_backend.create_dir_all(parent_path).await?;
     }
 
     if !only_tree {
-        fs::File::create(path).await.map_err(VmError::IoError)?;
+        fs_backend.create_file(&path).await?;
     }
 
     Ok(())

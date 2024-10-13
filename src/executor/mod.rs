@@ -11,7 +11,6 @@ use async_trait::async_trait;
 use installation::VmmInstallation;
 use jailed::JailRenamerError;
 use tokio::{
-    fs,
     process::Child,
     task::{JoinError, JoinSet},
 };
@@ -119,9 +118,13 @@ pub(crate) async fn force_chown(path: &Path, shell_spawner: &impl ShellSpawner) 
     Ok(())
 }
 
-async fn force_mkdir(path: &Path, shell_spawner: &impl ShellSpawner) -> Result<(), VmmExecutorError> {
+async fn force_mkdir(
+    fs_backend: &impl FsBackend,
+    path: &Path,
+    shell_spawner: &impl ShellSpawner,
+) -> Result<(), VmmExecutorError> {
     if !shell_spawner.increases_privileges() {
-        fs::create_dir_all(path).await?;
+        fs_backend.create_dir_all(path).await?;
         return Ok(());
     }
 
