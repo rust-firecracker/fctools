@@ -19,7 +19,7 @@ use fctools::{
         VmmExecutor, VmmExecutorError,
     },
     ext::fcnet::{FcnetConfiguration, FcnetNetnsOptions},
-    fs_backend::{blocking::BlockingFsBackend, FsBackend},
+    fs_backend::{blocking::BlockingFsBackend, tokio_uring::TokioUringFsBackend, FsBackend},
     process::VmmProcessState,
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner},
     vm::{
@@ -313,7 +313,7 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
 // VM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVm = fctools::vm::Vm<TestExecutor, TestShellSpawner, BlockingFsBackend>;
+pub type TestVm = fctools::vm::Vm<TestExecutor, TestShellSpawner, TokioUringFsBackend>;
 
 type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>>;
 
@@ -615,10 +615,10 @@ impl VmBuilder {
             drop(lock);
         }
 
-        let mut vm: fctools::vm::Vm<TestExecutor, TestShellSpawner, BlockingFsBackend> = TestVm::prepare_arced(
+        let mut vm: fctools::vm::Vm<TestExecutor, TestShellSpawner, TokioUringFsBackend> = TestVm::prepare_arced(
             Arc::new(executor),
             run_context.shell_spawner.clone(),
-            Arc::new(BlockingFsBackend),
+            Arc::new(TokioUringFsBackend::start_with_defaults()),
             get_real_firecracker_installation().into(),
             configuration,
         )

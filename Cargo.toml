@@ -37,6 +37,9 @@ tokio = { version = "1.40.0", features = [
     "rt",
     "sync",
 ] }
+# fs backends
+tokio-uring = { version = "0.5.0", optional = true }
+flume = { version = "0.11.0", optional = true }
 # executor
 libc = { version = "0.2.159", optional = true }
 # process
@@ -80,10 +83,12 @@ full = [
     "link-local-ext",
     "snapshot-editor-ext",
     "blocking-fs-backend",
+    "tokio-uring-fs-backend",
 ]
 default = []
 # fs backends
 blocking-fs-backend = ["tokio/fs"]
+tokio-uring-fs-backend = ["dep:tokio-uring", "dep:flume", "dep:bytes"]
 # layers
 shell-spawner = []
 executor = ["shell-spawner", "dep:libc"]
@@ -98,7 +103,7 @@ process = [
 ]
 vm = ["process", "dep:serde", "dep:serde_json"]
 # extensions
-metrics-ext = ["dep:serde", "dep:serde_json"]
+metrics-ext = ["dep:serde", "dep:serde_json", "tokio/fs"]
 fcnet-ext = ["shell-spawner", "dep:cidr"]
 http-vsock-ext = ["vm", "hyper-client-sockets/firecracker"]
 grpc-vsock-ext = [

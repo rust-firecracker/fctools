@@ -6,10 +6,7 @@ use std::{
 
 use tokio::{process::Child, task::JoinSet};
 
-use crate::{
-    fs_backend::{FsBackend, FsOperation},
-    shell_spawner::ShellSpawner,
-};
+use crate::{fs_backend::FsBackend, shell_spawner::ShellSpawner};
 
 use super::{
     arguments::{ConfigurationFileOverride, VmmApiSocket, VmmArguments},
@@ -256,13 +253,27 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
         if self.remove_logs_on_cleanup {
             if let Some(ref log_path) = self.vmm_arguments.log_path {
-                fs_backend.remove_file(&log_path).offload(&mut join_set);
+                let fs_backend = fs_backend.clone();
+                let log_path = log_path.clone();
+                join_set.spawn(async move {
+                    fs_backend
+                        .remove_file(&log_path)
+                        .await
+                        .map_err(VmmExecutorError::IoError)
+                });
             }
         }
 
         if self.remove_metrics_on_cleanup {
             if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
-                fs_backend.remove_file(&metrics_path).offload(&mut join_set);
+                let fs_backend = fs_backend.clone();
+                let metrics_path = metrics_path.clone();
+                join_set.spawn(async move {
+                    fs_backend
+                        .remove_file(&metrics_path)
+                        .await
+                        .map_err(VmmExecutorError::IoError)
+                });
             }
         }
 

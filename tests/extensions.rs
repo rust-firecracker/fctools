@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use fctools::{
     ext::{metrics::spawn_metrics_task, snapshot_editor::SnapshotEditorExt},
-    fs_backend::blocking::BlockingFsBackend,
     vm::{
         api::VmApi,
         models::{CreateSnapshot, MetricsSystem, SnapshotType},
@@ -105,11 +104,7 @@ fn metrics_task_can_receive_data() {
     VmBuilder::new()
         .metrics_system(MetricsSystem::new(get_tmp_path()))
         .run(|mut vm| async move {
-            let mut metrics_task = spawn_metrics_task(
-                &BlockingFsBackend,
-                vm.get_accessible_paths().metrics_path.clone().unwrap(),
-                100,
-            );
+            let mut metrics_task = spawn_metrics_task(vm.get_accessible_paths().metrics_path.clone().unwrap(), 100);
             let metrics = metrics_task.receiver.recv().await.unwrap();
             assert!(metrics.put_api_requests.actions_count > 0);
             shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
@@ -121,11 +116,7 @@ fn metrics_task_can_be_cancelled_via_join_handle() {
     VmBuilder::new()
         .metrics_system(MetricsSystem::new(get_tmp_path()))
         .run(|mut vm| async move {
-            let mut metrics_task = spawn_metrics_task(
-                &BlockingFsBackend,
-                vm.get_accessible_paths().metrics_path.clone().unwrap(),
-                100,
-            );
+            let mut metrics_task = spawn_metrics_task(vm.get_accessible_paths().metrics_path.clone().unwrap(), 100);
             metrics_task.join_handle.abort();
             assert!(
                 tokio::time::timeout(Duration::from_secs(1), async { metrics_task.receiver.recv().await })

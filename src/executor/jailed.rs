@@ -6,10 +6,7 @@ use std::{
 
 use tokio::{process::Child, task::JoinSet};
 
-use crate::{
-    fs_backend::{FsBackend, FsOperation},
-    shell_spawner::ShellSpawner,
-};
+use crate::{fs_backend::FsBackend, shell_spawner::ShellSpawner};
 
 use super::{
     arguments::{ConfigurationFileOverride, JailerArguments, VmmApiSocket, VmmArguments},
@@ -104,7 +101,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         force_chown(chroot_base_dir, shell_spawner.as_ref()).await?; // grants access to jail as well
 
         // Create jail and delete previous one if necessary
-        let jail_path = self.get_jail_path(installation);
+        let jail_path = Arc::new(self.get_jail_path(installation));
         if fs_backend.check_exists(&jail_path).await? {
             fs_backend.remove_dir_all(&jail_path).await?;
         }
@@ -115,9 +112,15 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         // Ensure socket parent directory exists so that the firecracker process can bind inside of it
         if let VmmApiSocket::Enabled(ref socket_path) = self.vmm_arguments.api_socket {
             if let Some(socket_parent_dir) = socket_path.parent() {
-                fs_backend
-                    .create_dir_all(&jail_path.jail_join(socket_parent_dir))
-                    .offload(&mut join_set);
+                let socket_parent_dir = socket_parent_dir.to_owned();
+                let fs_backend = fs_backend.clone();
+                let jail_path = jail_path.clone();
+                join_set.spawn(async move {
+                    fs_backend
+                        .create_dir_all(&jail_path.jail_join(&socket_parent_dir))
+                        .await
+                        .map_err(VmmExecutorError::IoError)
+                });
             }
         }
 
