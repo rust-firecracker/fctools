@@ -1,4 +1,4 @@
-use std::{os::unix::fs::FileTypeExt, sync::Arc};
+use std::{os::unix::fs::FileTypeExt, sync::Arc, time::Duration};
 
 use fctools::{
     executor::{
@@ -18,8 +18,8 @@ use fctools::{
 use futures_util::FutureExt;
 use rand::RngCore;
 use test_framework::{
-    env_get_boot_socket_wait, env_get_boot_wait, get_real_firecracker_installation, get_tmp_path, shutdown_test_vm,
-    SnapshottingContext, TestExecutor, TestVm, VmBuilder,
+    get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, SnapshottingContext, TestExecutor, TestOptions,
+    TestVm, VmBuilder,
 };
 use tokio::{
     fs::{metadata, try_exists},
@@ -234,8 +234,12 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, snapshotting_context: 
     )
     .await
     .unwrap();
-    vm.start(env_get_boot_socket_wait()).await.unwrap();
-    tokio::time::sleep(env_get_boot_wait()).await;
+    vm.start(Duration::from_millis(
+        TestOptions::get().await.waits.boot_socket_timeout_ms,
+    ))
+    .await
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(TestOptions::get().await.waits.boot_wait_ms)).await;
 
     vm.api_get_info().await.unwrap();
     shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;

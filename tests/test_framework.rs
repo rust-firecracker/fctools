@@ -33,11 +33,51 @@ use fctools::{
 };
 use futures_util::future::BoxFuture;
 use rand::{Rng, RngCore};
+use serde::Deserialize;
 use tokio::{
     process::Child,
-    sync::{Mutex, MutexGuard},
+    sync::{Mutex, MutexGuard, OnceCell},
 };
 use uuid::Uuid;
+
+static TEST_TOOLCHAIN: OnceCell<TestOptions> = OnceCell::const_new();
+
+#[allow(unused)]
+#[derive(Deserialize)]
+pub struct TestOptions {
+    pub toolchain: TestOptionsToolchain,
+    pub waits: TestOptionsWaits,
+    pub network_interface: String,
+}
+
+#[allow(unused)]
+#[derive(Deserialize)]
+pub struct TestOptionsToolchain {
+    pub version: String,
+    pub snapshot_version: String,
+}
+
+#[allow(unused)]
+#[derive(Deserialize)]
+pub struct TestOptionsWaits {
+    pub shutdown_timeout_ms: u64,
+    pub boot_wait_ms: u64,
+    pub boot_socket_timeout_ms: u64,
+}
+
+impl TestOptions {
+    #[allow(unused)]
+    pub async fn get() -> &'static Self {
+        TEST_TOOLCHAIN
+            .get_or_init(|| async {
+                let content = tokio::fs::read_to_string(get_test_path("options.json"))
+                    .await
+                    .expect("Could not read options.json");
+                serde_json::from_str(&content).expect("options.json is malformed")
+            })
+            .await
+    }
+}
 
 // MISC UTILITIES
 
@@ -61,9 +101,9 @@ pub fn get_test_path(path: &str) -> PathBuf {
 #[allow(unused)]
 pub fn get_real_firecracker_installation() -> VmmInstallation {
     VmmInstallation {
-        firecracker_path: get_test_path("firecracker"),
-        jailer_path: get_test_path("jailer"),
-        snapshot_editor_path: get_test_path("snapshot-editor"),
+        firecracker_path: get_test_path("toolchain/firecracker"),
+        jailer_path: get_test_path("toolchain/jailer"),
+        snapshot_editor_path: get_test_path("toolchain/snapshot-editor"),
     }
 }
 
@@ -193,34 +233,6 @@ impl VmmExecutor for TestExecutor {
     }
 }
 
-#[allow(unused)]
-pub fn env_get_shutdown_timeout() -> Duration {
-    Duration::from_millis(match std::env::var("FCTOOLS_VM_SHUTDOWN_TIMEOUT") {
-        Ok(value) => value
-            .parse::<u64>()
-            .expect("Shutdown timeout from env var is not a u64"),
-        Err(_) => 7500,
-    })
-}
-
-#[allow(unused)]
-pub fn env_get_boot_wait() -> Duration {
-    Duration::from_millis(match std::env::var("FCTOOLS_VM_BOOT_WAIT") {
-        Ok(value) => value.parse::<u64>().expect("Boot wait from env var is not a u64"),
-        Err(_) => 3000,
-    })
-}
-
-#[allow(unused)]
-pub fn env_get_boot_socket_wait() -> Duration {
-    Duration::from_millis(match std::env::var("FCTOOLS_VM_BOOT_SOCKET_WAIT") {
-        Ok(value) => value
-            .parse::<u64>()
-            .expect("Boot socket wait from env var is not a u64"),
-        Err(_) => 7500,
-    })
-}
-
 // VMM TEST FRAMEWORK
 
 #[allow(unused)]
@@ -251,7 +263,7 @@ where
 
     init_process(&mut jailed_process).await;
     init_process(&mut unrestricted_process).await;
-    tokio::time::sleep(env_get_boot_wait() + Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_millis(TestOptions::get().await.waits.boot_wait_ms)).await;
     closure(unrestricted_process).await;
     println!("Succeeded with unrestricted VM");
     closure(jailed_process).await;
@@ -261,10 +273,10 @@ where
 fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
     let socket_path = get_tmp_path();
 
-    let unrestricted_firecracker_arguments =
-        VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())).config_path(get_test_path("config.json"));
+    let unrestricted_firecracker_arguments = VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()))
+        .config_path(get_test_path("configs/unrestricted.json"));
     let jailer_firecracker_arguments =
-        VmmArguments::new(VmmApiSocket::Enabled(socket_path)).config_path("jail-config.json");
+        VmmArguments::new(VmmApiSocket::Enabled(socket_path)).config_path("/jailed.json");
 
     let jailer_arguments = JailerArguments::new(
         unsafe { libc::geteuid() },
@@ -294,9 +306,9 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
             BlockingFsBackend,
             get_real_firecracker_installation(),
             vec![
-                get_test_path("vmlinux-6.1"),
-                get_test_path("debian.ext4"),
-                get_test_path("jail-config.json"),
+                get_test_path("assets/kernel"),
+                get_test_path("assets/rootfs.ext4"),
+                get_test_path("configs/jailed.json"),
             ],
         ),
     )
@@ -415,6 +427,10 @@ impl VmBuilder {
         let tap_ip = inet(net_num, 2);
         let tap_name = format!("tap{net_num}");
         let netns_name = format!("fcnetns{net_num}");
+        let network_interface = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async { TestOptions::get().await.network_interface.clone() });
 
         let fcnet_configuration = FcnetConfiguration::netns(
             FcnetNetnsOptions::new()
@@ -424,7 +440,7 @@ impl VmBuilder {
                 .netns_name(&netns_name)
                 .guest_ip(guest_ip.address()),
         )
-        .iface_name(std::env::var("FCTOOLS_NET_IFACE").expect("FCTOOLS_NET_IFACE not set"))
+        .iface_name(network_interface)
         .tap_name(&tap_name)
         .tap_ip(tap_ip);
         let mut boot_arg_append = String::from(" ");
@@ -465,10 +481,10 @@ impl VmBuilder {
         let socket_path = get_tmp_path();
 
         let mut unrestricted_data = VmConfigurationData::new(
-            BootSource::new(get_test_path("vmlinux-6.1")).boot_args(get_boot_arg(self.unrestricted_network.as_ref())),
+            BootSource::new(get_test_path("assets/kernel")).boot_args(get_boot_arg(self.unrestricted_network.as_ref())),
             MachineConfiguration::new(1, 128).track_dirty_pages(true),
         )
-        .drive(Drive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")));
+        .drive(Drive::new("rootfs", true).path_on_host(get_test_path("assets/rootfs.ext4")));
         let mut unrestricted_executor =
             UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())));
         if let Some(ref network) = self.unrestricted_network {
@@ -482,10 +498,10 @@ impl VmBuilder {
         };
 
         let mut jailed_data = VmConfigurationData::new(
-            BootSource::new(get_test_path("vmlinux-6.1")).boot_args(get_boot_arg(self.jailed_network.as_ref())),
+            BootSource::new(get_test_path("assets/kernel")).boot_args(get_boot_arg(self.jailed_network.as_ref())),
             MachineConfiguration::new(1, 128).track_dirty_pages(true),
         )
-        .drive(Drive::new("rootfs", true).path_on_host(get_test_path("debian.ext4")));
+        .drive(Drive::new("rootfs", true).path_on_host(get_test_path("assets/rootfs.ext4")));
         let mut jailer_arguments = JailerArguments::new(
             unsafe { libc::geteuid() },
             unsafe { libc::getegid() },
@@ -588,7 +604,7 @@ impl VmBuilder {
         F: Fn(TestVm, SnapshottingContext) -> Fut + Send,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        let fcnet_path = which::which("fcnet").expect("fcnet not installed onto PATH");
+        let fcnet_path = get_test_path("toolchain/fcnet");
 
         if let Some(ref network) = network {
             let lock = get_network_lock().await;
@@ -612,8 +628,12 @@ impl VmBuilder {
         if let Some(pre_start_hook) = pre_start_hook {
             pre_start_hook(&mut vm).await;
         }
-        vm.start(env_get_boot_socket_wait()).await.unwrap();
-        tokio::time::sleep(env_get_boot_wait()).await;
+        vm.start(Duration::from_millis(
+            TestOptions::get().await.waits.boot_socket_timeout_ms,
+        ))
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(TestOptions::get().await.waits.boot_wait_ms)).await;
         let cloned_shell_spawner = run_context.shell_spawner.clone();
         function(vm, run_context).await;
 
@@ -653,8 +673,11 @@ async fn get_network_lock<'a>() -> NetworkLock<'a> {
 
 #[allow(unused)]
 pub async fn shutdown_test_vm(vm: &mut TestVm, shutdown_method: ShutdownMethod) {
-    vm.shutdown(vec![shutdown_method], env_get_shutdown_timeout())
-        .await
-        .unwrap();
+    vm.shutdown(
+        vec![shutdown_method],
+        Duration::from_millis(TestOptions::get().await.waits.shutdown_timeout_ms),
+    )
+    .await
+    .unwrap();
     vm.cleanup().await.unwrap();
 }

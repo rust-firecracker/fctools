@@ -8,7 +8,7 @@ use fctools::{
         ShutdownMethod,
     },
 };
-use test_framework::{get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, VmBuilder};
+use test_framework::{get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, TestOptions, VmBuilder};
 
 mod test_framework;
 
@@ -52,7 +52,7 @@ fn snapshot_editor_can_get_snapshot_version() {
             .get_snapshot_version(snapshot.snapshot_path())
             .await
             .unwrap();
-        assert_eq!(version.trim(), "v2.0.0");
+        assert_eq!(version.trim(), TestOptions::get().await.toolchain.snapshot_version);
         shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
     });
 }

@@ -1,6 +1,6 @@
 {
   "boot-source": {
-    "kernel_image_path": "/opt/testdata/vmlinux-6.1",
+    "kernel_image_path": "/kernel",
     "boot_args": "console=ttyS0 reboot=k panic=1 pci=off",
     "initrd_path": null
   },
@@ -8,7 +8,7 @@
     {
       "drive_id": "rootfs",
       "is_root_device": true,
-      "path_on_host": "/opt/testdata/debian.ext4"
+      "path_on_host": "/rootfs.ext4"
     }
   ],
   "machine-config": {
