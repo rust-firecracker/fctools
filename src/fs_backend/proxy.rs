@@ -9,12 +9,22 @@ use uuid::Uuid;
 
 use super::{FsBackend, FsBackendError};
 
+/// A proxy FS backend sets up an OS thread with a in-memory proxy server which forwards this backend's operations
+/// from the current thread to the proxy thread, where they are asynchronously executed and their results are sent back
+/// to the current thread.
+///
+/// For example, this is useful to wrap a FS backend using an io-uring-based async runtime in its own thread,
+/// since it would not be compatible with a Tokio multi_thread runtime commonly used in the main thread pool, and then
+/// proxy async FS operations from Tokio to the io-uring runtime.
+
 pub struct ProxyFsBackend {
     request_sender: mpsc::Sender<ProxyRequest>,
     response_receiver: broadcast::Receiver<ProxyResponse>,
     thread_join_handle: std::thread::JoinHandle<()>,
 }
 
+/// A proxy "server" (serves a mpsc request channel as its inbound and a broadcast response channel as its outbound) that
+/// is meant to be blocked on via run() in a dedicated async runtime with its own thread.
 pub struct ProxyServer<S: SpawnTask + Send, F: FsBackend> {
     request_receiver: mpsc::Receiver<ProxyRequest>,
     response_sender: broadcast::Sender<ProxyResponse>,
@@ -190,6 +200,9 @@ fn wrong_response_error<R>() -> Result<R, FsBackendError> {
 }
 
 impl ProxyFsBackend {
+    /// Create a proxy backend using the given SpawnTask, proxied backend, runner and channel capacity. The runner is expected
+    /// to instantiate your async runtime of choice that is compatible with the provided SpawnTask, and block it on the
+    /// future returned from ProxyServer's run() (the ProxyServer instance is provided to the runner).
     pub fn new<
         F: FsBackend + Send + 'static,
         S: SpawnTask + Send + 'static,
@@ -219,6 +232,18 @@ impl ProxyFsBackend {
             response_receiver,
             thread_join_handle,
         }
+    }
+
+    /// Create a proxy backend using the given proxied backend and a runner that initializes a Tokio current_thread runtime
+    /// inside the thread and blocks on it appropriately.
+    pub fn tokio_current_thread<F: FsBackend + Send + 'static>(capacity: usize, fs_backend: F) -> Self {
+        Self::new(capacity, fs_backend, TokioSpawnTask, move |mut proxy_server| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Could not build Tokio current thread runtime")
+                .block_on(proxy_server.run());
+        })
     }
 
     pub async fn ping(&self) -> Result<(), FsBackendError> {
