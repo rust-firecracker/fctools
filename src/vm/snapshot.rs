@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::fs_backend::FsBackend;
+use crate::fs_backend::{FsBackend, FsBackendError};
 
 use super::{
     configuration::{VmConfiguration, VmConfigurationData},
@@ -23,7 +23,7 @@ impl SnapshotData {
         fs_backend: &impl FsBackend,
         new_snapshot_path: PathBuf,
         new_mem_file_path: PathBuf,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), FsBackendError> {
         tokio::try_join!(
             fs_backend.copy(&self.snapshot_path, &new_snapshot_path),
             fs_backend.copy(&self.mem_file_path, &new_mem_file_path)
@@ -41,7 +41,7 @@ impl SnapshotData {
         fs_backend: &impl FsBackend,
         new_snapshot_path: PathBuf,
         new_mem_file_path: PathBuf,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), FsBackendError> {
         tokio::try_join!(
             fs_backend.rename_file(&self.snapshot_path, &new_snapshot_path),
             fs_backend.rename_file(&self.mem_file_path, &new_mem_file_path)
@@ -53,7 +53,7 @@ impl SnapshotData {
     }
 
     /// Remove the data of this snapshot.
-    pub async fn remove(self, fs_backend: &impl FsBackend) -> Result<(), tokio::io::Error> {
+    pub async fn remove(self, fs_backend: &impl FsBackend) -> Result<(), FsBackendError> {
         tokio::try_join!(
             fs_backend.remove_file(&self.snapshot_path),
             fs_backend.remove_file(&self.mem_file_path)

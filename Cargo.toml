@@ -38,10 +38,7 @@ tokio = { version = "1.40.0", features = [
     "sync",
 ] }
 # fs backends
-tokio-uring = { version = "0.5.0", optional = true }
-flume = { version = "0.11.0", optional = true }
 uuid = { version = "1.10.0", optional = true, features = ["v4"] }
-dashmap = { version = "6.1.0", optional = true }
 # executor
 libc = { version = "0.2.159", optional = true }
 # process
@@ -85,21 +82,16 @@ full = [
     "link-local-ext",
     "snapshot-editor-ext",
     "blocking-fs-backend",
-    "tokio-uring-fs-backend",
+    "thread-bridge-fs-backend",
 ]
 default = []
 # fs backends
-blocking-fs-backend = ["tokio/fs"]
-tokio-uring-fs-backend = [
-    "dep:tokio-uring",
-    "dep:flume",
-    "dep:bytes",
-    "dep:uuid",
-    "dep:dashmap",
-]
+fs-backend = []
+blocking-fs-backend = ["fs-backend", "tokio/fs"]
+thread-bridge-fs-backend = ["fs-backend", "dep:uuid"]
 # layers
 shell-spawner = []
-executor = ["shell-spawner", "dep:libc"]
+executor = ["fs-backend", "shell-spawner", "dep:libc"]
 process = [
     "executor",
     "dep:hyper",

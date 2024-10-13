@@ -15,7 +15,10 @@ use tokio::{
     task::{JoinError, JoinSet},
 };
 
-use crate::{fs_backend::FsBackend, shell_spawner::ShellSpawner};
+use crate::{
+    fs_backend::{FsBackend, FsBackendError},
+    shell_spawner::ShellSpawner,
+};
 
 pub mod arguments;
 pub mod command_modifier;
@@ -27,6 +30,8 @@ pub mod unrestricted;
 pub enum VmmExecutorError {
     #[error("A non-FS I/O error occurred: `{0}")]
     IoError(std::io::Error),
+    #[error("An I/O error emitted by an FS backend occurred: `{0}`")]
+    FsBackendError(FsBackendError),
     #[error("Forking an auxiliary shell via the spawner to force chown/mkdir failed: `{0}`")]
     ShellForkFailed(std::io::Error),
     #[error("A forced shell chown command exited with a non-zero exit status: `{0}`")]
@@ -47,12 +52,6 @@ pub enum VmmExecutorError {
     InstallationHasNoFilename,
     #[error("Another error occurred: `{0}`")]
     Other(Box<dyn std::error::Error + Send>),
-}
-
-impl From<std::io::Error> for VmmExecutorError {
-    fn from(value: std::io::Error) -> Self {
-        VmmExecutorError::IoError(value)
-    }
 }
 
 /// A VMM executor is layer 2 of fctools: manages the environment of a VMM process, correctly invoking the process,
@@ -123,7 +122,10 @@ async fn force_mkdir(
     shell_spawner: &impl ShellSpawner,
 ) -> Result<(), VmmExecutorError> {
     if !shell_spawner.increases_privileges() {
-        fs_backend.create_dir_all(path).await?;
+        fs_backend
+            .create_dir_all(path)
+            .await
+            .map_err(VmmExecutorError::FsBackendError)?;
         return Ok(());
     }
 
@@ -142,10 +144,16 @@ async fn force_mkdir(
 
 async fn create_file_with_tree(fs_backend: Arc<impl FsBackend>, path: PathBuf) -> Result<(), VmmExecutorError> {
     if let Some(parent_path) = path.parent() {
-        fs_backend.create_dir_all(parent_path).await?;
+        fs_backend
+            .create_dir_all(parent_path)
+            .await
+            .map_err(VmmExecutorError::FsBackendError)?;
     }
 
-    fs_backend.create_file(&path).await?;
+    fs_backend
+        .create_file(&path)
+        .await
+        .map_err(VmmExecutorError::FsBackendError)?;
     Ok(())
 }
 

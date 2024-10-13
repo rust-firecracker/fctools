@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     executor::{arguments::ConfigurationFileOverride, installation::VmmInstallation, VmmExecutor},
-    fs_backend::FsBackend,
+    fs_backend::{FsBackend, FsBackendError},
     process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
     shell_spawner::ShellSpawner,
 };
@@ -85,8 +85,8 @@ pub enum VmError {
     ExpectedPausedOrRunning { actual: VmState },
     #[error("Serde serialization or deserialization failed: `{0}`")]
     SerdeError(serde_json::Error),
-    #[error("An async I/O operation failed: `{0}`")]
-    IoError(tokio::io::Error),
+    #[error("The FS backend emitted an error: `{0}`")]
+    FsBackendError(FsBackendError),
     #[error(
         "The API socket returned an unsuccessful HTTP response with the `{status_code}` status code: `{fault_message}`"
     )]
@@ -110,12 +110,6 @@ pub enum VmError {
     DisabledApiSocketIsUnsupported,
     #[error("A path mapping was expected to be constructed by the executor, but was not returned")]
     MissingPathMapping,
-}
-
-impl From<std::io::Error> for VmError {
-    fn from(value: std::io::Error) -> Self {
-        VmError::IoError(value)
-    }
 }
 
 /// A shutdown method that can be applied to attempt to terminate both the guest operating system and the VMM.
@@ -363,7 +357,7 @@ impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> Vm<E, S, F> {
                         serde_json::to_string(data).map_err(VmError::SerdeError)?,
                     )
                     .await
-                    .map_err(VmError::IoError)?;
+                    .map_err(VmError::FsBackendError)?;
             }
         }
 
@@ -384,7 +378,7 @@ impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> Vm<E, S, F> {
         })
         .await
         .map_err(|_| VmError::Timeout)?
-        .map_err(VmError::IoError)?;
+        .map_err(VmError::FsBackendError)?;
 
         match configuration {
             VmConfiguration::New { init_method, data } => {
@@ -533,11 +527,14 @@ impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> Vm<E, S, F> {
 
 async fn prepare_file(fs_backend: Arc<impl FsBackend>, path: PathBuf, only_tree: bool) -> Result<(), VmError> {
     if let Some(parent_path) = path.parent() {
-        fs_backend.create_dir_all(parent_path).await?;
+        fs_backend
+            .create_dir_all(parent_path)
+            .await
+            .map_err(VmError::FsBackendError)?;
     }
 
     if !only_tree {
-        fs_backend.create_file(&path).await?;
+        fs_backend.create_file(&path).await.map_err(VmError::FsBackendError)?;
     }
 
     Ok(())

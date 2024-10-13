@@ -2,7 +2,10 @@ use std::path::PathBuf;
 
 use fctools::{
     executor::installation::{VmmInstallation, VmmInstallationError},
-    fs_backend::blocking::BlockingFsBackend,
+    fs_backend::{
+        blocking::BlockingFsBackend,
+        thread_bridge::{ThreadBridgeFsBackend, TokioSpawnTask},
+    },
     shell_spawner::{SameUserShellSpawner, ShellSpawner, SuShellSpawner, SudoShellSpawner},
 };
 use test_framework::{get_test_path, TestOptions};
@@ -161,4 +164,18 @@ async fn elevation_test<S: ShellSpawner, F: FnOnce(String) -> S>(closure: F) {
     assert!(child.stdout.is_none());
     assert!(child.stdin.is_some());
     assert!(child.stderr.is_none());
+}
+
+#[tokio::test]
+async fn tbridge_test() {
+    let bridge = ThreadBridgeFsBackend::new(1000, BlockingFsBackend, TokioSpawnTask, |mut bridge| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(bridge.run());
+    });
+
+    bridge.ping().await.unwrap();
+    bridge.terminate().await.unwrap();
 }

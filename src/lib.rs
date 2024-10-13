@@ -3,6 +3,7 @@ pub mod executor;
 
 pub mod ext;
 
+#[cfg(feature = "fs-backend")]
 pub mod fs_backend;
 
 #[cfg(feature = "process")]

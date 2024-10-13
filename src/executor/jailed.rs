@@ -95,17 +95,31 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             Some(dir) => &dir,
             None => &PathBuf::from("/srv/jailer"),
         };
-        if !fs_backend.check_exists(&chroot_base_dir).await? {
+        if !fs_backend
+            .check_exists(&chroot_base_dir)
+            .await
+            .map_err(VmmExecutorError::FsBackendError)?
+        {
             force_mkdir(fs_backend.as_ref(), chroot_base_dir, shell_spawner.as_ref()).await?;
         }
         force_chown(chroot_base_dir, shell_spawner.as_ref()).await?; // grants access to jail as well
 
         // Create jail and delete previous one if necessary
         let jail_path = Arc::new(self.get_jail_path(installation));
-        if fs_backend.check_exists(&jail_path).await? {
-            fs_backend.remove_dir_all(&jail_path).await?;
+        if fs_backend
+            .check_exists(&jail_path)
+            .await
+            .map_err(VmmExecutorError::FsBackendError)?
+        {
+            fs_backend
+                .remove_dir_all(&jail_path)
+                .await
+                .map_err(VmmExecutorError::FsBackendError)?;
         }
-        fs_backend.create_dir_all(&jail_path).await?;
+        fs_backend
+            .create_dir_all(&jail_path)
+            .await
+            .map_err(VmmExecutorError::FsBackendError)?;
 
         let mut join_set = JoinSet::new();
 
@@ -119,7 +133,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                     fs_backend
                         .create_dir_all(&jail_path.jail_join(&socket_parent_dir))
                         .await
-                        .map_err(VmmExecutorError::IoError)
+                        .map_err(VmmExecutorError::FsBackendError)
                 });
             }
         }
@@ -139,7 +153,11 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         let mut path_mappings = HashMap::with_capacity(outer_paths.len());
 
         for outer_path in outer_paths {
-            if !fs_backend.check_exists(&outer_path).await? {
+            if !fs_backend
+                .check_exists(&outer_path)
+                .await
+                .map_err(VmmExecutorError::FsBackendError)?
+            {
                 return Err(VmmExecutorError::ExpectedResourceMissing(outer_path.clone()));
             }
 
@@ -160,28 +178,28 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                     fs_backend
                         .create_dir_all(new_path_parent_dir)
                         .await
-                        .map_err(VmmExecutorError::IoError)?;
+                        .map_err(VmmExecutorError::FsBackendError)?;
                 }
 
                 match jail_move_method {
                     JailMoveMethod::Copy => fs_backend
                         .copy(&outer_path, &expanded_inner_path)
                         .await
-                        .map_err(VmmExecutorError::IoError),
+                        .map_err(VmmExecutorError::FsBackendError),
                     JailMoveMethod::HardLink => fs_backend
                         .hard_link(&outer_path, &expanded_inner_path)
                         .await
-                        .map_err(VmmExecutorError::IoError),
+                        .map_err(VmmExecutorError::FsBackendError),
                     JailMoveMethod::HardLinkWithCopyFallback => {
                         let hardlink_result = fs_backend
                             .hard_link(&outer_path, &expanded_inner_path)
                             .await
-                            .map_err(VmmExecutorError::IoError);
+                            .map_err(VmmExecutorError::FsBackendError);
                         if let Err(_) = hardlink_result {
                             fs_backend
                                 .copy(&outer_path, &expanded_inner_path)
                                 .await
-                                .map_err(VmmExecutorError::IoError)
+                                .map_err(VmmExecutorError::FsBackendError)
                         } else {
                             hardlink_result
                         }
@@ -231,7 +249,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         fs_backend
             .remove_dir_all(jail_parent_path)
             .await
-            .map_err(VmmExecutorError::IoError)
+            .map_err(VmmExecutorError::FsBackendError)
     }
 }
 

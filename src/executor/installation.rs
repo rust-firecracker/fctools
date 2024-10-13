@@ -5,7 +5,7 @@ use std::{
 
 use tokio::process::Command;
 
-use crate::fs_backend::FsBackend;
+use crate::fs_backend::{FsBackend, FsBackendError};
 
 /// A VMM installation encapsulates release binaries of the most important automatable
 /// Firecracker components: firecracker, jailer, snapshot-editor. Using a partial installation with only
@@ -20,8 +20,8 @@ pub struct VmmInstallation {
 /// Error caused during installation verification.
 #[derive(Debug, thiserror::Error)]
 pub enum VmmInstallationError {
-    #[error("Accessing a file via tokio I/O failed: `{0}`")]
-    FilesystemError(std::io::Error),
+    #[error("An error was emitted by the FS backend: `{0}`")]
+    FsBackendError(FsBackendError),
     #[error("A binary inside the installation doesn't exist")]
     BinaryMissing,
     #[error("A binary inside the installation does not have execution permissions")]
@@ -68,7 +68,7 @@ async fn verify_imp(
     if !fs_backend
         .check_exists(path)
         .await
-        .map_err(VmmInstallationError::FilesystemError)?
+        .map_err(VmmInstallationError::FsBackendError)?
     {
         return Err(VmmInstallationError::BinaryMissing);
     }

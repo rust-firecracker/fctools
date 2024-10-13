@@ -178,7 +178,11 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let fs_backend = fs_backend.clone();
             let shell_spawner = shell_spawner.clone();
             join_set.spawn(async move {
-                if !fs_backend.check_exists(&path).await? {
+                if !fs_backend
+                    .check_exists(&path)
+                    .await
+                    .map_err(VmmExecutorError::FsBackendError)?
+                {
                     return Err(VmmExecutorError::ExpectedResourceMissing(path));
                 }
 
@@ -190,9 +194,16 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let fs_backend = fs_backend.clone();
             let shell_spawner = shell_spawner.clone();
             join_set.spawn(async move {
-                if fs_backend.check_exists(&socket_path).await? {
+                if fs_backend
+                    .check_exists(&socket_path)
+                    .await
+                    .map_err(VmmExecutorError::FsBackendError)?
+                {
                     force_chown(&socket_path, shell_spawner.as_ref()).await?;
-                    fs_backend.remove_file(&socket_path).await?;
+                    fs_backend
+                        .remove_file(&socket_path)
+                        .await
+                        .map_err(VmmExecutorError::FsBackendError)?;
                 }
 
                 Ok(())
@@ -244,9 +255,16 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let shell_spawner = shell_spawner.clone();
             let fs_backend = fs_backend.clone();
             join_set.spawn(async move {
-                if fs_backend.check_exists(&socket_path).await? {
+                if fs_backend
+                    .check_exists(&socket_path)
+                    .await
+                    .map_err(VmmExecutorError::FsBackendError)?
+                {
                     force_chown(&socket_path, shell_spawner.as_ref()).await?;
-                    fs_backend.remove_file(&socket_path).await?;
+                    fs_backend
+                        .remove_file(&socket_path)
+                        .await
+                        .map_err(VmmExecutorError::FsBackendError)?;
                 }
                 Ok(())
             });
@@ -260,7 +278,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                     fs_backend
                         .remove_file(&log_path)
                         .await
-                        .map_err(VmmExecutorError::IoError)
+                        .map_err(VmmExecutorError::FsBackendError)
                 });
             }
         }
@@ -273,7 +291,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                     fs_backend
                         .remove_file(&metrics_path)
                         .await
-                        .map_err(VmmExecutorError::IoError)
+                        .map_err(VmmExecutorError::FsBackendError)
                 });
             }
         }
