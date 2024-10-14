@@ -39,6 +39,7 @@ tokio = { version = "1.40.0", features = [
 ] }
 # fs backends
 uuid = { version = "1.10.0", optional = true, features = ["v4"] }
+tokio-uring = { version = "0.5.0", optional = true }
 # executor
 libc = { version = "0.2.159", optional = true }
 # process
@@ -82,13 +83,16 @@ full = [
     "link-local-ext",
     "snapshot-editor-ext",
     "blocking-fs-backend",
-    "proxy-fs-backend",
+    "unsend-proxy-fs-backend",
+    "tokio-uring-fs-backend",
 ]
 default = []
 # fs backends
 fs-backend = []
+fs-backend-unsend = ["fs-backend"]
 blocking-fs-backend = ["fs-backend", "tokio/fs"]
-proxy-fs-backend = ["fs-backend", "dep:uuid"]
+unsend-proxy-fs-backend = ["fs-backend-unsend", "dep:uuid"]
+tokio-uring-fs-backend = ["fs-backend-unsend", "dep:tokio-uring"]
 # layers
 shell-spawner = []
 executor = ["fs-backend", "shell-spawner", "dep:libc"]
