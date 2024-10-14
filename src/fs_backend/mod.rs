@@ -6,6 +6,9 @@ pub mod blocking;
 #[cfg(feature = "unsend-proxy-fs-backend")]
 pub mod unsend_proxy;
 
+#[cfg(feature = "tokio-uring-fs-backend")]
+pub mod tokio_uring;
+
 /// An error emitted by an FS backend, being either an owned or an arced value of a std::io::Error.
 #[derive(Debug)]
 pub enum FsBackendError {

@@ -13,13 +13,18 @@ use super::{FsBackend, FsBackendError, UnsendFsBackend};
 /// A FS backend that runs an UnsendFsBackend on a separate OS thread and wraps the !Send backend
 /// in a Send context by exchanging requests and responses to and from the OS thread via a channel
 /// pair (mpsc and broadcast) used internally.
+///
+/// A minor change the !Send proxy makes to circumvent std::io::Error being !Clone is that all owned
+/// FsBackendError-s emitted by the !Send backend will be converted into arced errors. The Clone
+/// requirement is needed due to a broadcast channel being used as a response recv channel on this
+/// Send side.
 pub struct UnsendProxyFsBackend {
     request_sender: mpsc::Sender<ProxyRequest>,
     response_receiver: broadcast::Receiver<ProxyResponse>,
     thread_join_handle: std::thread::JoinHandle<()>,
 }
 
-/// The end of an UnsendProxyFsBackend that is executed on the dedicated thread, and wraps the !Send
+/// The !Send end of an UnsendProxyFsBackend that is executed on the dedicated thread, and wraps the !Send
 /// backend via an in-memory channel server that is accessed through the other end.
 ///
 /// The run() future is !Send and must be blocked on via the chosen async runtime on the thread. Usually
