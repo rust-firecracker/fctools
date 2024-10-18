@@ -236,3 +236,20 @@ impl ToString for FirecrackerLogLevel {
         .into()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::vmm::arguments::firecracker::FirecrackerApiSocket;
+
+    use super::{FirecrackerArguments, FirecrackerConfigurationOverride};
+
+    #[test]
+    fn api_sock_can_be_disabled() {
+        assert(FirecrackerArguments::new(FirecrackerApiSocket::Disabled), "--no-api");
+    }
+
+    fn assert(args: FirecrackerArguments, matcher: &str) {
+        let joined_str = args.join(FirecrackerConfigurationOverride::NoOverride).join(" ");
+        assert!(joined_str.contains(matcher));
+    }
+}
