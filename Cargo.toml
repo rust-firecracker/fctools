@@ -1,6 +1,6 @@
 [package]
 name = "fctools"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 description = "An exhaustive, highly modular and extensible host SDK for the Firecracker microVM manager."
 license = "MIT"
@@ -70,6 +70,9 @@ tokio = { version = "1.39.2", features = ["macros", "rt-multi-thread"] }
 uuid = { version = "1.10.0", features = ["v4"] }
 which = "6.0.3"
 file-lock = "2.1.11"
+fcnet = { version = "0.5.0", default-features = false, features = [
+    "namespaced",
+] }
 
 fctools = { path = ".", features = ["full"] }
 
@@ -77,7 +80,6 @@ fctools = { path = ".", features = ["full"] }
 full = [
     "vm",
     "metrics-ext",
-    "fcnet-ext",
     "http-vsock-ext",
     "grpc-vsock-ext",
     "link-local-ext",
@@ -108,7 +110,6 @@ process = [
 vm = ["process", "dep:serde", "dep:serde_json"]
 # extensions
 metrics-ext = ["dep:serde", "dep:serde_json", "tokio/fs"]
-fcnet-ext = ["shell-spawner", "dep:cidr"]
 http-vsock-ext = ["vm", "hyper-client-sockets/firecracker"]
 grpc-vsock-ext = [
     "vm",

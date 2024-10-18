@@ -1,6 +1,3 @@
-#[cfg(feature = "fcnet-ext")]
-pub mod fcnet;
-
 #[cfg(feature = "grpc-vsock-ext")]
 pub mod grpc_vsock;
 
