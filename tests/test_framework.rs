@@ -21,7 +21,7 @@ use fctools::{
     },
     fs_backend::{blocking::BlockingFsBackend, FsBackend},
     process::VmmProcessState,
-    shell_spawner::{SameUserShellSpawner, ShellSpawner},
+    runner::{DirectRunner, Runner},
     vm::{
         configuration::{InitMethod, VmConfiguration, VmConfigurationData},
         models::{
@@ -118,8 +118,8 @@ pub fn jail_join(path1: impl AsRef<Path>, path2: impl Into<PathBuf>) -> PathBuf 
 }
 
 #[allow(unused)]
-pub fn get_shell_spawner() -> Arc<impl ShellSpawner> {
-    Arc::new(SameUserShellSpawner::new(which::which("bash").unwrap()))
+pub fn get_shell_spawner() -> Arc<impl Runner> {
+    Arc::new(DirectRunner::new(which::which("bash").unwrap()))
 }
 
 #[allow(unused)]
@@ -130,7 +130,7 @@ pub fn get_fs_backend() -> Arc<impl FsBackend> {
 #[derive(Default)]
 pub struct FailingShellSpawner {}
 
-impl ShellSpawner for FailingShellSpawner {
+impl Runner for FailingShellSpawner {
     fn increases_privileges(&self) -> bool {
         false
     }
@@ -171,7 +171,7 @@ impl VmmExecutor for TestExecutor {
     async fn prepare(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl ShellSpawner>,
+        shell_spawner: Arc<impl Runner>,
         fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
@@ -184,7 +184,7 @@ impl VmmExecutor for TestExecutor {
     async fn invoke(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl ShellSpawner>,
+        shell_spawner: Arc<impl Runner>,
         config_override: ConfigurationFileOverride,
     ) -> Result<Child, VmmExecutorError> {
         match self {
@@ -196,7 +196,7 @@ impl VmmExecutor for TestExecutor {
     async fn cleanup(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl ShellSpawner>,
+        shell_spawner: Arc<impl Runner>,
         fs_backend: Arc<impl FsBackend>,
     ) -> Result<(), VmmExecutorError> {
         match self {
@@ -209,7 +209,7 @@ impl VmmExecutor for TestExecutor {
 // VMM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVmmProcess = fctools::process::VmmProcess<TestExecutor, SameUserShellSpawner, BlockingFsBackend>;
+pub type TestVmmProcess = fctools::process::VmmProcess<TestExecutor, DirectRunner, BlockingFsBackend>;
 
 #[allow(unused)]
 pub async fn run_vmm_process_test<F, Fut>(closure: F)
@@ -262,7 +262,7 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
         jailer_arguments,
         FlatJailRenamer::default(),
     );
-    let shell_spawner = SameUserShellSpawner::new(which::which("bash").unwrap());
+    let shell_spawner = DirectRunner::new(which::which("bash").unwrap());
 
     (
         TestVmmProcess::new(
@@ -289,7 +289,7 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
 // VM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVm = fctools::vm::Vm<TestExecutor, SameUserShellSpawner, BlockingFsBackend>;
+pub type TestVm = fctools::vm::Vm<TestExecutor, DirectRunner, BlockingFsBackend>;
 
 type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>>;
 
@@ -317,11 +317,11 @@ pub struct VmBuilder {
 #[allow(unused)]
 pub struct SnapshottingContext {
     pub is_jailed: bool,
-    pub shell_spawner: Arc<SameUserShellSpawner>,
+    pub shell_spawner: Arc<DirectRunner>,
 }
 
 impl SnapshottingContext {
-    fn new(is_jailed: bool, shell_spawner: SameUserShellSpawner) -> Self {
+    fn new(is_jailed: bool, shell_spawner: DirectRunner) -> Self {
         Self {
             is_jailed,
             shell_spawner: Arc::new(shell_spawner),
@@ -457,7 +457,7 @@ impl VmBuilder {
         }
 
         let socket_path = get_tmp_path();
-        let shell_spawner = SameUserShellSpawner::new(which::which("bash").unwrap());
+        let shell_spawner = DirectRunner::new(which::which("bash").unwrap());
 
         let mut unrestricted_data = VmConfigurationData::new(
             BootSource::new(get_test_path("assets/kernel"))
@@ -586,7 +586,7 @@ impl VmBuilder {
             drop(lock);
         }
 
-        let mut vm: fctools::vm::Vm<TestExecutor, SameUserShellSpawner, BlockingFsBackend> = TestVm::prepare_arced(
+        let mut vm: fctools::vm::Vm<TestExecutor, DirectRunner, BlockingFsBackend> = TestVm::prepare_arced(
             Arc::new(executor),
             run_context.shell_spawner.clone(),
             Arc::new(BlockingFsBackend),

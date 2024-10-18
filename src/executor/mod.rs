@@ -17,7 +17,7 @@ use tokio::{
 
 use crate::{
     fs_backend::{FsBackend, FsBackendError},
-    shell_spawner::ShellSpawner,
+    runner::Runner,
 };
 
 pub mod arguments;
@@ -70,7 +70,7 @@ pub trait VmmExecutor: Send + Sync {
     fn prepare(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl ShellSpawner>,
+        shell_spawner: Arc<impl Runner>,
         fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
     ) -> impl Future<Output = Result<HashMap<PathBuf, PathBuf>, VmmExecutorError>> + Send;
@@ -79,7 +79,7 @@ pub trait VmmExecutor: Send + Sync {
     fn invoke(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl ShellSpawner>,
+        shell_spawner: Arc<impl Runner>,
         config_override: ConfigurationFileOverride,
     ) -> impl Future<Output = Result<Child, VmmExecutorError>> + Send;
 
@@ -87,12 +87,12 @@ pub trait VmmExecutor: Send + Sync {
     fn cleanup(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl ShellSpawner>,
+        shell_spawner: Arc<impl Runner>,
         fs_backend: Arc<impl FsBackend>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
-pub(crate) async fn force_chown(path: &Path, shell_spawner: &impl ShellSpawner) -> Result<(), VmmExecutorError> {
+pub(crate) async fn force_chown(path: &Path, shell_spawner: &impl Runner) -> Result<(), VmmExecutorError> {
     if !shell_spawner.increases_privileges() {
         return Ok(());
     }
@@ -119,7 +119,7 @@ pub(crate) async fn force_chown(path: &Path, shell_spawner: &impl ShellSpawner) 
 async fn force_mkdir(
     fs_backend: &impl FsBackend,
     path: &Path,
-    shell_spawner: &impl ShellSpawner,
+    shell_spawner: &impl Runner,
 ) -> Result<(), VmmExecutorError> {
     if !shell_spawner.increases_privileges() {
         fs_backend

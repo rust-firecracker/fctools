@@ -91,13 +91,12 @@ full = [
 default = []
 # fs backends
 fs-backend = []
-fs-backend-unsend = ["fs-backend"]
 blocking-fs-backend = ["fs-backend", "tokio/fs"]
-unsend-proxy-fs-backend = ["fs-backend-unsend", "dep:uuid"]
-tokio-uring-fs-backend = ["fs-backend-unsend", "dep:tokio-uring", "tokio/fs"]
+unsend-proxy-fs-backend = ["dep:uuid"]
+tokio-uring-fs-backend = ["dep:tokio-uring", "tokio/fs"]
 # layers
-shell-spawner = []
-executor = ["fs-backend", "shell-spawner", "dep:libc"]
+runner = []
+executor = ["fs-backend", "runner", "dep:libc"]
 process = [
     "executor",
     "dep:hyper",

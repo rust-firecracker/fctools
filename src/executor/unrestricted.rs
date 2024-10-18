@@ -6,7 +6,7 @@ use std::{
 
 use tokio::{process::Child, task::JoinSet};
 
-use crate::{fs_backend::FsBackend, shell_spawner::ShellSpawner};
+use crate::{fs_backend::FsBackend, runner::Runner};
 
 use super::{
     arguments::{ConfigurationFileOverride, VmmApiSocket, VmmArguments},
@@ -168,7 +168,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
     async fn prepare(
         &self,
         _installation: &VmmInstallation,
-        shell_spawner: Arc<impl ShellSpawner>,
+        shell_spawner: Arc<impl Runner>,
         fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
@@ -225,7 +225,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
     async fn invoke(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl ShellSpawner>,
+        shell_spawner: Arc<impl Runner>,
         config_override: ConfigurationFileOverride,
     ) -> Result<Child, VmmExecutorError> {
         let arguments = self.vmm_arguments.join(config_override);
@@ -246,7 +246,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
     async fn cleanup(
         &self,
         _installation: &VmmInstallation,
-        shell_spawner: Arc<impl ShellSpawner>,
+        shell_spawner: Arc<impl Runner>,
         fs_backend: Arc<impl FsBackend>,
     ) -> Result<(), VmmExecutorError> {
         let mut join_set: JoinSet<Result<(), VmmExecutorError>> = JoinSet::new();

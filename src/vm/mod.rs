@@ -10,7 +10,7 @@ use crate::{
     executor::{arguments::ConfigurationFileOverride, installation::VmmInstallation, VmmExecutor},
     fs_backend::{FsBackend, FsBackendError},
     process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
-    shell_spawner::ShellSpawner,
+    runner::Runner,
 };
 use api::VmApi;
 use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
@@ -31,7 +31,7 @@ pub mod snapshot;
 ///
 /// A VM is tied to an executor E, shell spawner S and filesystem backend F.
 #[derive(Debug)]
-pub struct Vm<E: VmmExecutor, S: ShellSpawner, F: FsBackend> {
+pub struct Vm<E: VmmExecutor, S: Runner, F: FsBackend> {
     vmm_process: VmmProcess<E, S, F>,
     fs_backend: Arc<F>,
     is_paused: bool,
@@ -140,7 +140,7 @@ pub struct AccessiblePaths {
     pub vsock_listener_paths: Vec<PathBuf>,
 }
 
-impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> Vm<E, S, F> {
+impl<E: VmmExecutor, S: Runner, F: FsBackend> Vm<E, S, F> {
     /// Prepare the full environment of a VM without booting it.
     pub async fn prepare(
         executor: E,

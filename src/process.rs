@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     future::Future,
-    io,
     path::{Path, PathBuf},
     process::ExitStatus,
     sync::Arc,
@@ -23,13 +22,13 @@ use crate::{
         arguments::ConfigurationFileOverride, force_chown, installation::VmmInstallation, VmmExecutor, VmmExecutorError,
     },
     fs_backend::FsBackend,
-    shell_spawner::ShellSpawner,
+    runner::Runner,
 };
 
 /// A VMM process is layer 3 of fctools: an abstraction that manages a VMM process. It is
 /// tied to the given VMM executor E, shell spawner S and filesystem backend F.
 #[derive(Debug)]
-pub struct VmmProcess<E: VmmExecutor, S: ShellSpawner, F: FsBackend> {
+pub struct VmmProcess<E: VmmExecutor, S: Runner, F: FsBackend> {
     executor: Arc<E>,
     shell_spawner: Arc<S>,
     fs_backend: Arc<F>,
@@ -96,17 +95,17 @@ pub enum VmmProcessError {
     #[error("The VMM process's API socket had been disabled yet a request to the socket was attempted")]
     SocketWasDisabled,
     #[error("Forcing chown of the API socket via the shell spawner failed: `{0}`")]
-    CouldNotChownSocket(io::Error),
+    CouldNotChownSocket(std::io::Error),
     #[error("An error occurred in the internal hyper-util HTTP connection pool: `{0}`")]
     HyperClientFailed(hyper_util::client::legacy::Error),
     #[error("Transmitting SIGKILL to the process failed: `{0}`")]
-    SigkillFailed(io::Error),
+    SigkillFailed(std::io::Error),
     #[error("Building the Ctrl+Alt+Del HTTP request failed: `{0}`")]
     CtrlAltDelRequestNotBuilt(hyper::http::Error),
     #[error("The Ctrl+Alt+Del HTTP request returned an unsuccessful status code: `{0}`")]
     CtrlAltDelRequestFailed(StatusCode),
     #[error("Awaiting the process' exit failed: `{0}`")]
-    WaitFailed(io::Error),
+    WaitFailed(std::io::Error),
     #[error("The given route to the API socket could not be transformed to a Unix socket URI")]
     IncorrectSocketUri,
     #[error("The underlying VMM executor returned an error: `{0}`")]
@@ -119,7 +118,7 @@ pub enum VmmProcessError {
     IoError(std::io::Error),
 }
 
-impl<E: VmmExecutor, S: ShellSpawner, F: FsBackend> VmmProcess<E, S, F> {
+impl<E: VmmExecutor, S: Runner, F: FsBackend> VmmProcess<E, S, F> {
     /// Create a new process instance while moving in its components.
     pub fn new(
         executor: E,

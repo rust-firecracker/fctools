@@ -6,7 +6,7 @@ use std::{
 
 use tokio::{process::Child, task::JoinSet};
 
-use crate::{fs_backend::FsBackend, shell_spawner::ShellSpawner};
+use crate::{fs_backend::FsBackend, runner::Runner};
 
 use super::{
     arguments::{ConfigurationFileOverride, JailerArguments, VmmApiSocket, VmmArguments},
@@ -86,7 +86,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     async fn prepare(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl ShellSpawner>,
+        shell_spawner: Arc<impl Runner>,
         fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
@@ -218,7 +218,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     async fn invoke(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl ShellSpawner>,
+        shell_spawner: Arc<impl Runner>,
         config_override: ConfigurationFileOverride,
     ) -> Result<Child, VmmExecutorError> {
         let jailer_args = self.jailer_arguments.join(&installation.firecracker_path);
@@ -239,7 +239,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     async fn cleanup(
         &self,
         installation: &VmmInstallation,
-        _shell_spawner: Arc<impl ShellSpawner>,
+        _shell_spawner: Arc<impl Runner>,
         fs_backend: Arc<impl FsBackend>,
     ) -> Result<(), VmmExecutorError> {
         let jail_path = self.get_jail_path(installation);

@@ -116,103 +116,90 @@ impl VmmArguments {
         self
     }
 
-    pub(crate) fn join(&self, config_override: ConfigurationFileOverride) -> String {
-        let mut args = HashMap::new();
+    pub(crate) fn join(&self, config_override: ConfigurationFileOverride) -> Vec<String> {
+        let mut args = Vec::with_capacity(1);
 
         match self.api_socket {
             VmmApiSocket::Disabled => {
-                args.insert("no-api".into(), ArgValue::None);
+                args.push("--no-api".to_string());
             }
             VmmApiSocket::Enabled(ref socket_path) => {
-                args.insert(
-                    "api-sock".into(),
-                    ArgValue::Some(socket_path.to_string_lossy().into_owned()),
-                );
+                args.push("--api-sock".to_string());
+                args.push(socket_path.to_string_lossy().into_owned());
             }
         }
 
         match config_override {
             ConfigurationFileOverride::NoOverride => {
                 if let Some(ref config_path) = self.config_path {
-                    args.insert(
-                        "config-file".into(),
-                        ArgValue::Some(config_path.to_string_lossy().into_owned()),
-                    );
+                    args.push("--config-file".to_string());
+                    args.push(config_path.to_string_lossy().into_owned());
                 }
             }
             ConfigurationFileOverride::Disable => {}
             ConfigurationFileOverride::Enable(path) => {
-                args.insert(
-                    "config-file".into(),
-                    ArgValue::Some(path.to_string_lossy().into_owned()),
-                );
+                args.push("--config-file".to_string());
+                args.push(path.to_string_lossy().into_owned());
             }
         }
 
         if let Some(log_level) = self.log_level {
-            args.insert("level".into(), ArgValue::Some(log_level.to_string()));
+            args.push("--level".to_string());
+            args.push(log_level.to_string());
         }
 
         if let Some(ref log_path) = self.log_path {
-            args.insert(
-                "log-path".into(),
-                ArgValue::Some(log_path.to_string_lossy().into_owned()),
-            );
+            args.push("--log-path".to_string());
+            args.push(log_path.to_string_lossy().into_owned());
         }
 
         if self.show_log_origin {
-            args.insert("show-log-origin".into(), ArgValue::None);
+            args.push("--show-log-origin".to_string());
         }
 
-        if let Some(ref module) = self.log_module {
-            args.insert("module".into(), ArgValue::SomeBorrowed(module));
+        if let Some(module) = self.log_module.clone() {
+            args.push("--module".to_string());
+            args.push(module);
         }
 
         if self.show_log_level {
-            args.insert("show-level".into(), ArgValue::None);
+            args.push("--show-level".to_string());
         }
 
         if self.enable_boot_timer {
-            args.insert("boot-timer".into(), ArgValue::None);
+            args.push("--boot-timer".to_string());
         }
 
         if let Some(max_payload) = self.api_max_payload_bytes {
-            args.insert(
-                "http-api-max-payload-size".into(),
-                ArgValue::Some(max_payload.to_string()),
-            );
+            args.push("--http-api-max-payload-size".to_string());
+            args.push(max_payload.to_string());
         }
 
         if let Some(ref metadata_path) = self.metadata_path {
-            args.insert(
-                "metadata".into(),
-                ArgValue::Some(metadata_path.to_string_lossy().into_owned()),
-            );
+            args.push("--metadata".to_string());
+            args.push(metadata_path.to_string_lossy().into_owned());
         }
 
         if let Some(ref metrics_path) = self.metrics_path {
-            args.insert(
-                "metrics-path".into(),
-                ArgValue::Some(metrics_path.to_string_lossy().into_owned()),
-            );
+            args.push("--metrics-path".to_string());
+            args.push(metrics_path.to_string_lossy().into_owned());
         }
 
         if let Some(ref limit) = self.mmds_size_limit {
-            args.insert("mmds-size-limit".into(), ArgValue::Some(limit.to_string()));
+            args.push("--mmds-size-limit".to_string());
+            args.push(limit.to_string());
         }
 
         if self.disable_seccomp {
-            args.insert("no-seccomp".into(), ArgValue::None);
+            args.push("--no-seccomp".to_string());
         }
 
         if let Some(ref seccomp_path) = self.seccomp_path {
-            args.insert(
-                "seccomp-filter".into(),
-                ArgValue::Some(seccomp_path.to_string_lossy().into_owned()),
-            );
+            args.push("--seccomp-filter".to_string());
+            args.push(seccomp_path.to_string_lossy().into_owned());
         }
 
-        join_args(args)
+        args
     }
 }
 
@@ -300,67 +287,63 @@ impl JailerArguments {
         self
     }
 
-    pub(crate) fn join(&self, firecracker_binary_path: &Path) -> String {
-        let mut args = HashMap::new();
-        args.insert(
-            "exec-file".into(),
-            ArgValue::Some(firecracker_binary_path.to_string_lossy().into_owned()),
-        );
-        args.insert("uid".into(), ArgValue::Some(self.uid.to_string()));
-        args.insert("gid".into(), ArgValue::Some(self.gid.to_string()));
-        args.insert("id".into(), ArgValue::Some(self.jail_id.to_string()));
+    pub(crate) fn join(&self, firecracker_binary_path: &Path) -> Vec<String> {
+        let mut args = Vec::with_capacity(8);
+        args.push("--exec-file".to_string());
+        args.push(firecracker_binary_path.to_string_lossy().into_owned());
+        args.push("--uid".to_string());
+        args.push(self.uid.to_string());
+        args.push("--gid".to_string());
+        args.push(self.gid.to_string());
+        args.push("--id".to_string());
+        args.push(self.jail_id.to_string());
 
         if !self.cgroup_values.is_empty() {
-            args.insert(
-                "cgroup".into(),
-                ArgValue::Many(self.cgroup_values.iter().map(|(k, v)| format!("{k}={v}")).collect()),
-            );
+            for (key, value) in &self.cgroup_values {
+                args.push("--cgroup".to_string());
+                args.push(format!("{key}={value}"));
+            }
         }
 
         if let Some(cgroup_version) = self.cgroup_version {
-            args.insert(
-                "cgroup-version".into(),
-                ArgValue::Some(match cgroup_version {
-                    JailerCgroupVersion::V1 => "1".into(),
-                    JailerCgroupVersion::V2 => "2".into(),
-                }),
-            );
+            args.push("--cgroup-version".to_string());
+            args.push(match cgroup_version {
+                JailerCgroupVersion::V1 => "1".to_string(),
+                JailerCgroupVersion::V2 => "2".to_string(),
+            });
         }
 
         if let Some(ref chroot_base_dir) = self.chroot_base_dir {
-            args.insert(
-                "chroot-base-dir".into(),
-                ArgValue::Some(chroot_base_dir.to_string_lossy().into_owned()),
-            );
+            args.push("--chroot-base-dir".to_string());
+            args.push(chroot_base_dir.to_string_lossy().into_owned());
         }
 
         if self.daemonize {
-            args.insert("daemonize".into(), ArgValue::None);
+            args.push("--daemonize".to_string());
         }
 
         if let Some(ref network_namespace_path) = self.network_namespace_path {
-            args.insert(
-                "netns".into(),
-                ArgValue::Some(network_namespace_path.to_string_lossy().into_owned()),
-            );
+            args.push("--netns".to_string());
+            args.push(network_namespace_path.to_string_lossy().into_owned());
         }
 
         if self.exec_in_new_pid_ns {
-            args.insert("new-pid-ns".into(), ArgValue::None);
+            args.push("--new-pid-ns".to_string());
         }
 
-        if let Some(ref parent_cgroup) = self.parent_cgroup {
-            args.insert("parent-cgroup".into(), ArgValue::SomeBorrowed(parent_cgroup));
+        if let Some(parent_cgroup) = self.parent_cgroup.clone() {
+            args.push("--parent-cgroup".to_string());
+            args.push(parent_cgroup);
         }
 
         if !self.resource_limits.is_empty() {
-            args.insert(
-                "resource-limit".into(),
-                ArgValue::Many(self.resource_limits.iter().map(|(k, v)| format!("{k}={v}")).collect()),
-            );
+            for (key, value) in &self.resource_limits {
+                args.push("--resource-limit".to_string());
+                args.push(format!("{key}={value}"));
+            }
         }
 
-        join_args(args)
+        args
     }
 }
 

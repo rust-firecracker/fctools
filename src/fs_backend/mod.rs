@@ -85,7 +85,6 @@ pub trait FsBackend: Send + Sync + 'static {
 /// other !Send async runtimes. An UnsendFsBackend, unlike FsBackend, can't be properly passed to an fctools
 /// executor, VMM process or VM as they operate in a tokio Send environment, but they can be proxied and
 /// used from a Send context via UnsendProxyFsBackend.
-#[cfg(feature = "fs-backend-unsend")]
 pub trait UnsendFsBackend {
     fn check_exists(&self, path: &Path) -> impl Future<Output = Result<bool, FsBackendError>>;
 
@@ -114,7 +113,6 @@ pub trait UnsendFsBackend {
     ) -> impl Future<Output = Result<(), FsBackendError>>;
 }
 
-#[cfg(feature = "fs-backend-unsend")]
 impl<F: FsBackend> UnsendFsBackend for F {
     fn check_exists(&self, path: &Path) -> impl Future<Output = Result<bool, FsBackendError>> {
         self.check_exists(path)
