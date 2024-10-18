@@ -6,22 +6,27 @@ use std::{
 
 use tokio::{process::Child, task::JoinSet};
 
-use crate::{fs_backend::FsBackend, process_spawner::ProcessSpawner};
-
-use super::{
-    arguments::{ConfigurationFileOverride, JailerArguments, VmmApiSocket, VmmArguments},
-    command_modifier::{apply_command_modifier_chain, CommandModifier},
-    create_file_with_tree, force_chown, force_mkdir,
-    installation::VmmInstallation,
-    VmmExecutor, VmmExecutorError,
+use crate::{
+    fs_backend::FsBackend,
+    process_spawner::ProcessSpawner,
+    vmm::{
+        arguments::{
+            command_modifier::{apply_command_modifier_chain, CommandModifier},
+            firecracker::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigurationOverride},
+            jailer::JailerArguments,
+        },
+        installation::VmmInstallation,
+    },
 };
+
+use super::{create_file_with_tree, force_chown, force_mkdir, VmmExecutor, VmmExecutorError};
 
 /// An executor that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
 /// process itself won't.
 #[derive(Debug)]
 pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
-    vmm_arguments: VmmArguments,
+    firecracker_arguments: FirecrackerArguments,
     jailer_arguments: JailerArguments,
     jail_move_method: JailMoveMethod,
     jail_renamer: R,
@@ -29,9 +34,13 @@ pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
 }
 
 impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
-    pub fn new(vmm_arguments: VmmArguments, jailer_arguments: JailerArguments, jail_renamer: R) -> Self {
+    pub fn new(
+        firecracker_arguments: FirecrackerArguments,
+        jailer_arguments: JailerArguments,
+        jail_renamer: R,
+    ) -> Self {
         Self {
-            vmm_arguments,
+            firecracker_arguments,
             jailer_arguments,
             jail_move_method: JailMoveMethod::Copy,
             jail_renamer,
@@ -69,9 +78,11 @@ pub enum JailMoveMethod {
 
 impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
-        match &self.vmm_arguments.api_socket {
-            VmmApiSocket::Disabled => None,
-            VmmApiSocket::Enabled(socket_path) => Some(self.get_jail_path(installation).jail_join(&socket_path)),
+        match &self.firecracker_arguments.api_socket {
+            FirecrackerApiSocket::Disabled => None,
+            FirecrackerApiSocket::Enabled(socket_path) => {
+                Some(self.get_jail_path(installation).jail_join(&socket_path))
+            }
         }
     }
 
@@ -124,7 +135,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         let mut join_set = JoinSet::new();
 
         // Ensure socket parent directory exists so that the firecracker process can bind inside of it
-        if let VmmApiSocket::Enabled(ref socket_path) = self.vmm_arguments.api_socket {
+        if let FirecrackerApiSocket::Enabled(ref socket_path) = self.firecracker_arguments.api_socket {
             if let Some(socket_parent_dir) = socket_path.parent() {
                 let socket_parent_dir = socket_parent_dir.to_owned();
                 let fs_backend = fs_backend.clone();
@@ -139,10 +150,10 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         }
 
         // Ensure argument paths exist
-        if let Some(ref log_path) = self.vmm_arguments.log_path {
+        if let Some(ref log_path) = self.firecracker_arguments.log_path {
             join_set.spawn(create_file_with_tree(fs_backend.clone(), jail_path.jail_join(log_path)));
         }
-        if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
+        if let Some(ref metrics_path) = self.firecracker_arguments.metrics_path {
             join_set.spawn(create_file_with_tree(
                 fs_backend.clone(),
                 jail_path.jail_join(metrics_path),
@@ -219,12 +230,12 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        config_override: ConfigurationFileOverride,
+        configuration_override: FirecrackerConfigurationOverride,
     ) -> Result<Child, VmmExecutorError> {
         let mut arguments = self.jailer_arguments.join(&installation.firecracker_path);
         let mut binary_path = installation.jailer_path.clone();
         arguments.push("--".to_string());
-        arguments.extend(self.vmm_arguments.join(config_override));
+        arguments.extend(self.firecracker_arguments.join(configuration_override));
         apply_command_modifier_chain(&mut binary_path, &mut arguments, &self.argument_modifier_chain);
 
         // nulling the pipes is redundant since jailer can do this itself via daemonization
@@ -360,7 +371,7 @@ impl JailJoin for PathBuf {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::vmm_executor::jailed::{JailJoin, JailRenamerError, MappingJailRenamer};
+    use crate::vmm::executor::jailed::{JailJoin, JailRenamerError, MappingJailRenamer};
 
     use super::{FlatJailRenamer, JailRenamer};
 

@@ -6,7 +6,7 @@ use fctools::{
         models::{BalloonDevice, MetricsSystem, UpdateBalloonDevice, UpdateBalloonStatistics},
         ShutdownMethod, VmError, VmState,
     },
-    vmm_process::HyperResponseExt,
+    vmm::process::HyperResponseExt,
 };
 use http::{Request, StatusCode};
 use http_body_util::Full;

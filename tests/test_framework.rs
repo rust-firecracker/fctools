@@ -21,15 +21,20 @@ use fctools::{
         },
         ShutdownMethod,
     },
-    vmm_executor::{
-        arguments::{ConfigurationFileOverride, JailerArguments, VmmApiSocket, VmmArguments},
-        command_modifier::NetnsCommandModifier,
+    vmm::{
+        arguments::{
+            command_modifier::NetnsCommandModifier,
+            firecracker::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigurationOverride},
+            jailer::JailerArguments,
+        },
+        executor::{
+            jailed::{FlatJailRenamer, JailedVmmExecutor},
+            unrestricted::UnrestrictedVmmExecutor,
+            VmmExecutor, VmmExecutorError,
+        },
         installation::VmmInstallation,
-        jailed::{FlatJailRenamer, JailedVmmExecutor},
-        unrestricted::UnrestrictedVmmExecutor,
-        VmmExecutor, VmmExecutorError,
+        process::VmmProcessState,
     },
-    vmm_process::VmmProcessState,
 };
 use rand::{Rng, RngCore};
 use serde::Deserialize;
@@ -186,7 +191,7 @@ impl VmmExecutor for TestExecutor {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        config_override: ConfigurationFileOverride,
+        config_override: FirecrackerConfigurationOverride,
     ) -> Result<Child, VmmExecutorError> {
         match self {
             TestExecutor::Unrestricted(e) => e.invoke(installation, process_spawner, config_override).await,
@@ -210,7 +215,7 @@ impl VmmExecutor for TestExecutor {
 // VMM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVmmProcess = fctools::vmm_process::VmmProcess<TestExecutor, DirectProcessSpawner, BlockingFsBackend>;
+pub type TestVmmProcess = fctools::vmm::process::VmmProcess<TestExecutor, DirectProcessSpawner, BlockingFsBackend>;
 
 #[allow(unused)]
 pub async fn run_vmm_process_test<F, Fut>(closure: F)
@@ -229,7 +234,10 @@ where
         assert_eq!(process.state(), VmmProcessState::AwaitingPrepare);
         process.prepare().await.unwrap();
         assert_eq!(process.state(), VmmProcessState::AwaitingStart);
-        process.invoke(ConfigurationFileOverride::NoOverride).await.unwrap();
+        process
+            .invoke(FirecrackerConfigurationOverride::NoOverride)
+            .await
+            .unwrap();
         assert_eq!(process.state(), VmmProcessState::Started);
     }
 
@@ -247,10 +255,11 @@ where
 fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
     let socket_path = get_tmp_path();
 
-    let unrestricted_firecracker_arguments = VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()))
-        .config_path(get_test_path("configs/unrestricted.json"));
+    let unrestricted_firecracker_arguments =
+        FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path.clone()))
+            .config_path(get_test_path("configs/unrestricted.json"));
     let jailer_firecracker_arguments =
-        VmmArguments::new(VmmApiSocket::Enabled(socket_path)).config_path("/jailed.json");
+        FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path)).config_path("/jailed.json");
 
     let jailer_arguments = JailerArguments::new(
         unsafe { libc::geteuid() },
@@ -449,8 +458,9 @@ impl VmBuilder {
             MachineConfiguration::new(1, 128).track_dirty_pages(true),
         )
         .drive(Drive::new("rootfs", true).path_on_host(get_test_path("assets/rootfs.ext4")));
-        let mut unrestricted_executor =
-            UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())));
+        let mut unrestricted_executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(
+            FirecrackerApiSocket::Enabled(socket_path.clone()),
+        ));
         if let Some(ref network) = self.unrestricted_network_data {
             unrestricted_executor =
                 unrestricted_executor.command_modifier(NetnsCommandModifier::new(&network.netns_name));
@@ -472,7 +482,7 @@ impl VmBuilder {
         }
 
         let jailed_executor = TestExecutor::Jailed(JailedVmmExecutor::new(
-            VmmArguments::new(VmmApiSocket::Enabled(socket_path)),
+            FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path)),
             jailer_arguments,
             FlatJailRenamer::default(),
         ));

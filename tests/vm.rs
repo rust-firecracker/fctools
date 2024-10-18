@@ -10,10 +10,15 @@ use fctools::{
         snapshot::SnapshotData,
         ShutdownMethod, VmState,
     },
-    vmm_executor::{
-        arguments::{JailerArguments, VmmApiSocket, VmmArguments},
-        jailed::{FlatJailRenamer, JailedVmmExecutor},
-        unrestricted::UnrestrictedVmmExecutor,
+    vmm::{
+        arguments::{
+            firecracker::{FirecrackerApiSocket, FirecrackerArguments},
+            jailer::JailerArguments,
+        },
+        executor::{
+            jailed::{FlatJailRenamer, JailedVmmExecutor},
+            unrestricted::UnrestrictedVmmExecutor,
+        },
     },
 };
 use rand::RngCore;
@@ -212,7 +217,7 @@ fn vm_can_boot_with_net_iface() {
 async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
     let executor = match is_jailed {
         true => TestExecutor::Jailed(JailedVmmExecutor::new(
-            VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
+            FirecrackerArguments::new(FirecrackerApiSocket::Enabled(get_tmp_path())),
             JailerArguments::new(
                 unsafe { libc::geteuid() },
                 unsafe { libc::getegid() },
@@ -220,9 +225,9 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
             ),
             FlatJailRenamer::default(),
         )),
-        false => TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(
-            get_tmp_path(),
-        )))),
+        false => TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(FirecrackerArguments::new(
+            FirecrackerApiSocket::Enabled(get_tmp_path()),
+        ))),
     };
 
     let mut vm = TestVm::prepare_arced(

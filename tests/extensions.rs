@@ -1,7 +1,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use fctools::{
-    ext::{metrics::spawn_metrics_task, snapshot_editor::SnapshotEditorExt},
+    extension::{metrics::spawn_metrics_task, snapshot_editor::SnapshotEditorExt},
     fs_backend::{tokio_uring::TokioUringFsBackend, UnsendFsBackend},
     vm::{
         api::VmApi,

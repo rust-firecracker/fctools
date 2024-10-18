@@ -7,7 +7,9 @@ use hyper::body::Incoming;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-    fs_backend::FsBackend, process_spawner::ProcessSpawner, vmm_executor::VmmExecutor, vmm_process::HyperResponseExt,
+    fs_backend::FsBackend,
+    process_spawner::ProcessSpawner,
+    vmm::{executor::VmmExecutor, process::HyperResponseExt},
 };
 
 use super::{

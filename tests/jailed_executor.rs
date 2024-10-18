@@ -1,10 +1,15 @@
 use std::path::PathBuf;
 
 use assert_matches::assert_matches;
-use fctools::vmm_executor::{
-    arguments::{JailerArguments, VmmApiSocket, VmmArguments},
-    jailed::{FlatJailRenamer, JailMoveMethod, JailRenamer, JailedVmmExecutor},
-    VmmExecutor, VmmExecutorError,
+use fctools::vmm::{
+    arguments::{
+        firecracker::{FirecrackerApiSocket, FirecrackerArguments},
+        jailer::JailerArguments,
+    },
+    executor::{
+        jailed::{FlatJailRenamer, JailMoveMethod, JailRenamer, JailedVmmExecutor},
+        VmmExecutor, VmmExecutorError,
+    },
 };
 use rand::RngCore;
 use test_framework::{get_fake_firecracker_installation, get_fs_backend, get_process_spawner, get_tmp_path, jail_join};
@@ -246,7 +251,7 @@ fn setup_executor(
         jailer_arguments = jailer_arguments.chroot_base_dir(chroot_base_dir);
     }
     let mut firecracker_arguments =
-        VmmArguments::new(socket_path.map_or(VmmApiSocket::Disabled, VmmApiSocket::Enabled));
+        FirecrackerArguments::new(socket_path.map_or(FirecrackerApiSocket::Disabled, FirecrackerApiSocket::Enabled));
     if let Some(log_path) = log_path {
         firecracker_arguments = firecracker_arguments.log_path(log_path);
     }

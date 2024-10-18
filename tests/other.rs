@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use fctools::{
     fs_backend::blocking::BlockingFsBackend,
     process_spawner::{DirectProcessSpawner, ProcessSpawner},
-    vmm_executor::installation::{VmmInstallation, VmmInstallationError},
+    vmm::installation::{VmmInstallation, VmmInstallationError},
 };
 use test_framework::{get_test_path, TestOptions};
 use uuid::Uuid;

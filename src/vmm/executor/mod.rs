@@ -7,8 +7,6 @@ use std::{
     sync::Arc,
 };
 
-use arguments::ConfigurationFileOverride;
-use installation::VmmInstallation;
 use jailed::JailRenamerError;
 use tokio::{
     process::Child,
@@ -20,9 +18,8 @@ use crate::{
     process_spawner::ProcessSpawner,
 };
 
-pub mod arguments;
-pub mod command_modifier;
-pub mod installation;
+use super::{arguments::firecracker::FirecrackerConfigurationOverride, installation::VmmInstallation};
+
 pub mod jailed;
 pub mod unrestricted;
 
@@ -80,7 +77,7 @@ pub trait VmmExecutor: Send + Sync {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        config_override: ConfigurationFileOverride,
+        configuration_override: FirecrackerConfigurationOverride,
     ) -> impl Future<Output = Result<Child, VmmExecutorError>> + Send;
 
     /// Clean up all transient resources of the VMM invocation.

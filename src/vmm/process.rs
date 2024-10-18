@@ -20,10 +20,13 @@ use tokio::{
 use crate::{
     fs_backend::FsBackend,
     process_spawner::ProcessSpawner,
-    vmm_executor::{
-        arguments::ConfigurationFileOverride, force_chown, installation::VmmInstallation, VmmExecutor, VmmExecutorError,
+    vmm::{
+        executor::{force_chown, VmmExecutor, VmmExecutorError},
+        installation::VmmInstallation,
     },
 };
+
+use super::arguments::firecracker::FirecrackerConfigurationOverride;
 
 /// A VMM process is layer 3 of fctools: an abstraction that manages a VMM process. It is
 /// tied to the given VMM executor E, runner R and filesystem backend F.
@@ -179,14 +182,17 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     }
 
     /// Invoke the VM process. Allowed in AwaitingStart state, will result in Started state.
-    pub async fn invoke(&mut self, config_override: ConfigurationFileOverride) -> Result<(), VmmProcessError> {
+    pub async fn invoke(
+        &mut self,
+        configuration_override: FirecrackerConfigurationOverride,
+    ) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.child = Some(
             self.executor
                 .invoke(
                     self.installation.as_ref(),
                     self.process_spawner.clone(),
-                    config_override,
+                    configuration_override,
                 )
                 .await
                 .map_err(VmmProcessError::ExecutorError)?,

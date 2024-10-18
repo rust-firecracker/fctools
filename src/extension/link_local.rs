@@ -186,7 +186,7 @@ mod tests {
 
     use cidr::Ipv4Inet;
 
-    use crate::ext::link_local::LinkLocalSubnetError;
+    use crate::extension::link_local::LinkLocalSubnetError;
 
     use super::LinkLocalSubnet;
 

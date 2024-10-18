@@ -5,7 +5,7 @@ use std::{
 
 use tokio::process::Command;
 
-use crate::vmm_executor::installation::VmmInstallation;
+use crate::vmm::installation::VmmInstallation;
 
 /// An extension that provides bindings to functionality exposed by Firecracker's "snapshot-editor" binary.
 /// Internally this performs sanity checks and then forks and awaits a "snapshot-editor" process.

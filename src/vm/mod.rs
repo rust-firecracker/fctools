@@ -9,8 +9,12 @@ use std::{
 use crate::{
     fs_backend::{FsBackend, FsBackendError},
     process_spawner::ProcessSpawner,
-    vmm_executor::{arguments::ConfigurationFileOverride, installation::VmmInstallation, VmmExecutor},
-    vmm_process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
+    vmm::{
+        arguments::firecracker::FirecrackerConfigurationOverride,
+        executor::VmmExecutor,
+        installation::VmmInstallation,
+        process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
+    },
 };
 use api::VmApi;
 use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
@@ -342,14 +346,14 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             .get_socket_path()
             .ok_or(VmError::DisabledApiSocketIsUnsupported)?;
 
-        let mut config_override = ConfigurationFileOverride::NoOverride;
+        let mut configuration_override = FirecrackerConfigurationOverride::NoOverride;
         if let VmConfiguration::New {
             ref init_method,
             ref data,
         } = configuration
         {
             if let InitMethod::ViaJsonConfiguration(inner_path) = init_method {
-                config_override = ConfigurationFileOverride::Enable(inner_path.clone());
+                configuration_override = FirecrackerConfigurationOverride::Enable(inner_path.clone());
                 prepare_file(self.fs_backend.clone(), inner_path.clone(), true).await?;
                 self.fs_backend
                     .write_file(
@@ -362,7 +366,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         }
 
         self.vmm_process
-            .invoke(config_override)
+            .invoke(configuration_override)
             .await
             .map_err(VmError::ProcessError)?;
 

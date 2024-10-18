@@ -4,7 +4,7 @@ use http::Uri;
 use hyper_client_sockets::HyperFirecrackerStream;
 use tonic::transport::{Channel, Endpoint};
 
-use crate::{fs_backend::FsBackend, process_spawner::ProcessSpawner, vm::Vm, vmm_executor::VmmExecutor};
+use crate::{fs_backend::FsBackend, process_spawner::ProcessSpawner, vm::Vm, vmm::executor::VmmExecutor};
 
 /// An error emitted by the gRPC-over-vsock extension.
 #[derive(Debug, thiserror::Error)]

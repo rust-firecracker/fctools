@@ -6,21 +6,25 @@ use std::{
 
 use tokio::{process::Child, task::JoinSet};
 
-use crate::{fs_backend::FsBackend, process_spawner::ProcessSpawner};
-
-use super::{
-    arguments::{ConfigurationFileOverride, VmmApiSocket, VmmArguments},
-    command_modifier::{apply_command_modifier_chain, CommandModifier},
-    create_file_with_tree, force_chown,
-    installation::VmmInstallation,
-    join_on_set, VmmExecutor, VmmExecutorError,
+use crate::{
+    fs_backend::FsBackend,
+    process_spawner::ProcessSpawner,
+    vmm::{
+        arguments::{
+            command_modifier::{apply_command_modifier_chain, CommandModifier},
+            firecracker::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigurationOverride},
+        },
+        installation::VmmInstallation,
+    },
 };
+
+use super::{create_file_with_tree, force_chown, join_on_set, VmmExecutor, VmmExecutorError};
 
 /// An executor that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
 /// This executor allows rootless execution, given that the user has access to /dev/kvm.
 #[derive(Debug)]
 pub struct UnrestrictedVmmExecutor {
-    vmm_arguments: VmmArguments,
+    firecracker_arguments: FirecrackerArguments,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
     remove_metrics_on_cleanup: bool,
     remove_logs_on_cleanup: bool,
@@ -29,9 +33,9 @@ pub struct UnrestrictedVmmExecutor {
 }
 
 impl UnrestrictedVmmExecutor {
-    pub fn new(vmm_arguments: VmmArguments) -> Self {
+    pub fn new(firecracker_arguments: FirecrackerArguments) -> Self {
         Self {
-            vmm_arguments,
+            firecracker_arguments,
             command_modifier_chain: Vec::new(),
             remove_metrics_on_cleanup: false,
             remove_logs_on_cleanup: false,
@@ -115,7 +119,7 @@ impl From<VmmId> for String {
 
 #[cfg(test)]
 mod tests {
-    use crate::vmm_executor::unrestricted::{VmmId, VmmIdParseError};
+    use crate::vmm::executor::unrestricted::{VmmId, VmmIdParseError};
 
     #[test]
     fn vmm_id_rejects_when_too_short() {
@@ -151,9 +155,9 @@ mod tests {
 
 impl VmmExecutor for UnrestrictedVmmExecutor {
     fn get_socket_path(&self, _installation: &VmmInstallation) -> Option<PathBuf> {
-        match &self.vmm_arguments.api_socket {
-            VmmApiSocket::Disabled => None,
-            VmmApiSocket::Enabled(path) => Some(path.clone()),
+        match &self.firecracker_arguments.api_socket {
+            FirecrackerApiSocket::Disabled => None,
+            FirecrackerApiSocket::Enabled(path) => Some(path.clone()),
         }
     }
 
@@ -190,7 +194,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             });
         }
 
-        if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
+        if let FirecrackerApiSocket::Enabled(socket_path) = self.firecracker_arguments.api_socket.clone() {
             let fs_backend = fs_backend.clone();
             let process_spawner = process_spawner.clone();
             join_set.spawn(async move {
@@ -211,10 +215,10 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         // Ensure argument paths exist
-        if let Some(ref log_path) = self.vmm_arguments.log_path {
+        if let Some(ref log_path) = self.firecracker_arguments.log_path {
             join_set.spawn(create_file_with_tree(fs_backend.clone(), log_path.clone()));
         }
-        if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
+        if let Some(ref metrics_path) = self.firecracker_arguments.metrics_path {
             join_set.spawn(create_file_with_tree(fs_backend.clone(), metrics_path.clone()));
         }
 
@@ -226,9 +230,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        config_override: ConfigurationFileOverride,
+        configuration_override: FirecrackerConfigurationOverride,
     ) -> Result<Child, VmmExecutorError> {
-        let mut arguments = self.vmm_arguments.join(config_override);
+        let mut arguments = self.firecracker_arguments.join(configuration_override);
         let mut binary_path = installation.firecracker_path.clone();
         apply_command_modifier_chain(&mut binary_path, &mut arguments, &self.command_modifier_chain);
         if let Some(ref id) = self.id {
@@ -251,7 +255,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
     ) -> Result<(), VmmExecutorError> {
         let mut join_set: JoinSet<Result<(), VmmExecutorError>> = JoinSet::new();
 
-        if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
+        if let FirecrackerApiSocket::Enabled(socket_path) = self.firecracker_arguments.api_socket.clone() {
             let process_spawner = process_spawner.clone();
             let fs_backend = fs_backend.clone();
             join_set.spawn(async move {
@@ -271,7 +275,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         if self.remove_logs_on_cleanup {
-            if let Some(ref log_path) = self.vmm_arguments.log_path {
+            if let Some(ref log_path) = self.firecracker_arguments.log_path {
                 let fs_backend = fs_backend.clone();
                 let log_path = log_path.clone();
                 join_set.spawn(async move {
@@ -284,7 +288,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         if self.remove_metrics_on_cleanup {
-            if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
+            if let Some(ref metrics_path) = self.firecracker_arguments.metrics_path {
                 let fs_backend = fs_backend.clone();
                 let metrics_path = metrics_path.clone();
                 join_set.spawn(async move {

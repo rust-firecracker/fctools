@@ -7,7 +7,7 @@ use hyper::{body::Incoming, client::conn::http1::SendRequest};
 use hyper_client_sockets::{FirecrackerUriExt, HyperFirecrackerConnector, HyperFirecrackerStream};
 use hyper_util::rt::TokioExecutor;
 
-use crate::{fs_backend::FsBackend, process_spawner::ProcessSpawner, vm::Vm, vmm_executor::VmmExecutor};
+use crate::{fs_backend::FsBackend, process_spawner::ProcessSpawner, vm::Vm, vmm::executor::VmmExecutor};
 
 /// An error that can be emitted by the HTTP-over-vsock extension.
 #[derive(Debug, thiserror::Error)]
