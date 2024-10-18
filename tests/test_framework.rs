@@ -582,11 +582,11 @@ impl VmBuilder {
             TestExecutor::Unrestricted(_) => false,
         };
 
-        let mut vm: fctools::vm::Vm<TestExecutor, DirectProcessSpawner, BlockingFsBackend> = TestVm::prepare_arced(
-            Arc::new(executor),
-            Arc::new(DirectProcessSpawner),
-            Arc::new(BlockingFsBackend),
-            get_real_firecracker_installation().into(),
+        let mut vm: fctools::vm::Vm<TestExecutor, DirectProcessSpawner, BlockingFsBackend> = TestVm::prepare(
+            executor,
+            DirectProcessSpawner,
+            BlockingFsBackend,
+            get_real_firecracker_installation(),
             configuration,
         )
         .await

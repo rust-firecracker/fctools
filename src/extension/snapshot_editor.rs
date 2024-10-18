@@ -8,7 +8,7 @@ use tokio::process::Command;
 use crate::vmm::installation::VmmInstallation;
 
 /// An extension that provides bindings to functionality exposed by Firecracker's "snapshot-editor" binary.
-/// Internally this performs sanity checks and then forks and awaits a "snapshot-editor" process.
+/// Internally this performs sanity checks and then spawns and awaits a "snapshot-editor" process.
 pub trait SnapshotEditorExt {
     /// Get a SnapshotEditor bindings struct that is bound to this installation's lifetime.
     fn snapshot_editor(&self) -> SnapshotEditor<'_>;
@@ -24,15 +24,15 @@ impl SnapshotEditorExt for VmmInstallation {
 
 /// A struct exposing bindings to a "snapshot-editor" binary of this installation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SnapshotEditor<'a> {
-    path: &'a PathBuf,
+pub struct SnapshotEditor<'p> {
+    path: &'p PathBuf,
 }
 
 /// An error that can be emitted by a "snapshot-editor" invocation.
 #[derive(Debug, thiserror::Error)]
 pub enum SnapshotEditorError {
     #[error("Forking the snapshot-editor process failed: `{0}`")]
-    ProcessForkFailed(tokio::io::Error),
+    ProcessSpawnFailed(tokio::io::Error),
     #[error("Waiting on the exit of the snapshot-editor process failed: `{0}`")]
     ProcessWaitFailed(tokio::io::Error),
     #[error("The snapshot-editor exited with a non-zero exit status: `{0}`")]
@@ -41,14 +41,14 @@ pub enum SnapshotEditorError {
     NonUTF8Path,
 }
 
-impl<'a> SnapshotEditor<'a> {
+impl<'p> SnapshotEditor<'p> {
     /// Rebase base_memory_path onto diff_memory_path.
     pub async fn rebase_memory(
         &self,
         base_memory_path: impl AsRef<Path> + Send,
         diff_memory_path: impl AsRef<Path> + Send,
     ) -> Result<(), SnapshotEditorError> {
-        self.fork(&[
+        self.run(&[
             "edit-memory",
             "rebase",
             "--memory-path",
@@ -72,7 +72,7 @@ impl<'a> SnapshotEditor<'a> {
         snapshot_path: impl AsRef<Path> + Send,
     ) -> Result<String, SnapshotEditorError> {
         let output = self
-            .fork(&[
+            .run(&[
                 "info-vmstate",
                 "version",
                 "--vmstate-path",
@@ -92,7 +92,7 @@ impl<'a> SnapshotEditor<'a> {
         snapshot_path: impl AsRef<Path> + Send,
     ) -> Result<String, SnapshotEditorError> {
         let output = self
-            .fork(&[
+            .run(&[
                 "info-vmstate",
                 "vcpu-states",
                 "--vmstate-path",
@@ -112,7 +112,7 @@ impl<'a> SnapshotEditor<'a> {
         snapshot_path: impl AsRef<Path> + Send,
     ) -> Result<String, SnapshotEditorError> {
         let output = self
-            .fork(&[
+            .run(&[
                 "info-vmstate",
                 "vm-state",
                 "--vmstate-path",
@@ -125,14 +125,14 @@ impl<'a> SnapshotEditor<'a> {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    async fn fork(&self, args: &[&str]) -> Result<Output, SnapshotEditorError> {
+    async fn run(&self, args: &[&str]) -> Result<Output, SnapshotEditorError> {
         let mut command = Command::new(self.path);
         command.args(args);
         command.stdout(Stdio::piped());
         command.stderr(Stdio::null());
         command.stdin(Stdio::null());
 
-        let child = command.spawn().map_err(SnapshotEditorError::ProcessForkFailed)?;
+        let child = command.spawn().map_err(SnapshotEditorError::ProcessSpawnFailed)?;
         let output = child
             .wait_with_output()
             .await

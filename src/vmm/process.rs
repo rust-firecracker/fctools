@@ -28,8 +28,8 @@ use crate::{
 
 use super::arguments::firecracker::FirecrackerConfigurationOverride;
 
-/// A VMM process is layer 3 of fctools: an abstraction that manages a VMM process. It is
-/// tied to the given VMM executor E, runner R and filesystem backend F.
+/// A VMM process is an abstraction that manages a (possibly wrapped) Firecracker process. It is
+/// tied to the given VMM executor E, process spawner S and filesystem backend F.
 #[derive(Debug)]
 pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
     executor: Arc<E>,
@@ -122,38 +122,24 @@ pub enum VmmProcessError {
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
-    /// Create a new process instance while moving in its components.
+    /// Create a new VMM process from the given component. Each component is either its owned value or an Arc; in the
+    /// former case it will be put into an Arc, otherwise the Arc will be kept. This allows for performant non-clone-based
+    /// sharing of VMM components between multiple VMM processes.
     pub fn new(
-        executor: E,
-        process_spawner: S,
-        fs_backend: F,
-        installation: VmmInstallation,
+        executor: impl Into<Arc<E>>,
+        process_spawner: impl Into<Arc<S>>,
+        fs_backend: impl Into<Arc<F>>,
+        installation: impl Into<Arc<VmmInstallation>>,
         outer_paths: Vec<PathBuf>,
     ) -> Self {
-        Self::new_arced(
-            Arc::new(executor),
-            Arc::new(process_spawner),
-            Arc::new(fs_backend),
-            Arc::new(installation),
-            outer_paths,
-        )
-    }
-
-    /// Create a new process instance without moving in its components, instead using Arc-s. This is recommended over moving in clones in
-    /// all scenarios.
-    pub fn new_arced(
-        executor_arc: Arc<E>,
-        process_spawner_arc: Arc<S>,
-        fs_backend_arc: Arc<F>,
-        installation_arc: Arc<VmmInstallation>,
-        outer_paths: Vec<PathBuf>,
-    ) -> Self {
-        let socket_path = executor_arc.get_socket_path(installation_arc.as_ref());
+        let executor = executor.into();
+        let installation = installation.into();
+        let socket_path = executor.get_socket_path(installation.as_ref());
         Self {
-            executor: executor_arc,
-            process_spawner: process_spawner_arc,
-            installation: installation_arc,
-            fs_backend: fs_backend_arc,
+            executor,
+            process_spawner: process_spawner.into(),
+            installation,
+            fs_backend: fs_backend.into(),
             child: None,
             state: VmmProcessState::AwaitingPrepare,
             socket_path,

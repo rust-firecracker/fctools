@@ -27,11 +27,9 @@ pub mod configuration;
 pub mod models;
 pub mod snapshot;
 
-/// A VM is layer 4 of fctools and the highest level of abstraction, representing not the VMM, but the actual virtual machine.
-///
-/// It seamlessly and performantly automates away tasks not handled by a VMM process on its own, such as: moving resources in and out,
-/// transforming resource paths from inner to outer and vice versa, removing VM traces, creating snapshots, binding to the exact
-/// endpoints of the API server, fallback-based shutdown.
+/// A VM is an abstraction over a VMM process, and seamlessly and performantly automates away tasks not handled by a VMM process
+/// on its own, such as: moving resources in and out, transforming resource paths from inner to outer and vice versa,
+/// removing VM traces, creating snapshots, binding to the exact endpoints of the API server, fallback-based shutdown.
 ///
 /// A VM is tied to an executor E, process spawner S and filesystem backend F.
 #[derive(Debug)]
@@ -145,31 +143,13 @@ pub struct AccessiblePaths {
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
-    /// Prepare the full environment of a VM without booting it.
+    /// Prepare the full environment of a VM without booting it. Analogously to the VMM process, the passed-in resources
+    /// can be either owned or arced; in the former case they will be put into an arc.
     pub async fn prepare(
-        executor: E,
-        process_spawner: S,
-        fs_backend: F,
-        installation: VmmInstallation,
-        configuration: VmConfiguration,
-    ) -> Result<Self, VmError> {
-        Self::prepare_arced(
-            Arc::new(executor),
-            Arc::new(process_spawner),
-            Arc::new(fs_backend),
-            Arc::new(installation),
-            configuration,
-        )
-        .await
-    }
-
-    /// Prepare the full environment of a VM without booting it, while accepting Arc-ed variants of various structures
-    /// to avoid cloning overhead where it is not necessary.
-    pub async fn prepare_arced(
-        executor: Arc<E>,
-        process_spawner_arc: Arc<S>,
-        fs_backend_arc: Arc<F>,
-        installation_arc: Arc<VmmInstallation>,
+        executor: impl Into<Arc<E>>,
+        process_spawner: impl Into<Arc<S>>,
+        fs_backend: impl Into<Arc<F>>,
+        installation: impl Into<Arc<VmmInstallation>>,
         mut configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
         fn get_outer_paths(data: &VmConfigurationData, load_snapshot: Option<&LoadSnapshot>) -> Vec<PathBuf> {
@@ -195,7 +175,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             outer_paths
         }
 
-        if executor.get_socket_path(installation_arc.as_ref()).is_none() {
+        let executor = executor.into();
+        let process_spawner = process_spawner.into();
+        let fs_backend = fs_backend.into();
+        let installation = installation.into();
+
+        if executor.get_socket_path(installation.as_ref()).is_none() {
             return Err(VmError::DisabledApiSocketIsUnsupported);
         }
 
@@ -207,13 +192,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
 
         // prepare
         let executor_traceless = executor.traceless();
-        let mut vmm_process = VmmProcess::new_arced(
-            executor,
-            process_spawner_arc,
-            fs_backend_arc.clone(),
-            installation_arc,
-            outer_paths,
-        );
+        let mut vmm_process = VmmProcess::new(executor, process_spawner, fs_backend.clone(), installation, outer_paths);
         let mut path_mappings = vmm_process.prepare().await.map_err(VmError::ProcessError)?;
 
         // transform data according to returned mappings
@@ -269,34 +248,34 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         if let Some(ref logger) = configuration.data().logger_system {
             if let Some(ref log_path) = logger.log_path {
                 let new_log_path = vmm_process.inner_to_outer_path(log_path);
-                prepare_join_set.spawn(prepare_file(fs_backend_arc.clone(), new_log_path.clone(), false));
+                prepare_join_set.spawn(prepare_file(fs_backend.clone(), new_log_path.clone(), false));
                 accessible_paths.log_path = Some(new_log_path);
             }
         }
 
         if let Some(ref metrics_system) = configuration.data().metrics_system {
             let new_metrics_path = vmm_process.inner_to_outer_path(&metrics_system.metrics_path);
-            prepare_join_set.spawn(prepare_file(fs_backend_arc.clone(), new_metrics_path.clone(), false));
+            prepare_join_set.spawn(prepare_file(fs_backend.clone(), new_metrics_path.clone(), false));
             accessible_paths.metrics_path = Some(new_metrics_path);
         }
 
         if let Some(ref vsock) = configuration.data().vsock_device {
             let new_uds_path = vmm_process.inner_to_outer_path(&vsock.uds_path);
-            prepare_join_set.spawn(prepare_file(fs_backend_arc.clone(), new_uds_path.clone(), true));
+            prepare_join_set.spawn(prepare_file(fs_backend.clone(), new_uds_path.clone(), true));
             accessible_paths.vsock_multiplexer_path = Some(new_uds_path);
         }
 
         if let Some(ref logger) = configuration.data().logger_system {
             if let Some(ref log_path) = logger.log_path {
                 let new_log_path = vmm_process.inner_to_outer_path(log_path);
-                prepare_join_set.spawn(prepare_file(fs_backend_arc.clone(), new_log_path.clone(), false));
+                prepare_join_set.spawn(prepare_file(fs_backend.clone(), new_log_path.clone(), false));
                 accessible_paths.log_path = Some(new_log_path);
             }
         }
 
         if let Some(ref metrics) = configuration.data().metrics_system {
             let new_metrics_path = vmm_process.inner_to_outer_path(&metrics.metrics_path);
-            prepare_join_set.spawn(prepare_file(fs_backend_arc.clone(), new_metrics_path.clone(), false));
+            prepare_join_set.spawn(prepare_file(fs_backend.clone(), new_metrics_path.clone(), false));
             accessible_paths.metrics_path = Some(new_metrics_path);
         }
 
@@ -311,7 +290,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
 
         Ok(Self {
             vmm_process,
-            fs_backend: fs_backend_arc,
+            fs_backend,
             is_paused: false,
             original_configuration_data,
             configuration: Some(configuration),

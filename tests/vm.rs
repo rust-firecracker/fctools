@@ -230,7 +230,7 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
         ))),
     };
 
-    let mut vm = TestVm::prepare_arced(
+    let mut vm = TestVm::prepare(
         Arc::new(executor),
         Arc::new(DirectProcessSpawner),
         Arc::new(BlockingFsBackend),

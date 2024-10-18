@@ -87,7 +87,7 @@ impl JailerArguments {
         self
     }
 
-    pub(crate) fn join(&self, firecracker_binary_path: &Path) -> Vec<String> {
+    pub fn join(&self, firecracker_binary_path: &Path) -> Vec<String> {
         let mut args = Vec::with_capacity(8);
         args.push("--exec-file".to_string());
         args.push(firecracker_binary_path.to_string_lossy().into_owned());

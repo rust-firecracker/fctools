@@ -79,24 +79,35 @@ fctools = { path = ".", features = ["full"] }
 [features]
 full = [
     "vm",
-    "metrics-ext",
-    "http-vsock-ext",
-    "grpc-vsock-ext",
-    "link-local-ext",
-    "snapshot-editor-ext",
+    "unrestricted-vmm-executor",
+    "jailed-vmm-executor",
+    "metrics-extension",
+    "http-vsock-extension",
+    "grpc-vsock-extension",
+    "link-local-extension",
+    "snapshot-editor-extension",
     "blocking-fs-backend",
     "unsend-proxy-fs-backend",
     "tokio-uring-fs-backend",
 ]
 default = []
-# fs backends
+# fs backend
 fs-backend = []
 blocking-fs-backend = ["fs-backend", "tokio/fs"]
 unsend-proxy-fs-backend = ["dep:uuid"]
 tokio-uring-fs-backend = ["dep:tokio-uring", "tokio/fs"]
-# layers
-process-spawner = []
-vmm-executor = ["fs-backend", "process-spawner", "dep:libc"]
+# vmm
+vmm-arguments = []
+vmm-installation = []
+vmm-executor = [
+    "vmm-arguments",
+    "vmm-installation",
+    "fs-backend",
+    "process-spawner",
+    "dep:libc",
+]
+jailed-vmm-executor = ["vmm-executor"]
+unrestricted-vmm-executor = ["vmm-executor"]
 vmm-process = [
     "vmm-executor",
     "dep:hyper",
@@ -106,15 +117,17 @@ vmm-process = [
     "dep:hyper-util",
     "dep:http",
 ]
+# other
+process-spawner = []
 vm = ["vmm-process", "dep:serde", "dep:serde_json"]
 # extensions
-metrics-ext = ["dep:serde", "dep:serde_json", "tokio/fs"]
-http-vsock-ext = ["vm", "hyper-client-sockets/firecracker"]
-grpc-vsock-ext = [
+metrics-extension = ["dep:serde", "dep:serde_json", "tokio/fs"]
+http-vsock-extension = ["vm", "hyper-client-sockets/firecracker"]
+grpc-vsock-extension = [
     "vm",
     "hyper-client-sockets/firecracker",
     "dep:tonic",
     "dep:tower-service",
 ]
-link-local-ext = ["dep:cidr"]
-snapshot-editor-ext = ["vmm-executor"]
+link-local-extension = ["dep:cidr"]
+snapshot-editor-extension = ["vmm-executor"]

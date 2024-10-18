@@ -116,7 +116,7 @@ impl FirecrackerArguments {
         self
     }
 
-    pub(crate) fn join(&self, config_override: FirecrackerConfigurationOverride) -> Vec<String> {
+    pub fn join(&self, config_override: FirecrackerConfigurationOverride) -> Vec<String> {
         let mut args = Vec::with_capacity(1);
 
         match self.api_socket {

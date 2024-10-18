@@ -7,11 +7,11 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(feature = "jailed-vmm-executor")]
 use jailed::JailRenamerError;
-use tokio::{
-    process::Child,
-    task::{JoinError, JoinSet},
-};
+#[cfg(feature = "unrestricted-vmm-executor")]
+use tokio::task::JoinSet;
+use tokio::{process::Child, task::JoinError};
 
 use crate::{
     fs_backend::{FsBackend, FsBackendError},
@@ -20,7 +20,9 @@ use crate::{
 
 use super::{arguments::firecracker::FirecrackerConfigurationOverride, installation::VmmInstallation};
 
+#[cfg(feature = "jailed-vmm-executor")]
 pub mod jailed;
+#[cfg(feature = "unrestricted-vmm-executor")]
 pub mod unrestricted;
 
 #[derive(Debug, thiserror::Error)]
@@ -43,6 +45,7 @@ pub enum VmmExecutorError {
     ExpectedResourceMissing(PathBuf),
     #[error("A directory that is supposed to have a parent in the filesystem has none")]
     ExpectedDirectoryParentMissing,
+    #[cfg(feature = "jailed-vmm-executor")]
     #[error("Invoking the jail renamer to produce an inner path failed: `{0}`")]
     JailRenamerFailed(JailRenamerError),
     #[error("The given installation's file items have no filenames")]
@@ -51,8 +54,8 @@ pub enum VmmExecutorError {
     Other(Box<dyn std::error::Error + Send>),
 }
 
-/// A VMM executor is layer 2 of fctools: manages the environment of a VMM process, correctly invoking the process,
-/// setting up and subsequently cleaning the environment. This allows modularity between different modes of VMM execution.
+/// A VMM executor manages the environment of a VMM process, correctly invoking the process, while
+/// setting up and subsequently cleaning its environment. This allows modularity between different modes of VMM execution.
 pub trait VmmExecutor: Send + Sync {
     /// Get the host location of the VMM socket, if one exists.
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf>;
@@ -123,6 +126,7 @@ pub(crate) async fn force_chown(path: &Path, process_spawner: &impl ProcessSpawn
     Ok(())
 }
 
+#[cfg(feature = "jailed-vmm-executor")]
 async fn force_mkdir(
     fs_backend: &impl FsBackend,
     path: &Path,
@@ -168,6 +172,7 @@ async fn create_file_with_tree(fs_backend: Arc<impl FsBackend>, path: PathBuf) -
     Ok(())
 }
 
+#[cfg(feature = "unrestricted-vmm-executor")]
 async fn join_on_set(mut join_set: JoinSet<Result<(), VmmExecutorError>>) -> Result<(), VmmExecutorError> {
     while let Some(result) = join_set.join_next().await {
         match result {

@@ -293,11 +293,11 @@ pub struct MetricsAggregate {
 #[derive(Debug, thiserror::Error)]
 pub enum MetricsTaskError {
     #[error("An asynchronous I/O task failed: `{0}`")]
-    Io(tokio::io::Error),
+    IoError(tokio::io::Error),
     #[error("Deserializing the metrics JSON failed: `{0}`")]
-    Serde(serde_json::Error),
+    SerdeError(serde_json::Error),
     #[error("Sending the metrics to the channel failed: `{0}`")]
-    Send(SendError<Metrics>),
+    SendError(SendError<Metrics>),
 }
 
 /// A spawned Tokio task that gathers Firecracker's metrics.
@@ -319,17 +319,18 @@ pub fn spawn_metrics_task(metrics_path: impl AsRef<Path> + Send + 'static, buffe
         let mut buf_reader = BufReader::new(
             tokio::fs::File::open(metrics_path)
                 .await
-                .map_err(MetricsTaskError::Io)?,
+                .map_err(MetricsTaskError::IoError)?,
         )
         .lines();
+
         loop {
             let line = match buf_reader.next_line().await {
                 Ok(Some(line)) => line,
                 Ok(None) => continue,
-                Err(err) => return Err(MetricsTaskError::Io(err)),
+                Err(err) => return Err(MetricsTaskError::IoError(err)),
             };
-            let metrics_entry = serde_json::from_str::<Metrics>(&line).map_err(MetricsTaskError::Serde)?;
-            sender.send(metrics_entry).await.map_err(MetricsTaskError::Send)?;
+            let metrics_entry = serde_json::from_str::<Metrics>(&line).map_err(MetricsTaskError::SerdeError)?;
+            sender.send(metrics_entry).await.map_err(MetricsTaskError::SendError)?;
         }
     });
 
