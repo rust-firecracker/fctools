@@ -7,10 +7,10 @@ use std::{
 };
 
 use crate::{
-    executor::{arguments::ConfigurationFileOverride, installation::VmmInstallation, VmmExecutor},
     fs_backend::{FsBackend, FsBackendError},
-    process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
-    runner::Runner,
+    process_spawner::ProcessSpawner,
+    vmm_executor::{arguments::ConfigurationFileOverride, installation::VmmInstallation, VmmExecutor},
+    vmm_process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
 };
 use api::VmApi;
 use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
@@ -29,9 +29,9 @@ pub mod snapshot;
 /// transforming resource paths from inner to outer and vice versa, removing VM traces, creating snapshots, binding to the exact
 /// endpoints of the API server, fallback-based shutdown.
 ///
-/// A VM is tied to an executor E, shell spawner S and filesystem backend F.
+/// A VM is tied to an executor E, process spawner S and filesystem backend F.
 #[derive(Debug)]
-pub struct Vm<E: VmmExecutor, S: Runner, F: FsBackend> {
+pub struct Vm<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
     vmm_process: VmmProcess<E, S, F>,
     fs_backend: Arc<F>,
     is_paused: bool,
@@ -140,18 +140,18 @@ pub struct AccessiblePaths {
     pub vsock_listener_paths: Vec<PathBuf>,
 }
 
-impl<E: VmmExecutor, S: Runner, F: FsBackend> Vm<E, S, F> {
+impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
     /// Prepare the full environment of a VM without booting it.
     pub async fn prepare(
         executor: E,
-        shell_spawner: S,
+        process_spawner: S,
         fs_backend: F,
         installation: VmmInstallation,
         configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
         Self::prepare_arced(
             Arc::new(executor),
-            Arc::new(shell_spawner),
+            Arc::new(process_spawner),
             Arc::new(fs_backend),
             Arc::new(installation),
             configuration,
@@ -163,7 +163,7 @@ impl<E: VmmExecutor, S: Runner, F: FsBackend> Vm<E, S, F> {
     /// to avoid cloning overhead where it is not necessary.
     pub async fn prepare_arced(
         executor: Arc<E>,
-        shell_spawner_arc: Arc<S>,
+        process_spawner_arc: Arc<S>,
         fs_backend_arc: Arc<F>,
         installation_arc: Arc<VmmInstallation>,
         mut configuration: VmConfiguration,
@@ -205,7 +205,7 @@ impl<E: VmmExecutor, S: Runner, F: FsBackend> Vm<E, S, F> {
         let executor_traceless = executor.traceless();
         let mut vmm_process = VmmProcess::new_arced(
             executor,
-            shell_spawner_arc,
+            process_spawner_arc,
             fs_backend_arc.clone(),
             installation_arc,
             outer_paths,

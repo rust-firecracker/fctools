@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use fctools::{
-    executor::arguments::ConfigurationFileOverride,
-    process::{HyperResponseExt, VmmProcessState},
+    vmm_executor::arguments::ConfigurationFileOverride,
+    vmm_process::{HyperResponseExt, VmmProcessState},
 };
 use http::Uri;
 use http_body_util::Full;

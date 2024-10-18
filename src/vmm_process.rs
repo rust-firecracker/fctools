@@ -18,19 +18,19 @@ use tokio::{
 };
 
 use crate::{
-    executor::{
+    fs_backend::FsBackend,
+    process_spawner::ProcessSpawner,
+    vmm_executor::{
         arguments::ConfigurationFileOverride, force_chown, installation::VmmInstallation, VmmExecutor, VmmExecutorError,
     },
-    fs_backend::FsBackend,
-    runner::Runner,
 };
 
 /// A VMM process is layer 3 of fctools: an abstraction that manages a VMM process. It is
 /// tied to the given VMM executor E, runner R and filesystem backend F.
 #[derive(Debug)]
-pub struct VmmProcess<E: VmmExecutor, R: Runner, F: FsBackend> {
+pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
     executor: Arc<E>,
-    runner: Arc<R>,
+    process_spawner: Arc<S>,
     fs_backend: Arc<F>,
     installation: Arc<VmmInstallation>,
     child: Option<Child>,
@@ -94,7 +94,7 @@ pub enum VmmProcessError {
     ExpectedExitedOrCrashed { actual: VmmProcessState },
     #[error("The VMM process's API socket had been disabled yet a request to the socket was attempted")]
     SocketWasDisabled,
-    #[error("Forcing chown of the API socket via the shell spawner failed: `{0}`")]
+    #[error("Forcing chown of the API socket via the process spawner failed: `{0}`")]
     CouldNotChownSocket(std::io::Error),
     #[error("An error occurred in the internal hyper-util HTTP connection pool: `{0}`")]
     HyperClientFailed(hyper_util::client::legacy::Error),
@@ -118,18 +118,18 @@ pub enum VmmProcessError {
     IoError(std::io::Error),
 }
 
-impl<E: VmmExecutor, R: Runner, F: FsBackend> VmmProcess<E, R, F> {
+impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     /// Create a new process instance while moving in its components.
     pub fn new(
         executor: E,
-        runner: R,
+        process_spawner: S,
         fs_backend: F,
         installation: VmmInstallation,
         outer_paths: Vec<PathBuf>,
     ) -> Self {
         Self::new_arced(
             Arc::new(executor),
-            Arc::new(runner),
+            Arc::new(process_spawner),
             Arc::new(fs_backend),
             Arc::new(installation),
             outer_paths,
@@ -140,7 +140,7 @@ impl<E: VmmExecutor, R: Runner, F: FsBackend> VmmProcess<E, R, F> {
     /// all scenarios.
     pub fn new_arced(
         executor_arc: Arc<E>,
-        runner_arc: Arc<R>,
+        process_spawner_arc: Arc<S>,
         fs_backend_arc: Arc<F>,
         installation_arc: Arc<VmmInstallation>,
         outer_paths: Vec<PathBuf>,
@@ -148,7 +148,7 @@ impl<E: VmmExecutor, R: Runner, F: FsBackend> VmmProcess<E, R, F> {
         let socket_path = executor_arc.get_socket_path(installation_arc.as_ref());
         Self {
             executor: executor_arc,
-            runner: runner_arc,
+            process_spawner: process_spawner_arc,
             installation: installation_arc,
             fs_backend: fs_backend_arc,
             child: None,
@@ -166,7 +166,7 @@ impl<E: VmmExecutor, R: Runner, F: FsBackend> VmmProcess<E, R, F> {
             .executor
             .prepare(
                 self.installation.as_ref(),
-                self.runner.clone(),
+                self.process_spawner.clone(),
                 self.fs_backend.clone(),
                 self.outer_paths
                     .take()
@@ -183,7 +183,11 @@ impl<E: VmmExecutor, R: Runner, F: FsBackend> VmmProcess<E, R, F> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.child = Some(
             self.executor
-                .invoke(self.installation.as_ref(), self.runner.clone(), config_override)
+                .invoke(
+                    self.installation.as_ref(),
+                    self.process_spawner.clone(),
+                    config_override,
+                )
                 .await
                 .map_err(VmmProcessError::ExecutorError)?,
         );
@@ -203,7 +207,7 @@ impl<E: VmmExecutor, R: Runner, F: FsBackend> VmmProcess<E, R, F> {
         let hyper_client = self
             .hyper_client
             .get_or_try_init(|| async {
-                force_chown(&socket_path, self.runner.as_ref())
+                force_chown(&socket_path, self.process_spawner.as_ref())
                     .await
                     .map_err(VmmProcessError::ExecutorError)?;
                 Ok(Client::builder(TokioExecutor::new()).build(HyperUnixConnector))
@@ -304,7 +308,11 @@ impl<E: VmmExecutor, R: Runner, F: FsBackend> VmmProcess<E, R, F> {
     pub async fn cleanup(&mut self) -> Result<(), VmmProcessError> {
         self.ensure_exited_or_crashed()?;
         self.executor
-            .cleanup(self.installation.as_ref(), self.runner.clone(), self.fs_backend.clone())
+            .cleanup(
+                self.installation.as_ref(),
+                self.process_spawner.clone(),
+                self.fs_backend.clone(),
+            )
             .await
             .map_err(VmmProcessError::ExecutorError)?;
         Ok(())

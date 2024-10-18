@@ -6,7 +6,9 @@ use http_body_util::Full;
 use hyper::body::Incoming;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::{executor::VmmExecutor, fs_backend::FsBackend, process::HyperResponseExt, runner::Runner};
+use crate::{
+    fs_backend::FsBackend, process_spawner::ProcessSpawner, vmm_executor::VmmExecutor, vmm_process::HyperResponseExt,
+};
 
 use super::{
     configuration::VmConfigurationData,
@@ -92,7 +94,7 @@ pub trait VmApi {
     fn api_get_mmds_untyped(&mut self) -> impl Future<Output = Result<serde_json::Value, VmError>> + Send;
 }
 
-impl<E: VmmExecutor, S: Runner, F: FsBackend> VmApi for Vm<E, S, F> {
+impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmApi for Vm<E, S, F> {
     async fn api_custom_request(
         &mut self,
         route: impl AsRef<str> + Send,
@@ -280,7 +282,7 @@ impl<E: VmmExecutor, S: Runner, F: FsBackend> VmApi for Vm<E, S, F> {
     }
 }
 
-pub(super) async fn init_new<E: VmmExecutor, S: Runner, F: FsBackend>(
+pub(super) async fn init_new<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
     vm: &mut Vm<E, S, F>,
     data: VmConfigurationData,
 ) -> Result<(), VmError> {
@@ -341,7 +343,7 @@ pub(super) async fn init_new<E: VmmExecutor, S: Runner, F: FsBackend>(
     .await
 }
 
-pub(super) async fn init_restored_from_snapshot<E: VmmExecutor, S: Runner, F: FsBackend>(
+pub(super) async fn init_restored_from_snapshot<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
     vm: &mut Vm<E, S, F>,
     data: VmConfigurationData,
     load_snapshot: LoadSnapshot,
@@ -357,7 +359,7 @@ pub(super) async fn init_restored_from_snapshot<E: VmmExecutor, S: Runner, F: Fs
     send_api_request(vm, "/snapshot/load", "PUT", Some(&load_snapshot)).await
 }
 
-async fn send_api_request<E: VmmExecutor, S: Runner, F: FsBackend>(
+async fn send_api_request<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
     vm: &mut Vm<E, S, F>,
     route: &str,
     method: &str,
@@ -371,7 +373,7 @@ async fn send_api_request<E: VmmExecutor, S: Runner, F: FsBackend>(
     }
 }
 
-async fn send_api_request_with_response<Resp: DeserializeOwned, E: VmmExecutor, S: Runner, F: FsBackend>(
+async fn send_api_request_with_response<Resp: DeserializeOwned, E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
     vm: &mut Vm<E, S, F>,
     route: &str,
     method: &str,
@@ -381,7 +383,7 @@ async fn send_api_request_with_response<Resp: DeserializeOwned, E: VmmExecutor, 
     serde_json::from_str(&response_json).map_err(VmError::SerdeError)
 }
 
-async fn send_api_request_internal<E: VmmExecutor, S: Runner, F: FsBackend>(
+async fn send_api_request_internal<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
     vm: &mut Vm<E, S, F>,
     route: &str,
     method: &str,

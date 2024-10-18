@@ -1,12 +1,12 @@
 use assert_matches::assert_matches;
 use bytes::Bytes;
 use fctools::{
-    process::HyperResponseExt,
     vm::{
         api::VmApi,
         models::{BalloonDevice, MetricsSystem, UpdateBalloonDevice, UpdateBalloonStatistics},
         ShutdownMethod, VmError, VmState,
     },
+    vmm_process::HyperResponseExt,
 };
 use http::{Request, StatusCode};
 use http_body_util::Full;

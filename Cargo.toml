@@ -95,10 +95,10 @@ blocking-fs-backend = ["fs-backend", "tokio/fs"]
 unsend-proxy-fs-backend = ["dep:uuid"]
 tokio-uring-fs-backend = ["dep:tokio-uring", "tokio/fs"]
 # layers
-runner = []
-executor = ["fs-backend", "runner", "dep:libc"]
-process = [
-    "executor",
+process-spawner = []
+vmm-executor = ["fs-backend", "process-spawner", "dep:libc"]
+vmm-process = [
+    "vmm-executor",
     "dep:hyper",
     "dep:bytes",
     "dep:http-body-util",
@@ -106,7 +106,7 @@ process = [
     "dep:hyper-util",
     "dep:http",
 ]
-vm = ["process", "dep:serde", "dep:serde_json"]
+vm = ["vmm-process", "dep:serde", "dep:serde_json"]
 # extensions
 metrics-ext = ["dep:serde", "dep:serde_json", "tokio/fs"]
 http-vsock-ext = ["vm", "hyper-client-sockets/firecracker"]
@@ -117,4 +117,4 @@ grpc-vsock-ext = [
     "dep:tower-service",
 ]
 link-local-ext = ["dep:cidr"]
-snapshot-editor-ext = ["executor"]
+snapshot-editor-ext = ["vmm-executor"]

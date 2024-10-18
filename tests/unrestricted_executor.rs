@@ -1,12 +1,14 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use assert_matches::assert_matches;
-use fctools::executor::{
+use fctools::vmm_executor::{
     arguments::{ConfigurationFileOverride, VmmApiSocket, VmmArguments},
     unrestricted::UnrestrictedVmmExecutor,
     VmmExecutor, VmmExecutorError,
 };
-use test_framework::{get_fake_firecracker_installation, get_fs_backend, get_runner, get_tmp_path, FailingRunner};
+use test_framework::{
+    get_fake_firecracker_installation, get_fs_backend, get_process_spawner, get_tmp_path, FailingRunner,
+};
 use tokio::fs::{remove_file, try_exists, File};
 
 mod test_framework;
@@ -39,7 +41,7 @@ async fn unrestricted_executor_prepare_runs_with_existing_resources() {
         executor
             .prepare(
                 &get_fake_firecracker_installation(),
-                get_runner(),
+                get_process_spawner(),
                 get_fs_backend(),
                 vec![existing_path.clone()]
             )
@@ -59,7 +61,7 @@ async fn unrestricted_executor_prepare_fails_with_missing_resources() {
         executor
             .prepare(
                 &get_fake_firecracker_installation(),
-                get_runner(),
+                get_process_spawner(),
                 get_fs_backend(),
                 vec![path.clone()]
             )
@@ -76,7 +78,7 @@ async fn unrestricted_executor_prepare_removes_pre_existing_api_socket() {
     executor
         .prepare(
             &get_fake_firecracker_installation(),
-            get_runner(),
+            get_process_spawner(),
             get_fs_backend(),
             vec![],
         )
@@ -92,7 +94,7 @@ async fn unrestricted_executor_prepare_creates_log_file() {
     executor
         .prepare(
             &get_fake_firecracker_installation(),
-            get_runner(),
+            get_process_spawner(),
             get_fs_backend(),
             vec![],
         )
@@ -109,7 +111,7 @@ async fn unrestricted_executor_prepare_creates_metrics_file() {
     executor
         .prepare(
             &get_fake_firecracker_installation(),
-            get_runner(),
+            get_process_spawner(),
             get_fs_backend(),
             vec![],
         )
@@ -120,7 +122,7 @@ async fn unrestricted_executor_prepare_creates_metrics_file() {
 }
 
 #[tokio::test]
-async fn unrestricted_executor_invoke_reports_shell_spawner_error() {
+async fn unrestricted_executor_invoke_reports_process_spawner_error() {
     let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled));
     assert_matches!(
         executor
@@ -130,7 +132,7 @@ async fn unrestricted_executor_invoke_reports_shell_spawner_error() {
                 ConfigurationFileOverride::NoOverride,
             )
             .await,
-        Err(VmmExecutorError::RunFailed(_))
+        Err(VmmExecutorError::ProcessSpawnFailed(_))
     );
 }
 
@@ -140,7 +142,7 @@ async fn unrestricted_executor_invoke_nulls_pipes() {
     let child = executor
         .invoke(
             &get_fake_firecracker_installation(),
-            get_runner(),
+            get_process_spawner(),
             ConfigurationFileOverride::NoOverride,
         )
         .await
@@ -156,7 +158,11 @@ async fn unrestricted_executor_cleanup_removes_api_socket() {
     File::create_new(&socket_path).await.unwrap();
     let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())));
     executor
-        .cleanup(&get_fake_firecracker_installation(), get_runner(), get_fs_backend())
+        .cleanup(
+            &get_fake_firecracker_installation(),
+            get_process_spawner(),
+            get_fs_backend(),
+        )
         .await
         .unwrap();
     assert!(!try_exists(socket_path).await.unwrap());
@@ -177,7 +183,11 @@ async fn unrestricted_executor_cleanup_removes_log_and_metrics_file() {
     .remove_logs_on_cleanup()
     .remove_metrics_on_cleanup();
     executor
-        .cleanup(&get_fake_firecracker_installation(), get_runner(), get_fs_backend())
+        .cleanup(
+            &get_fake_firecracker_installation(),
+            get_process_spawner(),
+            get_fs_backend(),
+        )
         .await
         .unwrap();
 
@@ -197,7 +207,11 @@ async fn unrestricted_executor_cleanup_does_not_remove_log_and_metrics_files() {
             .metrics_path(&metrics_path),
     );
     executor
-        .cleanup(&get_fake_firecracker_installation(), get_runner(), get_fs_backend())
+        .cleanup(
+            &get_fake_firecracker_installation(),
+            get_process_spawner(),
+            get_fs_backend(),
+        )
         .await
         .unwrap();
 

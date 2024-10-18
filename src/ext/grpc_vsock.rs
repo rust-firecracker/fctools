@@ -4,7 +4,7 @@ use http::Uri;
 use hyper_client_sockets::HyperFirecrackerStream;
 use tonic::transport::{Channel, Endpoint};
 
-use crate::{executor::VmmExecutor, fs_backend::FsBackend, runner::Runner, vm::Vm};
+use crate::{fs_backend::FsBackend, process_spawner::ProcessSpawner, vm::Vm, vmm_executor::VmmExecutor};
 
 /// An error emitted by the gRPC-over-vsock extension.
 #[derive(Debug, thiserror::Error)]
@@ -39,7 +39,7 @@ pub trait VsockGrpcExt {
     ) -> Result<Channel, VsockGrpcError>;
 }
 
-impl<E: VmmExecutor, S: Runner, F: FsBackend> VsockGrpcExt for Vm<E, S, F> {
+impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VsockGrpcExt for Vm<E, S, F> {
     async fn vsock_connect_over_grpc(
         &self,
         guest_port: u32,
@@ -63,7 +63,7 @@ impl<E: VmmExecutor, S: Runner, F: FsBackend> VsockGrpcExt for Vm<E, S, F> {
 }
 
 #[inline]
-fn create_endpoint_and_service<E: VmmExecutor, S: Runner, F: FsBackend>(
+fn create_endpoint_and_service<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
     vm: &Vm<E, S, F>,
     guest_port: u32,
     configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,

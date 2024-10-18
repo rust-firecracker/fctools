@@ -17,11 +17,11 @@ use tokio::{
 
 use crate::{
     fs_backend::{FsBackend, FsBackendError},
-    runner::Runner,
+    process_spawner::ProcessSpawner,
 };
 
-pub mod argument_modifier;
 pub mod arguments;
+pub mod command_modifier;
 pub mod installation;
 pub mod jailed;
 pub mod unrestricted;
@@ -32,16 +32,16 @@ pub enum VmmExecutorError {
     IoError(std::io::Error),
     #[error("An I/O error emitted by an FS backend occurred: `{0}`")]
     FsBackendError(FsBackendError),
-    #[error("Forking an auxiliary shell via the spawner to force chown/mkdir failed: `{0}`")]
+    #[error("Spawning an auxiliary process via the spawner to force chown/mkdir failed: `{0}`")]
     ShellForkFailed(std::io::Error),
-    #[error("A forced shell chown command exited with a non-zero exit status: `{0}`")]
+    #[error("A forced chown command exited with a non-zero exit status: `{0}`")]
     ChownExitedWithWrongStatus(ExitStatus),
-    #[error("A forced shell mkdir command exited with a non-zero exit status: `{0}`")]
+    #[error("A forced mkdir command exited with a non-zero exit status: `{0}`")]
     MkdirExitedWithWrongStatus(ExitStatus),
     #[error("Joining on a spawned async task failed: `{0}`")]
     TaskJoinFailed(JoinError),
-    #[error("Spawning an auxiliary or primary shell via the spawner failed: `{0}`")]
-    RunFailed(std::io::Error),
+    #[error("Spawning an auxiliary or primary process via the process spawner failed: `{0}`")]
+    ProcessSpawnFailed(std::io::Error),
     #[error("A passed-in resource at the path `{0}` was expected but doesn't exist or isn't accessible")]
     ExpectedResourceMissing(PathBuf),
     #[error("A directory that is supposed to have a parent in the filesystem has none")]
@@ -66,34 +66,34 @@ pub trait VmmExecutor: Send + Sync {
     // Returns a boolean determining whether this executor leaves any traces on the host filesystem after cleanup.
     fn traceless(&self) -> bool;
 
-    /// Prepare all transient resources for the VM invocation.
+    /// Prepare all transient resources for the VMM invocation.
     fn prepare(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl Runner>,
+        process_spawner: Arc<impl ProcessSpawner>,
         fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
     ) -> impl Future<Output = Result<HashMap<PathBuf, PathBuf>, VmmExecutorError>> + Send;
 
-    /// Invoke the VM on the given FirecrackerInstallation and return the spawned tokio Child.
+    /// Invoke the VMM on the given FirecrackerInstallation and return the spawned tokio Child.
     fn invoke(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl Runner>,
+        process_spawner: Arc<impl ProcessSpawner>,
         config_override: ConfigurationFileOverride,
     ) -> impl Future<Output = Result<Child, VmmExecutorError>> + Send;
 
-    /// Clean up all transient resources of the VM invocation.
+    /// Clean up all transient resources of the VMM invocation.
     fn cleanup(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl Runner>,
+        process_spawner: Arc<impl ProcessSpawner>,
         fs_backend: Arc<impl FsBackend>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
-pub(crate) async fn force_chown(path: &Path, runner: &impl Runner) -> Result<(), VmmExecutorError> {
-    if !runner.increases_privileges() {
+pub(crate) async fn force_chown(path: &Path, process_spawner: &impl ProcessSpawner) -> Result<(), VmmExecutorError> {
+    if !process_spawner.increases_privileges() {
         return Ok(());
     }
 
@@ -101,8 +101,8 @@ pub(crate) async fn force_chown(path: &Path, runner: &impl Runner) -> Result<(),
     let uid = unsafe { libc::geteuid() };
     let gid = unsafe { libc::getegid() };
 
-    let mut child = runner
-        .run(
+    let mut child = process_spawner
+        .spawn(
             &PathBuf::from("chown"),
             vec![
                 "chown".to_string(),
@@ -114,7 +114,7 @@ pub(crate) async fn force_chown(path: &Path, runner: &impl Runner) -> Result<(),
             true,
         )
         .await
-        .map_err(VmmExecutorError::RunFailed)?;
+        .map_err(VmmExecutorError::ProcessSpawnFailed)?;
     let exit_status = child.wait().await.map_err(VmmExecutorError::ShellForkFailed)?;
 
     // code 256 means that a concurrent chown is being called and the chown will still be applied, so this error can
@@ -126,8 +126,12 @@ pub(crate) async fn force_chown(path: &Path, runner: &impl Runner) -> Result<(),
     Ok(())
 }
 
-async fn force_mkdir(fs_backend: &impl FsBackend, path: &Path, runner: &impl Runner) -> Result<(), VmmExecutorError> {
-    if !runner.increases_privileges() {
+async fn force_mkdir(
+    fs_backend: &impl FsBackend,
+    path: &Path,
+    process_spawner: &impl ProcessSpawner,
+) -> Result<(), VmmExecutorError> {
+    if !process_spawner.increases_privileges() {
         fs_backend
             .create_dir_all(path)
             .await
@@ -135,14 +139,14 @@ async fn force_mkdir(fs_backend: &impl FsBackend, path: &Path, runner: &impl Run
         return Ok(());
     }
 
-    let mut child = runner
-        .run(
+    let mut child = process_spawner
+        .spawn(
             &PathBuf::from("mkdir"),
             vec!["-p".to_string(), path.to_string_lossy().into_owned()],
             true,
         )
         .await
-        .map_err(VmmExecutorError::RunFailed)?;
+        .map_err(VmmExecutorError::ProcessSpawnFailed)?;
     let exit_status = child.wait().await.map_err(VmmExecutorError::ShellForkFailed)?;
 
     if !exit_status.success() {

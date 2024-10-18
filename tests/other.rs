@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use fctools::{
-    executor::installation::{VmmInstallation, VmmInstallationError},
     fs_backend::blocking::BlockingFsBackend,
-    runner::{DirectRunner, Runner},
+    process_spawner::{DirectProcessSpawner, ProcessSpawner},
+    vmm_executor::installation::{VmmInstallation, VmmInstallationError},
 };
 use test_framework::{get_test_path, TestOptions};
 use uuid::Uuid;
@@ -94,9 +94,9 @@ async fn installation_verifies_for_correct_parameters() {
 }
 
 #[tokio::test]
-async fn direct_runner_launches_simple_command() {
-    let child = DirectRunner
-        .run(&PathBuf::from("cat"), vec!["--help".to_string()], false)
+async fn direct_process_spawner_launches_simple_command() {
+    let child = DirectProcessSpawner
+        .spawn(&PathBuf::from("cat"), vec!["--help".to_string()], false)
         .await
         .unwrap();
     let output = child.wait_with_output().await.unwrap();
@@ -106,11 +106,11 @@ async fn direct_runner_launches_simple_command() {
 }
 
 #[tokio::test]
-async fn direct_runner_runs_under_correct_uid() {
+async fn direct_process_spawner_runs_under_correct_uid() {
     let uid = unsafe { libc::geteuid() };
     let stdout = String::from_utf8_lossy(
-        &DirectRunner
-            .run(
+        &DirectProcessSpawner
+            .spawn(
                 &PathBuf::from("bash"),
                 vec!["-c".to_string(), "echo $UID".to_string()],
                 false,
@@ -127,8 +127,11 @@ async fn direct_runner_runs_under_correct_uid() {
 }
 
 #[tokio::test]
-async fn direct_runner_can_null_pipes() {
-    let child = DirectRunner.run(&PathBuf::from("echo"), vec![], true).await.unwrap();
+async fn direct_process_spawner_can_null_pipes() {
+    let child = DirectProcessSpawner
+        .spawn(&PathBuf::from("echo"), vec![], true)
+        .await
+        .unwrap();
     assert!(child.stdout.is_none());
     assert!(child.stderr.is_none());
     assert!(child.stdin.is_none());

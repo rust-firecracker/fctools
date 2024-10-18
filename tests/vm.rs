@@ -1,13 +1,8 @@
 use std::{os::unix::fs::FileTypeExt, sync::Arc, time::Duration};
 
 use fctools::{
-    executor::{
-        arguments::{JailerArguments, VmmApiSocket, VmmArguments},
-        jailed::{FlatJailRenamer, JailedVmmExecutor},
-        unrestricted::UnrestrictedVmmExecutor,
-    },
     fs_backend::blocking::BlockingFsBackend,
-    runner::DirectRunner,
+    process_spawner::DirectProcessSpawner,
     vm::{
         api::VmApi,
         configuration::InitMethod,
@@ -15,11 +10,15 @@ use fctools::{
         snapshot::SnapshotData,
         ShutdownMethod, VmState,
     },
+    vmm_executor::{
+        arguments::{JailerArguments, VmmApiSocket, VmmArguments},
+        jailed::{FlatJailRenamer, JailedVmmExecutor},
+        unrestricted::UnrestrictedVmmExecutor,
+    },
 };
 use rand::RngCore;
 use test_framework::{
-    get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, SnapshottingContext, TestExecutor, TestOptions,
-    TestVm, VmBuilder,
+    get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, TestExecutor, TestOptions, TestVm, VmBuilder,
 };
 use tokio::{
     fs::{metadata, try_exists},
@@ -164,14 +163,14 @@ fn vm_tracks_state_with_crash() {
 
 #[test]
 fn vm_can_snapshot_while_original_is_running() {
-    VmBuilder::new().run_with_snapshotting_context(|mut vm, snapshotting_context| async move {
+    VmBuilder::new().run_with_snapshotting_context(|mut vm, is_jailed| async move {
         vm.api_pause().await.unwrap();
         let snapshot = vm
             .api_create_snapshot(CreateSnapshot::new(get_tmp_path(), get_tmp_path()))
             .await
             .unwrap();
 
-        restore_vm_from_snapshot(snapshot.clone(), snapshotting_context).await;
+        restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
 
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
@@ -210,8 +209,8 @@ fn vm_can_boot_with_net_iface() {
     });
 }
 
-async fn restore_vm_from_snapshot(snapshot: SnapshotData, snapshotting_context: SnapshottingContext) {
-    let executor = match snapshotting_context.is_jailed {
+async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
+    let executor = match is_jailed {
         true => TestExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
             JailerArguments::new(
@@ -228,7 +227,7 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, snapshotting_context: 
 
     let mut vm = TestVm::prepare_arced(
         Arc::new(executor),
-        Arc::new(DirectRunner),
+        Arc::new(DirectProcessSpawner),
         Arc::new(BlockingFsBackend),
         Arc::new(get_real_firecracker_installation()),
         snapshot.into_configuration(Some(true), None),

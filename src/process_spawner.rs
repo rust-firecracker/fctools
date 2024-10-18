@@ -9,27 +9,25 @@ use tokio::{
     process::{Child, Command},
 };
 
-/// A runner is layer 1 of fctools and concerns itself with spawning a rootful or rootless process.
-/// The command delegated to the runner is either a firecracker or jailer invocation for starting the respective
-/// processes, or an elevated chown/mkdir invocation from the executors.
-pub trait Runner: Send + Sync + 'static {
-    /// Whether the child processes spawned by this shell spawner have the same user and group ID as that of the
-    /// main process itself (e.g. whether the shell spawner increases privileges for the child process).
+/// A process spawner is layer 1 of fctools and concerns itself with spawning a rootful or rootless process.
+/// The command delegated to the spawner is either a "firecracker" or "jailer" invocation for starting the respective
+/// processes, or an elevated "chown"/"mkdir" invocation from the executors.
+pub trait ProcessSpawner: Send + Sync + 'static {
+    /// Whether the processes spawned by this process have higher privileges than the main application process.
     fn increases_privileges(&self) -> bool;
 
-    /// Spawn the shell and enter shell_command in it, with the shell exiting as soon as the command completes.
-    /// The returned tokio Child must be the shell's process.
-    fn run(
+    /// Spawn the process with the given binary path and arguments.
+    fn spawn(
         &self,
-        path: &Path,
+        binary_path: &Path,
         arguments: Vec<String>,
         pipes_to_null: bool,
     ) -> impl Future<Output = Result<Child, std::io::Error>> + Send;
 }
 
-/// A runner implementation that directly invokes the underlying process.
+/// A process spawner that directly invokes the underlying process.
 #[derive(Debug)]
-pub struct DirectRunner;
+pub struct DirectProcessSpawner;
 
 #[inline(always)]
 fn get_stdio(pipes_to_null: bool) -> Stdio {
@@ -40,12 +38,12 @@ fn get_stdio(pipes_to_null: bool) -> Stdio {
     }
 }
 
-impl Runner for DirectRunner {
+impl ProcessSpawner for DirectProcessSpawner {
     fn increases_privileges(&self) -> bool {
         false
     }
 
-    async fn run(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
+    async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
         let mut command = Command::new(path);
         command
             .args(arguments)
@@ -57,14 +55,14 @@ impl Runner for DirectRunner {
     }
 }
 
-/// A runner that elevates the permissions of the process via the "su" CLI utility.
+/// A process spawner that elevates the permissions of the process via the "su" CLI utility.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SuRunner {
+pub struct SuProcessSpawner {
     su_path: PathBuf,
     password: String,
 }
 
-impl SuRunner {
+impl SuProcessSpawner {
     pub fn new(password: impl Into<String>) -> Self {
         Self {
             su_path: PathBuf::from("/usr/bin/su"),
@@ -78,12 +76,12 @@ impl SuRunner {
     }
 }
 
-impl Runner for SuRunner {
+impl ProcessSpawner for SuProcessSpawner {
     fn increases_privileges(&self) -> bool {
         true
     }
 
-    async fn run(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
+    async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
         let mut command = Command::new(self.su_path.as_os_str());
         command
             .stderr(get_stdio(pipes_to_null))
@@ -104,9 +102,9 @@ impl Runner for SuRunner {
     }
 }
 
-/// A runner that escalates the privileges of the process via the "sudo" CLI utility.
+/// A process spawner that escalates the privileges of the process via the "sudo" CLI utility.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SudoRunner {
+pub struct SudoProcessSpawner {
     /// The path to the "sudo" binary on the system, typically: /usr/bin/sudo.
     pub sudo_path: PathBuf,
     /// Optionally, the password needed to authenticate. Sudo often doesn't prompt for it if the
@@ -115,12 +113,12 @@ pub struct SudoRunner {
     pub password: Option<String>,
 }
 
-impl Runner for SudoRunner {
+impl ProcessSpawner for SudoProcessSpawner {
     fn increases_privileges(&self) -> bool {
         true
     }
 
-    async fn run(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
+    async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
         let mut command = Command::new(self.sudo_path.as_os_str());
         command.arg("-S");
         command.arg("-s");
@@ -150,9 +148,9 @@ impl Runner for SudoRunner {
 #[cfg(test)]
 #[test]
 fn shell_spawners_have_correct_increases_privileges_flags() {
-    assert!(!DirectRunner.increases_privileges());
-    assert!(SuRunner::new("password").increases_privileges());
-    assert!(SudoRunner {
+    assert!(!DirectProcessSpawner.increases_privileges());
+    assert!(SuProcessSpawner::new("password").increases_privileges());
+    assert!(SudoProcessSpawner {
         sudo_path: which::which("sudo").unwrap(),
         password: None
     }
