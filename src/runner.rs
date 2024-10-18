@@ -19,7 +19,7 @@ pub trait Runner: Send + Sync + 'static {
 
     /// Spawn the shell and enter shell_command in it, with the shell exiting as soon as the command completes.
     /// The returned tokio Child must be the shell's process.
-    fn spawn(
+    fn run(
         &self,
         path: &Path,
         arguments: Vec<String>,
@@ -45,7 +45,7 @@ impl Runner for DirectRunner {
         false
     }
 
-    async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
+    async fn run(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
         let mut command = Command::new(path);
         command
             .args(arguments)
@@ -83,7 +83,7 @@ impl Runner for SuRunner {
         true
     }
 
-    async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
+    async fn run(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
         let mut command = Command::new(self.su_path.as_os_str());
         command
             .stderr(get_stdio(pipes_to_null))
@@ -120,7 +120,7 @@ impl Runner for SudoRunner {
         true
     }
 
-    async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
+    async fn run(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
         let mut command = Command::new(self.sudo_path.as_os_str());
         command.arg("-S");
         command.arg("-s");
@@ -150,7 +150,7 @@ impl Runner for SudoRunner {
 #[cfg(test)]
 #[test]
 fn shell_spawners_have_correct_increases_privileges_flags() {
-    assert!(!DirectRunner::new(which::which("sh").unwrap()).increases_privileges());
+    assert!(!DirectRunner.increases_privileges());
     assert!(SuRunner::new("password").increases_privileges());
     assert!(SudoRunner {
         sudo_path: which::which("sudo").unwrap(),

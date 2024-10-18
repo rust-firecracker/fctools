@@ -9,8 +9,8 @@ use tokio::{process::Child, task::JoinSet};
 use crate::{fs_backend::FsBackend, runner::Runner};
 
 use super::{
+    argument_modifier::{apply_argument_modifier_chain, ArgumentModifier},
     arguments::{ConfigurationFileOverride, JailerArguments, VmmApiSocket, VmmArguments},
-    command_modifier::{apply_command_modifier_chain, CommandModifier},
     create_file_with_tree, force_chown, force_mkdir,
     installation::VmmInstallation,
     VmmExecutor, VmmExecutorError,
@@ -25,7 +25,7 @@ pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
     jailer_arguments: JailerArguments,
     jail_move_method: JailMoveMethod,
     jail_renamer: R,
-    command_modifier_chain: Vec<Box<dyn CommandModifier>>,
+    argument_modifier_chain: Vec<Box<dyn ArgumentModifier>>,
 }
 
 impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
@@ -35,7 +35,7 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
             jailer_arguments,
             jail_move_method: JailMoveMethod::Copy,
             jail_renamer,
-            command_modifier_chain: Vec::new(),
+            argument_modifier_chain: Vec::new(),
         }
     }
 
@@ -44,13 +44,16 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
         self
     }
 
-    pub fn command_modifier(mut self, command_modifier: impl CommandModifier + 'static) -> Self {
-        self.command_modifier_chain.push(Box::new(command_modifier));
+    pub fn argument_modifier(mut self, argument_modifier: impl ArgumentModifier + 'static) -> Self {
+        self.argument_modifier_chain.push(Box::new(argument_modifier));
         self
     }
 
-    pub fn command_modifiers(mut self, command_modifiers: impl IntoIterator<Item = Box<dyn CommandModifier>>) -> Self {
-        self.command_modifier_chain.extend(command_modifiers);
+    pub fn argument_modifiers(
+        mut self,
+        argument_modifiers: impl IntoIterator<Item = Box<dyn ArgumentModifier>>,
+    ) -> Self {
+        self.argument_modifier_chain.extend(argument_modifiers);
         self
     }
 }
@@ -86,7 +89,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     async fn prepare(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl Runner>,
+        runner: Arc<impl Runner>,
         fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
@@ -100,9 +103,9 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             .await
             .map_err(VmmExecutorError::FsBackendError)?
         {
-            force_mkdir(fs_backend.as_ref(), chroot_base_dir, shell_spawner.as_ref()).await?;
+            force_mkdir(fs_backend.as_ref(), chroot_base_dir, runner.as_ref()).await?;
         }
-        force_chown(chroot_base_dir, shell_spawner.as_ref()).await?; // grants access to jail as well
+        force_chown(chroot_base_dir, runner.as_ref()).await?; // grants access to jail as well
 
         // Create jail and delete previous one if necessary
         let jail_path = Arc::new(self.get_jail_path(installation));
@@ -161,7 +164,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                 return Err(VmmExecutorError::ExpectedResourceMissing(outer_path.clone()));
             }
 
-            force_chown(&outer_path, shell_spawner.as_ref()).await?;
+            force_chown(&outer_path, runner.as_ref()).await?;
 
             let inner_path = self
                 .jail_renamer
@@ -218,28 +221,25 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     async fn invoke(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl Runner>,
+        runner: Arc<impl Runner>,
         config_override: ConfigurationFileOverride,
     ) -> Result<Child, VmmExecutorError> {
-        let jailer_args = self.jailer_arguments.join(&installation.firecracker_path);
-        let firecracker_args = self.vmm_arguments.join(config_override);
-        let mut shell_command = format!(
-            "{} {jailer_args} -- {firecracker_args}",
-            installation.jailer_path.to_string_lossy()
-        );
-        apply_command_modifier_chain(&mut shell_command, &self.command_modifier_chain);
+        let mut args = self.jailer_arguments.join(&installation.firecracker_path);
+        args.push("--".to_string());
+        args.extend(self.vmm_arguments.join(config_override));
+        apply_argument_modifier_chain(&mut args, &self.argument_modifier_chain);
 
         // nulling the pipes is redundant since jailer can do this itself via daemonization
-        shell_spawner
-            .spawn(shell_command, false)
+        runner
+            .run(&installation.jailer_path, args, false)
             .await
-            .map_err(VmmExecutorError::ShellSpawnFailed)
+            .map_err(VmmExecutorError::RunFailed)
     }
 
     async fn cleanup(
         &self,
         installation: &VmmInstallation,
-        _shell_spawner: Arc<impl Runner>,
+        _runner: Arc<impl Runner>,
         fs_backend: Arc<impl FsBackend>,
     ) -> Result<(), VmmExecutorError> {
         let jail_path = self.get_jail_path(installation);

@@ -7,6 +7,7 @@ use fctools::{
         unrestricted::UnrestrictedVmmExecutor,
     },
     fs_backend::blocking::BlockingFsBackend,
+    runner::DirectRunner,
     vm::{
         api::VmApi,
         configuration::InitMethod,
@@ -227,7 +228,7 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, snapshotting_context: 
 
     let mut vm = TestVm::prepare_arced(
         Arc::new(executor),
-        snapshotting_context.shell_spawner,
+        Arc::new(DirectRunner),
         Arc::new(BlockingFsBackend),
         Arc::new(get_real_firecracker_installation()),
         snapshot.into_configuration(Some(true), None),

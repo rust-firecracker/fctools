@@ -20,8 +20,8 @@ use crate::{
     runner::Runner,
 };
 
+pub mod argument_modifier;
 pub mod arguments;
-pub mod command_modifier;
 pub mod installation;
 pub mod jailed;
 pub mod unrestricted;
@@ -41,7 +41,7 @@ pub enum VmmExecutorError {
     #[error("Joining on a spawned async task failed: `{0}`")]
     TaskJoinFailed(JoinError),
     #[error("Spawning an auxiliary or primary shell via the spawner failed: `{0}`")]
-    ShellSpawnFailed(std::io::Error),
+    RunFailed(std::io::Error),
     #[error("A passed-in resource at the path `{0}` was expected but doesn't exist or isn't accessible")]
     ExpectedResourceMissing(PathBuf),
     #[error("A directory that is supposed to have a parent in the filesystem has none")]
@@ -92,8 +92,8 @@ pub trait VmmExecutor: Send + Sync {
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
-pub(crate) async fn force_chown(path: &Path, shell_spawner: &impl Runner) -> Result<(), VmmExecutorError> {
-    if !shell_spawner.increases_privileges() {
+pub(crate) async fn force_chown(path: &Path, runner: &impl Runner) -> Result<(), VmmExecutorError> {
+    if !runner.increases_privileges() {
         return Ok(());
     }
 
@@ -101,10 +101,20 @@ pub(crate) async fn force_chown(path: &Path, shell_spawner: &impl Runner) -> Res
     let uid = unsafe { libc::geteuid() };
     let gid = unsafe { libc::getegid() };
 
-    let mut child = shell_spawner
-        .spawn(format!("chown -f -R {uid}:{gid} {}", path.to_string_lossy()), true)
+    let mut child = runner
+        .run(
+            &PathBuf::from("chown"),
+            vec![
+                "chown".to_string(),
+                "-f".to_string(),
+                "-R".to_string(),
+                format!("{uid}:{gid}"),
+                path.to_string_lossy().into_owned(),
+            ],
+            true,
+        )
         .await
-        .map_err(VmmExecutorError::ShellSpawnFailed)?;
+        .map_err(VmmExecutorError::RunFailed)?;
     let exit_status = child.wait().await.map_err(VmmExecutorError::ShellForkFailed)?;
 
     // code 256 means that a concurrent chown is being called and the chown will still be applied, so this error can
@@ -116,12 +126,8 @@ pub(crate) async fn force_chown(path: &Path, shell_spawner: &impl Runner) -> Res
     Ok(())
 }
 
-async fn force_mkdir(
-    fs_backend: &impl FsBackend,
-    path: &Path,
-    shell_spawner: &impl Runner,
-) -> Result<(), VmmExecutorError> {
-    if !shell_spawner.increases_privileges() {
+async fn force_mkdir(fs_backend: &impl FsBackend, path: &Path, runner: &impl Runner) -> Result<(), VmmExecutorError> {
+    if !runner.increases_privileges() {
         fs_backend
             .create_dir_all(path)
             .await
@@ -129,10 +135,14 @@ async fn force_mkdir(
         return Ok(());
     }
 
-    let mut child = shell_spawner
-        .spawn(format!("mkdir -p {}", path.to_string_lossy()), true)
+    let mut child = runner
+        .run(
+            &PathBuf::from("mkdir"),
+            vec!["-p".to_string(), path.to_string_lossy().into_owned()],
+            true,
+        )
         .await
-        .map_err(VmmExecutorError::ShellSpawnFailed)?;
+        .map_err(VmmExecutorError::RunFailed)?;
     let exit_status = child.wait().await.map_err(VmmExecutorError::ShellForkFailed)?;
 
     if !exit_status.success() {

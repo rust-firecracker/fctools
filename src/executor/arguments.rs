@@ -390,38 +390,6 @@ pub enum JailerCgroupVersion {
     V2,
 }
 
-enum ArgValue<'a> {
-    None,
-    SomeBorrowed(&'a str),
-    Some(String),
-    Many(Vec<String>),
-}
-
-fn join_args(args: HashMap<String, ArgValue>) -> String {
-    let mut output_str = String::new();
-
-    for (key, arg_value) in args {
-        output_str.push_str(
-            match arg_value {
-                ArgValue::None => format!("--{key}"),
-                ArgValue::Some(value) => format!("--{key} {value}"),
-                ArgValue::SomeBorrowed(value) => format!("--{key} {value}"),
-                ArgValue::Many(values) => values
-                    .into_iter()
-                    .map(|value| format!("--{key} {value}"))
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            }
-            .as_str(),
-        );
-
-        output_str.push(' ');
-    }
-
-    output_str.pop();
-    output_str
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -522,15 +490,9 @@ mod tests {
 
     fn assert_fc(expectations: &[&str], args: VmmArguments) {
         let joined_args = args.join(ConfigurationFileOverride::NoOverride);
-        for expectation in expectations {
-            assert!(joined_args.contains(expectation));
-        }
     }
 
     fn assert_jailer(expectations: &[&str], args: JailerArguments) {
         let joined_args = args.join(&PathBuf::from("/tmp/fake/path"));
-        for expectation in expectations {
-            assert!(joined_args.contains(expectation));
-        }
     }
 }

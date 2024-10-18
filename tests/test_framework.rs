@@ -12,8 +12,8 @@ use cidr::IpInet;
 use fcnet::{FirecrackerNetwork, FirecrackerNetworkOperation, FirecrackerNetworkType};
 use fctools::{
     executor::{
+        argument_modifier::NetnsArgumentModifier,
         arguments::{ConfigurationFileOverride, JailerArguments, VmmApiSocket, VmmArguments},
-        command_modifier::NetnsCommandModifier,
         installation::VmmInstallation,
         jailed::{FlatJailRenamer, JailedVmmExecutor},
         unrestricted::UnrestrictedVmmExecutor,
@@ -118,8 +118,8 @@ pub fn jail_join(path1: impl AsRef<Path>, path2: impl Into<PathBuf>) -> PathBuf 
 }
 
 #[allow(unused)]
-pub fn get_shell_spawner() -> Arc<impl Runner> {
-    Arc::new(DirectRunner::new(which::which("bash").unwrap()))
+pub fn get_runner() -> Arc<impl Runner> {
+    Arc::new(DirectRunner)
 }
 
 #[allow(unused)]
@@ -128,15 +128,16 @@ pub fn get_fs_backend() -> Arc<impl FsBackend> {
 }
 
 #[derive(Default)]
-pub struct FailingShellSpawner {}
+pub struct FailingRunner;
 
-impl Runner for FailingShellSpawner {
+impl Runner for FailingRunner {
     fn increases_privileges(&self) -> bool {
         false
     }
 
-    async fn spawn(&self, _shell_command: String, _pipes_to_null: bool) -> Result<Child, std::io::Error> {
-        Err(std::io::Error::other("deliberately generated error in test"))
+    #[allow(unused)]
+    async fn run(&self, _path: &Path, _arguments: Vec<String>, _pipes_to_null: bool) -> Result<Child, std::io::Error> {
+        Err(std::io::Error::other("Purposeful test failure"))
     }
 }
 
@@ -262,19 +263,18 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
         jailer_arguments,
         FlatJailRenamer::default(),
     );
-    let shell_spawner = DirectRunner::new(which::which("bash").unwrap());
 
     (
         TestVmmProcess::new(
             TestExecutor::Unrestricted(unrestricted_executor),
-            shell_spawner.clone(),
+            DirectRunner,
             BlockingFsBackend,
             get_real_firecracker_installation(),
             vec![],
         ),
         TestVmmProcess::new(
             TestExecutor::Jailed(jailed_executor),
-            shell_spawner,
+            DirectRunner,
             BlockingFsBackend,
             get_real_firecracker_installation(),
             vec![
@@ -317,16 +317,6 @@ pub struct VmBuilder {
 #[allow(unused)]
 pub struct SnapshottingContext {
     pub is_jailed: bool,
-    pub shell_spawner: Arc<DirectRunner>,
-}
-
-impl SnapshottingContext {
-    fn new(is_jailed: bool, shell_spawner: DirectRunner) -> Self {
-        Self {
-            is_jailed,
-            shell_spawner: Arc::new(shell_spawner),
-        }
-    }
 }
 
 #[allow(unused)]
@@ -457,7 +447,6 @@ impl VmBuilder {
         }
 
         let socket_path = get_tmp_path();
-        let shell_spawner = DirectRunner::new(which::which("bash").unwrap());
 
         let mut unrestricted_data = VmConfigurationData::new(
             BootSource::new(get_test_path("assets/kernel"))
@@ -469,7 +458,7 @@ impl VmBuilder {
             UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())));
         if let Some(ref network) = self.unrestricted_network_data {
             unrestricted_executor =
-                unrestricted_executor.command_modifier(NetnsCommandModifier::new(&network.netns_name));
+                unrestricted_executor.argument_modifier(NetnsArgumentModifier::new(&network.netns_name));
         }
 
         let mut jailed_data = VmConfigurationData::new(
@@ -543,7 +532,7 @@ impl VmBuilder {
                             init_method: self.init_method.clone(),
                             data: unrestricted_data
                         },
-                        SnapshottingContext::new(false, shell_spawner.clone()),
+                        SnapshottingContext { is_jailed: false },
                         TestExecutor::Unrestricted(unrestricted_executor),
                         pre_start_hook1,
                         function.clone(),
@@ -554,7 +543,7 @@ impl VmBuilder {
                             init_method: self.init_method,
                             data: jailed_data
                         },
-                        SnapshottingContext::new(true, shell_spawner),
+                        SnapshottingContext { is_jailed: true },
                         jailed_executor,
                         pre_start_hook2,
                         function
@@ -588,7 +577,7 @@ impl VmBuilder {
 
         let mut vm: fctools::vm::Vm<TestExecutor, DirectRunner, BlockingFsBackend> = TestVm::prepare_arced(
             Arc::new(executor),
-            run_context.shell_spawner.clone(),
+            Arc::new(DirectRunner),
             Arc::new(BlockingFsBackend),
             get_real_firecracker_installation().into(),
             configuration,
@@ -604,7 +593,6 @@ impl VmBuilder {
         .await
         .unwrap();
         tokio::time::sleep(Duration::from_millis(TestOptions::get().await.waits.boot_wait_ms)).await;
-        let cloned_shell_spawner = run_context.shell_spawner.clone();
         function(vm, run_context).await;
 
         if let Some(network_data) = network_data {

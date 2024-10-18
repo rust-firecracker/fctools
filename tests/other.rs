@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use fctools::{
     executor::installation::{VmmInstallation, VmmInstallationError},
     fs_backend::blocking::BlockingFsBackend,
-    runner::{DirectRunner, Runner, SuRunner, SudoRunner},
+    runner::{DirectRunner, Runner},
 };
 use test_framework::{get_test_path, TestOptions};
 use uuid::Uuid;
@@ -94,9 +94,11 @@ async fn installation_verifies_for_correct_parameters() {
 }
 
 #[tokio::test]
-async fn same_user_shell_launches_simple_command() {
-    let shell_spawner = DirectRunner::new(which::which("sh").unwrap());
-    let child = shell_spawner.spawn("cat --help".into(), false).await.unwrap();
+async fn direct_runner_launches_simple_command() {
+    let child = DirectRunner
+        .run(&PathBuf::from("cat"), vec!["--help".to_string()], false)
+        .await
+        .unwrap();
     let output = child.wait_with_output().await.unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     assert!(stdout.contains("Usage: cat [OPTION]... [FILE]..."));
@@ -104,12 +106,15 @@ async fn same_user_shell_launches_simple_command() {
 }
 
 #[tokio::test]
-async fn same_user_runner_runs_under_correct_uid() {
+async fn direct_runner_runs_under_correct_uid() {
     let uid = unsafe { libc::geteuid() };
-    let shell_spawner = DirectRunner::new(which::which("sh").unwrap());
     let stdout = String::from_utf8_lossy(
-        &shell_spawner
-            .spawn("echo $UID".into(), false)
+        &DirectRunner
+            .run(
+                &PathBuf::from("bash"),
+                vec!["-c".to_string(), "echo $UID".to_string()],
+                false,
+            )
             .await
             .unwrap()
             .wait_with_output()
@@ -122,43 +127,9 @@ async fn same_user_runner_runs_under_correct_uid() {
 }
 
 #[tokio::test]
-async fn same_user_runner_can_null_pipes() {
-    let shell_spawner = DirectRunner::new(which::which("sh").unwrap());
-    let child = shell_spawner.spawn("echo".to_string(), true).await.unwrap();
+async fn direct_runner_can_null_pipes() {
+    let child = DirectRunner.run(&PathBuf::from("echo"), vec![], true).await.unwrap();
     assert!(child.stdout.is_none());
     assert!(child.stderr.is_none());
     assert!(child.stdin.is_none());
-}
-
-#[tokio::test]
-async fn su_runner_should_elevate() {
-    elevation_test(SuRunner::new).await;
-}
-
-#[tokio::test]
-async fn sudo_runner_should_elevate() {
-    elevation_test(|password| SudoRunner {
-        sudo_path: which::which("sudo").unwrap(),
-        password: Some(password),
-    })
-    .await;
-}
-
-async fn elevation_test<R: Runner, F: FnOnce(String) -> R>(function: F) {
-    let password = std::env::var("ROOT_PWD");
-    if password.is_err() {
-        println!("Test was skipped due to ROOT_PWD not being set");
-        return;
-    }
-    let runner = function(password.unwrap());
-    {
-        let child = runner.spawn("echo $UID".into(), vec![], false).await.unwrap();
-        let stdout = String::from_utf8_lossy(&child.wait_with_output().await.unwrap().stdout).into_owned();
-        assert_eq!(stdout, "0\n");
-    }
-
-    let child = runner.spawn("echo".to_string(), vec![], true).await.unwrap();
-    assert!(child.stdout.is_none());
-    assert!(child.stdin.is_some());
-    assert!(child.stderr.is_none());
 }

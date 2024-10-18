@@ -9,8 +9,8 @@ use tokio::{process::Child, task::JoinSet};
 use crate::{fs_backend::FsBackend, runner::Runner};
 
 use super::{
+    argument_modifier::{apply_argument_modifier_chain, ArgumentModifier},
     arguments::{ConfigurationFileOverride, VmmApiSocket, VmmArguments},
-    command_modifier::{apply_command_modifier_chain, CommandModifier},
     create_file_with_tree, force_chown,
     installation::VmmInstallation,
     join_on_set, VmmExecutor, VmmExecutorError,
@@ -21,7 +21,7 @@ use super::{
 #[derive(Debug)]
 pub struct UnrestrictedVmmExecutor {
     vmm_arguments: VmmArguments,
-    command_modifier_chain: Vec<Box<dyn CommandModifier>>,
+    argument_modifier_chain: Vec<Box<dyn ArgumentModifier>>,
     remove_metrics_on_cleanup: bool,
     remove_logs_on_cleanup: bool,
     pipes_to_null: bool,
@@ -32,7 +32,7 @@ impl UnrestrictedVmmExecutor {
     pub fn new(vmm_arguments: VmmArguments) -> Self {
         Self {
             vmm_arguments,
-            command_modifier_chain: Vec::new(),
+            argument_modifier_chain: Vec::new(),
             remove_metrics_on_cleanup: false,
             remove_logs_on_cleanup: false,
             pipes_to_null: false,
@@ -40,13 +40,16 @@ impl UnrestrictedVmmExecutor {
         }
     }
 
-    pub fn command_modifier(mut self, command_modifier: impl CommandModifier + 'static) -> Self {
-        self.command_modifier_chain.push(Box::new(command_modifier));
+    pub fn argument_modifier(mut self, argument_modifier: impl ArgumentModifier + 'static) -> Self {
+        self.argument_modifier_chain.push(Box::new(argument_modifier));
         self
     }
 
-    pub fn command_modifiers(mut self, command_modifiers: impl IntoIterator<Item = Box<dyn CommandModifier>>) -> Self {
-        self.command_modifier_chain.extend(command_modifiers);
+    pub fn argument_modifiers(
+        mut self,
+        argument_modifiers: impl IntoIterator<Item = Box<dyn ArgumentModifier>>,
+    ) -> Self {
+        self.argument_modifier_chain.extend(argument_modifiers);
         self
     }
 
@@ -168,7 +171,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
     async fn prepare(
         &self,
         _installation: &VmmInstallation,
-        shell_spawner: Arc<impl Runner>,
+        runner: Arc<impl Runner>,
         fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
@@ -176,7 +179,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
         for path in outer_paths.clone() {
             let fs_backend = fs_backend.clone();
-            let shell_spawner = shell_spawner.clone();
+            let runner = runner.clone();
             join_set.spawn(async move {
                 if !fs_backend
                     .check_exists(&path)
@@ -186,20 +189,20 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                     return Err(VmmExecutorError::ExpectedResourceMissing(path));
                 }
 
-                force_chown(&path, shell_spawner.as_ref()).await
+                force_chown(&path, runner.as_ref()).await
             });
         }
 
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
             let fs_backend = fs_backend.clone();
-            let shell_spawner = shell_spawner.clone();
+            let runner = runner.clone();
             join_set.spawn(async move {
                 if fs_backend
                     .check_exists(&socket_path)
                     .await
                     .map_err(VmmExecutorError::FsBackendError)?
                 {
-                    force_chown(&socket_path, shell_spawner.as_ref()).await?;
+                    force_chown(&socket_path, runner.as_ref()).await?;
                     fs_backend
                         .remove_file(&socket_path)
                         .await
@@ -225,34 +228,33 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
     async fn invoke(
         &self,
         installation: &VmmInstallation,
-        shell_spawner: Arc<impl Runner>,
+        runner: Arc<impl Runner>,
         config_override: ConfigurationFileOverride,
     ) -> Result<Child, VmmExecutorError> {
-        let arguments = self.vmm_arguments.join(config_override);
-        let mut shell_command = format!("{} {arguments}", installation.firecracker_path.to_string_lossy());
-        apply_command_modifier_chain(&mut shell_command, &self.command_modifier_chain);
+        let mut args = self.vmm_arguments.join(config_override);
+        apply_argument_modifier_chain(&mut args, &self.argument_modifier_chain);
         if let Some(ref id) = self.id {
-            shell_command.push_str(" --id ");
-            shell_command.push_str(id.as_ref());
+            args.push("--id".to_string());
+            args.push(id.as_ref().to_owned());
         }
 
-        let child = shell_spawner
-            .spawn(shell_command, self.pipes_to_null)
+        let child = runner
+            .run(&installation.firecracker_path, args, self.pipes_to_null)
             .await
-            .map_err(VmmExecutorError::ShellSpawnFailed)?;
+            .map_err(VmmExecutorError::RunFailed)?;
         Ok(child)
     }
 
     async fn cleanup(
         &self,
         _installation: &VmmInstallation,
-        shell_spawner: Arc<impl Runner>,
+        runner: Arc<impl Runner>,
         fs_backend: Arc<impl FsBackend>,
     ) -> Result<(), VmmExecutorError> {
         let mut join_set: JoinSet<Result<(), VmmExecutorError>> = JoinSet::new();
 
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
-            let shell_spawner = shell_spawner.clone();
+            let runner = runner.clone();
             let fs_backend = fs_backend.clone();
             join_set.spawn(async move {
                 if fs_backend
@@ -260,7 +262,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                     .await
                     .map_err(VmmExecutorError::FsBackendError)?
                 {
-                    force_chown(&socket_path, shell_spawner.as_ref()).await?;
+                    force_chown(&socket_path, runner.as_ref()).await?;
                     fs_backend
                         .remove_file(&socket_path)
                         .await

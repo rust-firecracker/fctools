@@ -2,13 +2,12 @@ use std::path::PathBuf;
 
 use assert_matches::assert_matches;
 use fctools::executor::{
-    arguments::{ConfigurationFileOverride, JailerArguments, VmmApiSocket, VmmArguments},
-    command_modifier::{AppendCommandModifier, RewriteCommandModifier},
+    arguments::{JailerArguments, VmmApiSocket, VmmArguments},
     jailed::{FlatJailRenamer, JailMoveMethod, JailRenamer, JailedVmmExecutor},
     VmmExecutor, VmmExecutorError,
 };
 use rand::RngCore;
-use test_framework::{get_fake_firecracker_installation, get_fs_backend, get_shell_spawner, get_tmp_path, jail_join};
+use test_framework::{get_fake_firecracker_installation, get_fs_backend, get_runner, get_tmp_path, jail_join};
 use tokio::fs::{create_dir_all, metadata, read_to_string, remove_dir_all, try_exists, write, File};
 
 mod test_framework;
@@ -48,7 +47,7 @@ async fn jailed_executor_prepare_creates_chroot_base_dir() {
     executor
         .prepare(
             &get_fake_firecracker_installation(),
-            get_shell_spawner(),
+            get_runner(),
             get_fs_backend(),
             vec![],
         )
@@ -64,7 +63,7 @@ async fn jailed_executor_prepare_defaults_to_srv_jailer() {
     executor
         .prepare(
             &get_fake_firecracker_installation(),
-            get_shell_spawner(),
+            get_runner(),
             get_fs_backend(),
             vec![],
         )
@@ -84,7 +83,7 @@ async fn jailed_executor_prepare_deletes_existing_jail() {
     executor
         .prepare(
             &get_fake_firecracker_installation(),
-            get_shell_spawner(),
+            get_runner(),
             get_fs_backend(),
             vec![],
         )
@@ -101,7 +100,7 @@ async fn jailed_executor_prepare_creates_socket_parent_directory() {
     executor
         .prepare(
             &get_fake_firecracker_installation(),
-            get_shell_spawner(),
+            get_runner(),
             get_fs_backend(),
             vec![],
         )
@@ -117,7 +116,7 @@ async fn jailed_executor_prepare_creates_log_file() {
     executor
         .prepare(
             &get_fake_firecracker_installation(),
-            get_shell_spawner(),
+            get_runner(),
             get_fs_backend(),
             vec![],
         )
@@ -133,7 +132,7 @@ async fn jailed_executor_prepare_creates_metrics_file() {
     executor
         .prepare(
             &get_fake_firecracker_installation(),
-            get_shell_spawner(),
+            get_runner(),
             get_fs_backend(),
             vec![],
         )
@@ -151,7 +150,7 @@ async fn jailed_executor_prepare_checks_for_missing_resources() {
         executor
             .prepare(
                 &get_fake_firecracker_installation(),
-                get_shell_spawner(),
+                get_runner(),
                 get_fs_backend(),
                 vec![resource_path.clone()]
             )
@@ -177,32 +176,12 @@ async fn jailed_executor_prepare_moves_resources_by_hard_link_with_copy_fallback
 }
 
 #[tokio::test]
-async fn jailed_executor_invoke_applies_command_modifier_chain() {
-    let (mut executor, _) = setup_executor(None, None, None, None, None);
-    executor = executor
-        .command_modifier(RewriteCommandModifier::new("echo"))
-        .command_modifier(AppendCommandModifier::new(" test"));
-    let child = executor
-        .invoke(
-            &get_fake_firecracker_installation(),
-            get_shell_spawner(),
-            ConfigurationFileOverride::NoOverride,
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        String::from_utf8(child.wait_with_output().await.unwrap().stdout).unwrap(),
-        "test\n"
-    );
-}
-
-#[tokio::test]
 async fn jailed_executor_cleanup_recursively_removes_entire_jail() {
     let (executor, jail_path) = setup_executor(None, None, None, None, None);
     executor
         .prepare(
             &get_fake_firecracker_installation(),
-            get_shell_spawner(),
+            get_runner(),
             get_fs_backend(),
             vec![],
         )
@@ -210,11 +189,7 @@ async fn jailed_executor_cleanup_recursively_removes_entire_jail() {
         .unwrap();
     assert!(try_exists(&jail_path).await.unwrap());
     executor
-        .cleanup(
-            &get_fake_firecracker_installation(),
-            get_shell_spawner(),
-            get_fs_backend(),
-        )
+        .cleanup(&get_fake_firecracker_installation(), get_runner(), get_fs_backend())
         .await
         .unwrap();
     assert!(!try_exists(jail_path).await.unwrap());
@@ -234,7 +209,7 @@ async fn move_test_imp(jail_move_method: JailMoveMethod, try_cross_device: bool)
         executor
             .prepare(
                 &get_fake_firecracker_installation(),
-                get_shell_spawner(),
+                get_runner(),
                 get_fs_backend(),
                 vec![resource_path.clone()]
             )

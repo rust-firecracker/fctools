@@ -79,7 +79,7 @@ async fn verify_imp(
         .output()
         .await
         .map_err(|_| VmmInstallationError::BinaryNotExecutable)?;
-    let stdout = dbg!(String::from_utf8_lossy(&output.stdout).into_owned());
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
 
     if !stdout.starts_with(expected_name) {
         return Err(VmmInstallationError::BinaryIsOfIncorrectType);

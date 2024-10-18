@@ -26,11 +26,11 @@ use crate::{
 };
 
 /// A VMM process is layer 3 of fctools: an abstraction that manages a VMM process. It is
-/// tied to the given VMM executor E, shell spawner S and filesystem backend F.
+/// tied to the given VMM executor E, runner R and filesystem backend F.
 #[derive(Debug)]
-pub struct VmmProcess<E: VmmExecutor, S: Runner, F: FsBackend> {
+pub struct VmmProcess<E: VmmExecutor, R: Runner, F: FsBackend> {
     executor: Arc<E>,
-    shell_spawner: Arc<S>,
+    runner: Arc<R>,
     fs_backend: Arc<F>,
     installation: Arc<VmmInstallation>,
     child: Option<Child>,
@@ -41,7 +41,7 @@ pub struct VmmProcess<E: VmmExecutor, S: Runner, F: FsBackend> {
 }
 
 /// Raw Tokio pipes of a VMM process: stdin, stdout and stderr. All must always be redirected
-/// by the respective shell spawner implementation.
+/// by the respective runner implementation.
 #[derive(Debug)]
 pub struct VmmProcessPipes {
     /// The standard input pipe.
@@ -118,18 +118,18 @@ pub enum VmmProcessError {
     IoError(std::io::Error),
 }
 
-impl<E: VmmExecutor, S: Runner, F: FsBackend> VmmProcess<E, S, F> {
+impl<E: VmmExecutor, R: Runner, F: FsBackend> VmmProcess<E, R, F> {
     /// Create a new process instance while moving in its components.
     pub fn new(
         executor: E,
-        shell_spawner: S,
+        runner: R,
         fs_backend: F,
         installation: VmmInstallation,
         outer_paths: Vec<PathBuf>,
     ) -> Self {
         Self::new_arced(
             Arc::new(executor),
-            Arc::new(shell_spawner),
+            Arc::new(runner),
             Arc::new(fs_backend),
             Arc::new(installation),
             outer_paths,
@@ -140,7 +140,7 @@ impl<E: VmmExecutor, S: Runner, F: FsBackend> VmmProcess<E, S, F> {
     /// all scenarios.
     pub fn new_arced(
         executor_arc: Arc<E>,
-        shell_spawner_arc: Arc<S>,
+        runner_arc: Arc<R>,
         fs_backend_arc: Arc<F>,
         installation_arc: Arc<VmmInstallation>,
         outer_paths: Vec<PathBuf>,
@@ -148,7 +148,7 @@ impl<E: VmmExecutor, S: Runner, F: FsBackend> VmmProcess<E, S, F> {
         let socket_path = executor_arc.get_socket_path(installation_arc.as_ref());
         Self {
             executor: executor_arc,
-            shell_spawner: shell_spawner_arc,
+            runner: runner_arc,
             installation: installation_arc,
             fs_backend: fs_backend_arc,
             child: None,
@@ -166,7 +166,7 @@ impl<E: VmmExecutor, S: Runner, F: FsBackend> VmmProcess<E, S, F> {
             .executor
             .prepare(
                 self.installation.as_ref(),
-                self.shell_spawner.clone(),
+                self.runner.clone(),
                 self.fs_backend.clone(),
                 self.outer_paths
                     .take()
@@ -183,7 +183,7 @@ impl<E: VmmExecutor, S: Runner, F: FsBackend> VmmProcess<E, S, F> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.child = Some(
             self.executor
-                .invoke(self.installation.as_ref(), self.shell_spawner.clone(), config_override)
+                .invoke(self.installation.as_ref(), self.runner.clone(), config_override)
                 .await
                 .map_err(VmmProcessError::ExecutorError)?,
         );
@@ -203,7 +203,7 @@ impl<E: VmmExecutor, S: Runner, F: FsBackend> VmmProcess<E, S, F> {
         let hyper_client = self
             .hyper_client
             .get_or_try_init(|| async {
-                force_chown(&socket_path, self.shell_spawner.as_ref())
+                force_chown(&socket_path, self.runner.as_ref())
                     .await
                     .map_err(VmmProcessError::ExecutorError)?;
                 Ok(Client::builder(TokioExecutor::new()).build(HyperUnixConnector))
@@ -304,11 +304,7 @@ impl<E: VmmExecutor, S: Runner, F: FsBackend> VmmProcess<E, S, F> {
     pub async fn cleanup(&mut self) -> Result<(), VmmProcessError> {
         self.ensure_exited_or_crashed()?;
         self.executor
-            .cleanup(
-                self.installation.as_ref(),
-                self.shell_spawner.clone(),
-                self.fs_backend.clone(),
-            )
+            .cleanup(self.installation.as_ref(), self.runner.clone(), self.fs_backend.clone())
             .await
             .map_err(VmmProcessError::ExecutorError)?;
         Ok(())
