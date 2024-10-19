@@ -239,17 +239,146 @@ impl ToString for FirecrackerLogLevel {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use crate::vmm::arguments::firecracker::FirecrackerApiSocket;
 
-    use super::{FirecrackerArguments, FirecrackerConfigurationOverride};
+    use super::{FirecrackerArguments, FirecrackerConfigurationOverride, FirecrackerLogLevel};
+
+    fn new() -> FirecrackerArguments {
+        FirecrackerArguments::new(FirecrackerApiSocket::Enabled(PathBuf::from("/tmp/api.sock")))
+    }
 
     #[test]
     fn api_sock_can_be_disabled() {
-        assert(FirecrackerArguments::new(FirecrackerApiSocket::Disabled), "--no-api");
+        check_without_override(FirecrackerArguments::new(FirecrackerApiSocket::Disabled), ["--no-api"]);
     }
 
-    fn assert(args: FirecrackerArguments, matcher: &str) {
-        let joined_str = args.join(FirecrackerConfigurationOverride::NoOverride).join(" ");
-        assert!(joined_str.contains(matcher));
+    #[test]
+    fn api_sock_can_be_enabled() {
+        check_without_override(new(), ["--api-sock", "/tmp/api.sock"]);
+    }
+
+    #[test]
+    fn log_level_can_be_set() {
+        check_without_override(new().log_level(FirecrackerLogLevel::Error), ["--level", "Error"]);
+    }
+
+    #[test]
+    fn log_path_can_be_set() {
+        check_without_override(
+            new().log_path("/tmp/some_logs.txt"),
+            ["--log-path", "/tmp/some_logs.txt"],
+        );
+    }
+
+    #[test]
+    fn show_log_origin_can_be_enabled() {
+        check_without_override(new().show_log_origin(), ["--show-log-origin"]);
+    }
+
+    #[test]
+    fn module_can_be_set() {
+        check_without_override(new().log_module("some_module"), ["--module", "some_module"]);
+    }
+
+    #[test]
+    fn show_log_level_can_be_enabled() {
+        check_without_override(new().show_log_level(), ["--show-level"]);
+    }
+
+    #[test]
+    fn boot_timer_can_be_enabled() {
+        check_without_override(new().enable_boot_timer(), ["--boot-timer"]);
+    }
+
+    #[test]
+    fn max_payload_can_be_set() {
+        check_without_override(
+            new().api_max_payload_bytes(1000),
+            ["--http-api-max-payload-size", "1000"],
+        );
+    }
+
+    #[test]
+    fn metadata_path_can_be_set() {
+        check_without_override(
+            new().metadata_path("/tmp/metadata.txt"),
+            ["--metadata", "/tmp/metadata.txt"],
+        );
+    }
+
+    #[test]
+    fn metrics_path_can_be_set() {
+        check_without_override(
+            new().metrics_path("/tmp/metrics.txt"),
+            ["--metrics-path", "/tmp/metrics.txt"],
+        );
+    }
+
+    #[test]
+    fn mmds_size_limit_can_be_set() {
+        check_without_override(new().mmds_size_limit(1000), ["--mmds-size-limit", "1000"]);
+    }
+
+    #[test]
+    fn seccomp_can_be_disabled() {
+        check_without_override(new().disable_seccomp(), ["--no-seccomp"]);
+    }
+
+    #[test]
+    fn seccomp_path_can_be_set() {
+        check_without_override(new().seccomp_path("/tmp/seccomp"), ["--seccomp-filter", "/tmp/seccomp"]);
+    }
+
+    #[test]
+    fn config_path_persists_without_override() {
+        check_with_override(
+            new().config_path("/tmp/config.json"),
+            FirecrackerConfigurationOverride::NoOverride,
+            ["--config-file", "/tmp/config.json"],
+        );
+    }
+
+    #[test]
+    fn config_path_gets_added_with_enable_override() {
+        for args in [new(), new().config_path("/tmp/config.json")] {
+            check_with_override(
+                args,
+                FirecrackerConfigurationOverride::Enable(PathBuf::from("/tmp/override_config.json")),
+                ["--config-file", "/tmp/override_config.json"],
+            );
+        }
+    }
+
+    #[test]
+    fn config_path_gets_removed_with_disable_override() {
+        check_with_override(
+            new().config_path("/tmp/config.json"),
+            FirecrackerConfigurationOverride::Disable,
+            ["!--config-file", "!/tmp/config.json"],
+        );
+    }
+
+    #[inline]
+    fn check_without_override<const AMOUNT: usize>(args: FirecrackerArguments, matchers: [&str; AMOUNT]) {
+        check_with_override(args, FirecrackerConfigurationOverride::NoOverride, matchers);
+    }
+
+    #[inline]
+    fn check_with_override<const AMOUNT: usize>(
+        args: FirecrackerArguments,
+        config_override: FirecrackerConfigurationOverride,
+        matchers: [&str; AMOUNT],
+    ) {
+        let joined_args = args.join(config_override);
+
+        for matcher in matchers {
+            if let Some(matcher) = matcher.strip_prefix("!") {
+                assert!(!joined_args.contains(&matcher.to_string()));
+            } else {
+                assert!(joined_args.contains(&matcher.to_string()));
+            }
+        }
     }
 }
