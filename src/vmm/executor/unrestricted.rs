@@ -11,7 +11,7 @@ use crate::{
     process_spawner::ProcessSpawner,
     vmm::{
         arguments::{
-            command_modifier::{apply_command_modifier_chain, CommandModifier},
+            command_modifier::CommandModifier,
             firecracker::{
                 FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigurationOverride, FirecrackerId,
             },
@@ -158,7 +158,11 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
     ) -> Result<Child, VmmExecutorError> {
         let mut arguments = self.firecracker_arguments.join(configuration_override);
         let mut binary_path = installation.firecracker_path.clone();
-        apply_command_modifier_chain(&mut binary_path, &mut arguments, &self.command_modifier_chain);
+
+        for command_modifier in &self.command_modifier_chain {
+            command_modifier.apply(&mut binary_path, &mut arguments);
+        }
+
         if let Some(ref id) = self.id {
             arguments.push("--id".to_string());
             arguments.push(id.as_ref().to_owned());

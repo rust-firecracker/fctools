@@ -6,7 +6,7 @@ use std::{fmt::Debug, path::PathBuf};
 /// replacing parts of the command string. Multiple command modifiers can also be chained together.
 pub trait CommandModifier: Debug + Send + Sync {
     /// Apply the modification to the given args and binary path.
-    fn apply(&self, binary_path: &mut PathBuf, args: &mut Vec<String>);
+    fn apply(&self, binary_path: &mut PathBuf, arguments: &mut Vec<String>);
 }
 
 /// A command modifier that wraps the "firecracker"/"jailer" invocation behind iproute2's "netns exec" command
@@ -32,22 +32,26 @@ impl NetnsCommandModifier {
 }
 
 impl CommandModifier for NetnsCommandModifier {
-    fn apply(&self, binary_path: &mut PathBuf, args: &mut Vec<String>) {
+    fn apply(&self, binary_path: &mut PathBuf, arguments: &mut Vec<String>) {
         let original_binary_path = binary_path.to_string_lossy().into_owned();
         *binary_path = self.iproute2_path.clone();
-        args.insert(0, "netns".to_string());
-        args.insert(1, "exec".to_string());
-        args.insert(2, self.netns_name.clone());
-        args.insert(3, original_binary_path);
+        arguments.insert(0, "netns".to_string());
+        arguments.insert(1, "exec".to_string());
+        arguments.insert(2, self.netns_name.clone());
+        arguments.insert(3, original_binary_path);
     }
 }
 
-pub(crate) fn apply_command_modifier_chain(
-    binary_path: &mut PathBuf,
-    args: &mut Vec<String>,
-    modifiers: &Vec<Box<dyn CommandModifier>>,
-) {
-    for modifier in modifiers {
-        modifier.apply(binary_path, args);
-    }
+#[cfg(test)]
+#[test]
+fn netns_command_modifier_performs_changes() {
+    let command_modifier = NetnsCommandModifier::new("my_netns").iproute2_path("/sbin/ip");
+    let mut binary_path = PathBuf::from("/opt/binary");
+    let mut arguments = vec!["run".to_string(), "my".to_string(), "stuff".to_string()];
+    command_modifier.apply(&mut binary_path, &mut arguments);
+    assert_eq!(binary_path.to_str().unwrap(), "/sbin/ip");
+    assert_eq!(
+        arguments,
+        vec!["netns", "exec", "my_netns", "/opt/binary", "run", "my", "stuff"]
+    )
 }

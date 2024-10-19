@@ -11,7 +11,7 @@ use crate::{
     process_spawner::ProcessSpawner,
     vmm::{
         arguments::{
-            command_modifier::{apply_command_modifier_chain, CommandModifier},
+            command_modifier::CommandModifier,
             firecracker::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigurationOverride},
             jailer::JailerArguments,
         },
@@ -30,7 +30,7 @@ pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
     jailer_arguments: JailerArguments,
     jail_move_method: JailMoveMethod,
     jail_renamer: R,
-    argument_modifier_chain: Vec<Box<dyn CommandModifier>>,
+    command_modifier_chain: Vec<Box<dyn CommandModifier>>,
 }
 
 impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
@@ -44,7 +44,7 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
             jailer_arguments,
             jail_move_method: JailMoveMethod::Copy,
             jail_renamer,
-            argument_modifier_chain: Vec::new(),
+            command_modifier_chain: Vec::new(),
         }
     }
 
@@ -54,12 +54,12 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
     }
 
     pub fn command_modifier(mut self, command_modifier: impl CommandModifier + 'static) -> Self {
-        self.argument_modifier_chain.push(Box::new(command_modifier));
+        self.command_modifier_chain.push(Box::new(command_modifier));
         self
     }
 
     pub fn command_modifiers(mut self, command_modifiers: impl IntoIterator<Item = Box<dyn CommandModifier>>) -> Self {
-        self.argument_modifier_chain.extend(command_modifiers);
+        self.command_modifier_chain.extend(command_modifiers);
         self
     }
 }
@@ -236,7 +236,10 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         let mut binary_path = installation.jailer_path.clone();
         arguments.push("--".to_string());
         arguments.extend(self.firecracker_arguments.join(configuration_override));
-        apply_command_modifier_chain(&mut binary_path, &mut arguments, &self.argument_modifier_chain);
+
+        for command_modifier in &self.command_modifier_chain {
+            command_modifier.apply(&mut binary_path, &mut arguments);
+        }
 
         // nulling the pipes is redundant since jailer can do this itself via daemonization
         process_spawner
