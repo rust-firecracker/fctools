@@ -12,7 +12,9 @@ use crate::{
     vmm::{
         arguments::{
             command_modifier::{apply_command_modifier_chain, CommandModifier},
-            firecracker::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigurationOverride},
+            firecracker::{
+                FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigurationOverride, FirecrackerId,
+            },
         },
         installation::VmmInstallation,
     },
@@ -29,7 +31,7 @@ pub struct UnrestrictedVmmExecutor {
     remove_metrics_on_cleanup: bool,
     remove_logs_on_cleanup: bool,
     pipes_to_null: bool,
-    id: Option<VmmId>,
+    id: Option<FirecrackerId>,
 }
 
 impl UnrestrictedVmmExecutor {
@@ -69,87 +71,9 @@ impl UnrestrictedVmmExecutor {
         self
     }
 
-    pub fn id(mut self, id: VmmId) -> Self {
+    pub fn id(mut self, id: FirecrackerId) -> Self {
         self.id = Some(id);
         self
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct VmmId(String);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum VmmIdParseError {
-    TooShort,
-    TooLong,
-    ContainsInvalidCharacter,
-}
-
-impl VmmId {
-    pub fn new(id: impl Into<String>) -> Result<VmmId, VmmIdParseError> {
-        let id = id.into();
-
-        if id.len() < 5 {
-            return Err(VmmIdParseError::TooShort);
-        }
-
-        if id.len() > 60 {
-            return Err(VmmIdParseError::TooLong);
-        }
-
-        if id.chars().any(|c| !c.is_ascii_alphanumeric() && c != '-') {
-            return Err(VmmIdParseError::ContainsInvalidCharacter);
-        }
-
-        Ok(Self(id))
-    }
-}
-
-impl AsRef<str> for VmmId {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl From<VmmId> for String {
-    fn from(value: VmmId) -> Self {
-        value.0
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::vmm::executor::unrestricted::{VmmId, VmmIdParseError};
-
-    #[test]
-    fn vmm_id_rejects_when_too_short() {
-        for l in 0..5 {
-            let str = (0..l).map(|_| "l").collect::<String>();
-            assert_eq!(VmmId::new(str), Err(VmmIdParseError::TooShort));
-        }
-    }
-
-    #[test]
-    fn vmm_id_rejects_when_too_long() {
-        for l in 61..100 {
-            let str = (0..l).map(|_| "L").collect::<String>();
-            assert_eq!(VmmId::new(str), Err(VmmIdParseError::TooLong));
-        }
-    }
-
-    #[test]
-    fn vmm_id_rejects_when_invalid_character() {
-        for c in ['~', '_', '$', '#', '+'] {
-            let str = (0..10).map(|_| c).collect::<String>();
-            assert_eq!(VmmId::new(str), Err(VmmIdParseError::ContainsInvalidCharacter));
-        }
-    }
-
-    #[test]
-    fn vmm_id_accepts_valid() {
-        for str in ["vmm-id", "longer-id", "L1Nda74-", "very-loNg-ID"] {
-            VmmId::new(str).unwrap();
-        }
     }
 }
 

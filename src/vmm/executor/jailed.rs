@@ -277,7 +277,7 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
                     None => "firecracker",
                 },
             )
-            .join(self.jailer_arguments.jail_id.to_string())
+            .join(self.jailer_arguments.jail_id.as_ref())
             .join("root")
     }
 }

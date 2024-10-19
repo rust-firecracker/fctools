@@ -221,7 +221,7 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
             JailerArguments::new(
                 unsafe { libc::geteuid() },
                 unsafe { libc::getegid() },
-                rand::thread_rng().next_u32().to_string(),
+                rand::thread_rng().next_u32().to_string().try_into().unwrap(),
             ),
             FlatJailRenamer::default(),
         )),

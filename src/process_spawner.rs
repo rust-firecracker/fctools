@@ -98,6 +98,10 @@ impl ProcessSpawner for SuProcessSpawner {
             .write(format!("{path:?} {} ; exit\n", arguments.join(" ")).as_bytes())
             .await?;
 
+        if pipes_to_null {
+            drop(child.stdin.take());
+        }
+
         Ok(child)
     }
 }
@@ -128,11 +132,13 @@ impl ProcessSpawner for SudoProcessSpawner {
             .stderr(get_stdio(pipes_to_null))
             .stdout(get_stdio(pipes_to_null))
             .stdin(Stdio::piped());
+
         let mut child = command.spawn()?;
         let stdin_ref = child
             .stdin
             .as_mut()
             .ok_or_else(|| std::io::Error::other("Stdin not received"))?;
+
         if let Some(ref password) = self.password {
             stdin_ref.write_all(format!("{password}\n").as_bytes()).await?;
         } else {
@@ -141,13 +147,17 @@ impl ProcessSpawner for SudoProcessSpawner {
             ));
         }
 
+        if pipes_to_null {
+            drop(child.stdin.take());
+        }
+
         Ok(child)
     }
 }
 
 #[cfg(test)]
 #[test]
-fn shell_spawners_have_correct_increases_privileges_flags() {
+fn process_spawners_have_correct_increases_privileges_flags() {
     assert!(!DirectProcessSpawner.increases_privileges());
     assert!(SuProcessSpawner::new("password").increases_privileges());
     assert!(SudoProcessSpawner {

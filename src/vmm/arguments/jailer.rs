@@ -3,12 +3,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use super::firecracker::FirecrackerId;
+
 /// Arguments that are passed by relevant executors into the "jailer" binary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JailerArguments {
     uid: u32,
     gid: u32,
-    pub(crate) jail_id: String,
+    pub(crate) jail_id: FirecrackerId,
 
     cgroup_values: HashMap<String, String>,
     cgroup_version: Option<JailerCgroupVersion>,
@@ -21,11 +23,11 @@ pub struct JailerArguments {
 }
 
 impl JailerArguments {
-    pub fn new(uid: u32, gid: u32, jail_id: impl Into<String>) -> Self {
+    pub fn new(uid: u32, gid: u32, jail_id: FirecrackerId) -> Self {
         Self {
             uid,
             gid,
-            jail_id: jail_id.into(),
+            jail_id,
             cgroup_values: HashMap::new(),
             cgroup_version: None,
             chroot_base_dir: None,
@@ -96,7 +98,7 @@ impl JailerArguments {
         args.push("--gid".to_string());
         args.push(self.gid.to_string());
         args.push("--id".to_string());
-        args.push(self.jail_id.to_string());
+        args.push(self.jail_id.as_ref().to_owned());
 
         if !self.cgroup_values.is_empty() {
             for (key, value) in &self.cgroup_values {
@@ -154,4 +156,83 @@ pub enum JailerCgroupVersion {
     V1,
     /// Cgroups v2
     V2,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::vmm::arguments::firecracker::FirecrackerId;
+
+    use super::{JailerArguments, JailerCgroupVersion};
+
+    fn new() -> JailerArguments {
+        JailerArguments::new(1, 1, FirecrackerId::new("jail-id").unwrap())
+    }
+
+    #[test]
+    fn uid_gid_jail_id_are_pushed() {
+        check(new(), ["--uid", "1", "--gid", "--id", "jail-id"]);
+    }
+
+    #[test]
+    fn cgroup_values_can_be_set() {
+        check(new().cgroup("key", "value"), ["--cgroup", "key=value"]);
+    }
+
+    #[test]
+    fn cgroup_version_can_be_set() {
+        for (cgroup_version, matcher) in [(JailerCgroupVersion::V1, "1"), (JailerCgroupVersion::V2, "2")] {
+            check(new().cgroup_version(cgroup_version), ["--cgroup-version", matcher]);
+        }
+    }
+
+    #[test]
+    fn chroot_base_dir_can_be_set() {
+        check(
+            new().chroot_base_dir("/tmp/chroot"),
+            ["--chroot-base-dir", "/tmp/chroot"],
+        );
+    }
+
+    #[test]
+    fn daemonize_can_be_enabled() {
+        check(new().daemonize(), ["--daemonize"]);
+    }
+
+    #[test]
+    fn netns_can_be_set() {
+        check(
+            new().network_namespace_path("/var/run/netns"),
+            ["--netns", "/var/run/netns"],
+        );
+    }
+
+    #[test]
+    fn exec_in_new_pid_ns_can_be_enabled() {
+        check(new().exec_in_new_pid_ns(), ["--new-pid-ns"]);
+    }
+
+    #[test]
+    fn parent_cgroup_can_be_set() {
+        check(
+            new().parent_cgroup("parent_cgroup"),
+            ["--parent-cgroup", "parent_cgroup"],
+        );
+    }
+
+    #[test]
+    fn resource_limits_can_be_set() {
+        check(new().resource_limit("key", "value"), ["--resource-limit", "key=value"]);
+    }
+
+    fn check<const AMOUNT: usize>(args: JailerArguments, matchers: [&str; AMOUNT]) {
+        let joined_args = args.join(&PathBuf::from("/tmp/firecracker"));
+        assert!(joined_args.contains(&String::from("--exec-file")));
+        assert!(joined_args.contains(&String::from("/tmp/firecracker")));
+
+        for matcher in matchers {
+            assert!(joined_args.contains(&matcher.to_string()));
+        }
+    }
 }

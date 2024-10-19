@@ -55,7 +55,7 @@ hyper-util = { version = "0.1.9", features = [
 http = { version = "1.1.0", optional = true }
 # vm
 serde = { version = "1.0.210", features = ["derive"], optional = true }
-serde_json = { version = "1.0.130", optional = true }
+serde_json = { version = "1.0.132", optional = true }
 # extensions
 cidr = { version = "0.3.0", optional = true }
 tonic = { version = "0.12.3", optional = true, default-features = false, features = [
@@ -69,7 +69,6 @@ rand = "0.8.5"
 tokio = { version = "1.39.2", features = ["macros", "rt-multi-thread"] }
 uuid = { version = "1.10.0", features = ["v4"] }
 which = "6.0.3"
-file-lock = "2.1.11"
 fcnet = { version = "0.5.0", default-features = false, features = [
     "namespaced",
 ] }
@@ -98,7 +97,7 @@ unsend-proxy-fs-backend = ["dep:uuid"]
 tokio-uring-fs-backend = ["dep:tokio-uring", "tokio/fs"]
 # vmm
 vmm-arguments = []
-vmm-installation = []
+vmm-installation = ["fs-backend"]
 vmm-executor = [
     "vmm-arguments",
     "vmm-installation",

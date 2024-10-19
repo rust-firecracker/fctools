@@ -237,13 +237,97 @@ impl ToString for FirecrackerLogLevel {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FirecrackerId(String);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FirecrackerIdError {
+    TooShort,
+    TooLong,
+    ContainsInvalidCharacter,
+}
+
+impl FirecrackerId {
+    pub fn new(id: impl Into<String>) -> Result<FirecrackerId, FirecrackerIdError> {
+        let id = id.into();
+
+        if id.len() < 5 {
+            return Err(FirecrackerIdError::TooShort);
+        }
+
+        if id.len() > 60 {
+            return Err(FirecrackerIdError::TooLong);
+        }
+
+        if id.chars().any(|c| !c.is_ascii_alphanumeric() && c != '-') {
+            return Err(FirecrackerIdError::ContainsInvalidCharacter);
+        }
+
+        Ok(Self(id))
+    }
+}
+
+impl AsRef<str> for FirecrackerId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<FirecrackerId> for String {
+    fn from(value: FirecrackerId) -> Self {
+        value.0
+    }
+}
+
+impl TryFrom<String> for FirecrackerId {
+    type Error = FirecrackerIdError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
-    use crate::vmm::arguments::firecracker::FirecrackerApiSocket;
+    use crate::vmm::arguments::firecracker::{FirecrackerApiSocket, FirecrackerId, FirecrackerIdError};
 
     use super::{FirecrackerArguments, FirecrackerConfigurationOverride, FirecrackerLogLevel};
+
+    #[test]
+    fn firecracker_id_rejects_when_too_short() {
+        for l in 0..5 {
+            let str = (0..l).map(|_| "l").collect::<String>();
+            assert_eq!(FirecrackerId::new(str), Err(FirecrackerIdError::TooShort));
+        }
+    }
+
+    #[test]
+    fn firecracker_id_rejects_when_too_long() {
+        for l in 61..100 {
+            let str = (0..l).map(|_| "L").collect::<String>();
+            assert_eq!(FirecrackerId::new(str), Err(FirecrackerIdError::TooLong));
+        }
+    }
+
+    #[test]
+    fn firecracker_id_rejects_when_invalid_character() {
+        for c in ['~', '_', '$', '#', '+'] {
+            let str = (0..10).map(|_| c).collect::<String>();
+            assert_eq!(
+                FirecrackerId::new(str),
+                Err(FirecrackerIdError::ContainsInvalidCharacter)
+            );
+        }
+    }
+
+    #[test]
+    fn firecracker_id_accepts_valid() {
+        for str in ["vmm-id", "longer-id", "L1Nda74-", "very-loNg-ID"] {
+            FirecrackerId::new(str).unwrap();
+        }
+    }
 
     fn new() -> FirecrackerArguments {
         FirecrackerArguments::new(FirecrackerApiSocket::Enabled(PathBuf::from("/tmp/api.sock")))
