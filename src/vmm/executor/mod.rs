@@ -21,8 +21,10 @@ use crate::{
 use super::{arguments::VmmConfigurationOverride, installation::VmmInstallation};
 
 #[cfg(feature = "jailed-vmm-executor")]
+#[cfg_attr(docsrs, doc(cfg(feature = "jailed-vmm-executor")))]
 pub mod jailed;
 #[cfg(feature = "unrestricted-vmm-executor")]
+#[cfg_attr(docsrs, doc(cfg(feature = "unrestricted-vmm-executor")))]
 pub mod unrestricted;
 
 /// An error emitted by a [VmmExecutor].
@@ -47,6 +49,7 @@ pub enum VmmExecutorError {
     #[error("A directory that is supposed to have a parent in the filesystem has none")]
     ExpectedDirectoryParentMissing,
     #[cfg(feature = "jailed-vmm-executor")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "jailed-vmm-executor")))]
     #[error("Invoking the jail renamer to produce an inner path failed: `{0}`")]
     JailRenamerFailed(JailRenamerError),
     #[error("The given installation's file items have no filenames")]

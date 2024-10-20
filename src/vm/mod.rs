@@ -1,3 +1,5 @@
+//! Provides a managed and high-level VM abstraction.
+
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},

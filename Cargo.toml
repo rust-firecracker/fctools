@@ -12,6 +12,7 @@ exclude = ["/testdata", ".gitattributes", ".gitignore", ".rustfmt.toml"]
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [profile.dev]
 debug = false

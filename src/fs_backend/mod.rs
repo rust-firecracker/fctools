@@ -1,12 +1,23 @@
+//! Provides the [FsBackend] trait and various connected types that make fctools generic over any filesystem transport.
+//! Note that only [Send]-compatible backends can be used directly in the fctools API (i.e. [FsBackend]-s), but [UnsendFsBackend]s cannot.
+//!
+//! The built-in features providing [FsBackend] implementations are:
+//! - `blocking-fs-backend`, a [Send]-compatible backend that utilizes [tokio::fs] which simply puts blocking I/O onto the Tokio thread pool.
+//! - `unsend-proxy-fs-backend`, an intermediary [Send]-compatible backend that creates and connects to an in-process bridge to a [Send]-incompatible backend.
+//! - `tokio-uring-fs-backend`, a [Send]-incompatible backend that uses the tokio-uring crate to perform true async I/O (partially blocked on tokio-uring being immature).
+
 use std::{future::Future, ops::Deref, path::Path, sync::Arc};
 
 #[cfg(feature = "blocking-fs-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "blocking-fs-backend")))]
 pub mod blocking;
 
 #[cfg(feature = "unsend-proxy-fs-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "unsend-proxy-fs-backend")))]
 pub mod unsend_proxy;
 
 #[cfg(feature = "tokio-uring-fs-backend")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tokio-uring-fs-backend")))]
 pub mod tokio_uring;
 
 /// An error emitted by an [FsBackend], being either an owned or an [Arc] value of a [std::io::Error].
