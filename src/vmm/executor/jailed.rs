@@ -278,6 +278,7 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
     }
 }
 
+/// An error that can be emitted by a [JailRenamer].
 #[derive(Debug, thiserror::Error)]
 pub enum JailRenamerError {
     #[error("The given path which is supposed to be a file has no filename")]
@@ -291,13 +292,14 @@ pub enum JailRenamerError {
 /// A trait defining a method of conversion between an outer path and an inner path. This conversion
 /// should always produce the same path (or error) for the same given outside-jail path.
 pub trait JailRenamer: Send + Sync + Clone {
+    /// Rename the outer path to an inner path.
     fn rename_for_jail(&self, outer_path: &Path) -> Result<PathBuf, JailRenamerError>;
 }
 
 /// A resolver that transforms a host path with filename (including extension) "p" into /p
 /// inside the jail. Given that files have unique names, this should be enough for most scenarios.
 #[derive(Debug, Clone, Default)]
-pub struct FlatJailRenamer {}
+pub struct FlatJailRenamer;
 
 impl JailRenamer for FlatJailRenamer {
     fn rename_for_jail(&self, outside_path: &Path) -> Result<PathBuf, JailRenamerError> {
@@ -324,12 +326,12 @@ impl MappingJailRenamer {
         }
     }
 
-    pub fn map(&mut self, outside_path: impl Into<PathBuf>, jail_path: impl Into<PathBuf>) -> &mut Self {
+    pub fn map(mut self, outside_path: impl Into<PathBuf>, jail_path: impl Into<PathBuf>) -> Self {
         self.mappings.insert(outside_path.into(), jail_path.into());
         self
     }
 
-    pub fn map_all(&mut self, mappings: impl IntoIterator<Item = (PathBuf, PathBuf)>) -> &mut Self {
+    pub fn map_all(mut self, mappings: impl IntoIterator<Item = (PathBuf, PathBuf)>) -> Self {
         self.mappings.extend(mappings);
         self
     }
@@ -389,8 +391,7 @@ mod tests {
 
     #[test]
     fn mapping_jail_renamer_moves_correctly() {
-        let mut renamer = MappingJailRenamer::new();
-        renamer
+        let renamer = MappingJailRenamer::new()
             .map("/etc/a", "/tmp/a")
             .map("/opt/b", "/etc/b")
             .map("/tmp/c", "/c");
