@@ -18,9 +18,7 @@ use crate::{
     },
 };
 
-use super::{
-    change_owner, create_file_with_tree, ResourceOwnership, VmmExecutor, VmmExecutorError, PROCESS_GID, PROCESS_UID,
-};
+use super::{change_owner, create_file_with_tree, VmmExecutor, VmmExecutorError, PROCESS_GID, PROCESS_UID};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
@@ -31,19 +29,24 @@ pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
     jailer_arguments: JailerArguments,
     jail_move_method: JailMoveMethod,
     jail_renamer: R,
-    resource_ownership: ResourceOwnership,
+    downgrade: Option<(u32, u32)>,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
 }
 
 impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
     pub fn new(vmm_arguments: VmmArguments, jailer_arguments: JailerArguments, jail_renamer: R) -> Self {
+        let mut downgrade = None;
+        if jailer_arguments.uid != *PROCESS_UID || jailer_arguments.gid != *PROCESS_GID {
+            downgrade = Some((jailer_arguments.uid, jailer_arguments.gid));
+        }
+
         Self {
             vmm_arguments,
             jailer_arguments,
             jail_move_method: JailMoveMethod::Copy,
             jail_renamer,
+            downgrade,
             command_modifier_chain: Vec::new(),
-            resource_ownership: ResourceOwnership::Shared,
         }
     }
 
@@ -59,11 +62,6 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
 
     pub fn command_modifiers(mut self, command_modifiers: impl IntoIterator<Item = Box<dyn CommandModifier>>) -> Self {
         self.command_modifier_chain.extend(command_modifiers);
-        self
-    }
-
-    pub fn resource_ownership(mut self, resource_ownership: ResourceOwnership) -> Self {
-        self.resource_ownership = resource_ownership;
         self
     }
 }
@@ -111,7 +109,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
 
         // Create jail and delete previous one if necessary
         let jail_path = Arc::new(self.get_jail_path(installation));
-        if let ResourceOwnership::Upgraded = self.resource_ownership {
+        if process_spawner.upgrades_ownership() {
             change_owner(&chroot_base_dir, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
         }
 
@@ -149,14 +147,38 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
 
         // Ensure argument paths exist
         if let Some(ref log_path) = self.vmm_arguments.log_path {
-            join_set.spawn(create_file_with_tree(fs_backend.clone(), jail_path.jail_join(log_path)));
+            let path = jail_path.jail_join(&log_path);
+            let downgrade = self.downgrade.clone();
+            let fs_backend = fs_backend.clone();
+            let process_spawner = process_spawner.clone();
+
+            join_set.spawn(async move {
+                create_file_with_tree(fs_backend, &path).await?;
+
+                if let Some((uid, gid)) = downgrade {
+                    println!("{uid} {gid}");
+                    change_owner(&path, uid, gid, process_spawner.as_ref()).await?;
+                }
+
+                Ok(())
+            });
         }
 
         if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
-            join_set.spawn(create_file_with_tree(
-                fs_backend.clone(),
-                jail_path.jail_join(metrics_path),
-            ));
+            let path = jail_path.jail_join(&metrics_path);
+            let downgrade = self.downgrade.clone();
+            let fs_backend = fs_backend.clone();
+            let process_spawner = process_spawner.clone();
+
+            join_set.spawn(async move {
+                create_file_with_tree(fs_backend, &path).await?;
+
+                if let Some((uid, gid)) = downgrade {
+                    change_owner(&path, uid, gid, process_spawner.as_ref()).await?;
+                }
+
+                Ok(())
+            });
         }
 
         // Apply jail renamer and move in the resources in parallel (via a join set)
@@ -220,7 +242,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             result.map_err(VmmExecutorError::TaskJoinFailed)??;
         }
 
-        if let ResourceOwnership::Downgraded { uid, gid } = self.resource_ownership {
+        if let Some((uid, gid)) = self.downgrade {
             change_owner(&jail_path, uid, gid, process_spawner.as_ref()).await?;
         }
 
@@ -257,7 +279,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     ) -> Result<(), VmmExecutorError> {
         let jail_path = self.get_jail_path(installation);
 
-        if let ResourceOwnership::Upgraded = self.resource_ownership {
+        if process_spawner.upgrades_ownership() {
             change_owner(&jail_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
         }
 

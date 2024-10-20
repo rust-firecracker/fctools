@@ -2,7 +2,7 @@ use std::{os::unix::fs::FileTypeExt, time::Duration};
 
 use fctools::{
     fs_backend::blocking::BlockingFsBackend,
-    process_spawner::SuProcessSpawner,
+    process_spawner::DirectProcessSpawner,
     vm::{
         api::VmApi,
         configuration::InitMethod,
@@ -229,7 +229,7 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
 
     let mut vm = TestVm::prepare(
         executor,
-        SuProcessSpawner::new("495762"),
+        DirectProcessSpawner,
         BlockingFsBackend,
         get_real_firecracker_installation(),
         snapshot.into_configuration(Some(true), None),

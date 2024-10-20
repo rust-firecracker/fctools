@@ -17,8 +17,7 @@ use crate::{
 };
 
 use super::{
-    change_owner, create_file_with_tree, join_on_set, ResourceOwnership, VmmExecutor, VmmExecutorError, PROCESS_GID,
-    PROCESS_UID,
+    change_owner, create_file_with_tree, join_on_set, VmmExecutor, VmmExecutorError, PROCESS_GID, PROCESS_UID,
 };
 
 /// A [VmmExecutor] that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
@@ -32,7 +31,6 @@ pub struct UnrestrictedVmmExecutor {
     remove_logs_on_cleanup: bool,
     pipes_to_null: bool,
     id: Option<VmmId>,
-    resource_ownership: Arc<ResourceOwnership>,
 }
 
 impl UnrestrictedVmmExecutor {
@@ -44,7 +42,6 @@ impl UnrestrictedVmmExecutor {
             remove_logs_on_cleanup: false,
             pipes_to_null: false,
             id: None,
-            resource_ownership: Arc::new(ResourceOwnership::Shared),
         }
     }
 
@@ -77,11 +74,6 @@ impl UnrestrictedVmmExecutor {
         self.id = Some(id);
         self
     }
-
-    pub fn resource_ownership(mut self, resource_ownership: ResourceOwnership) -> Self {
-        self.resource_ownership = Arc::new(resource_ownership);
-        self
-    }
 }
 
 impl VmmExecutor for UnrestrictedVmmExecutor {
@@ -112,10 +104,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         for path in outer_paths.clone() {
             let fs_backend = fs_backend.clone();
             let process_spawner = process_spawner.clone();
-            let resource_ownership = self.resource_ownership.clone();
 
             join_set.spawn(async move {
-                if let ResourceOwnership::Upgraded = *resource_ownership {
+                if process_spawner.upgrades_ownership() {
                     change_owner(&path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
                 }
 
@@ -134,10 +125,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
             let fs_backend = fs_backend.clone();
             let process_spawner = process_spawner.clone();
-            let privilege_policy = self.resource_ownership.clone();
 
             join_set.spawn(async move {
-                if let ResourceOwnership::Upgraded = *privilege_policy {
+                if process_spawner.upgrades_ownership() {
                     change_owner(&socket_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
                 }
 
@@ -157,11 +147,12 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         // Ensure argument paths exist
-        if let Some(ref log_path) = self.vmm_arguments.log_path {
-            join_set.spawn(create_file_with_tree(fs_backend.clone(), log_path.clone()));
+        if let Some(log_path) = self.vmm_arguments.log_path.clone() {
+            let fs_backend = fs_backend.clone();
+            join_set.spawn(async move { create_file_with_tree(fs_backend, &log_path).await });
         }
-        if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
-            join_set.spawn(create_file_with_tree(fs_backend.clone(), metrics_path.clone()));
+        if let Some(metrics_path) = self.vmm_arguments.metrics_path.clone() {
+            join_set.spawn(async move { create_file_with_tree(fs_backend.clone(), &metrics_path).await });
         }
 
         join_on_set(join_set).await?;
@@ -204,10 +195,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
             let process_spawner = process_spawner.clone();
             let fs_backend = fs_backend.clone();
-            let privilege_policy = self.resource_ownership.clone();
 
             join_set.spawn(async move {
-                if let ResourceOwnership::Upgraded = *privilege_policy {
+                if process_spawner.upgrades_ownership() {
                     change_owner(&socket_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
                 }
 

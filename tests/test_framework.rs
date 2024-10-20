@@ -12,7 +12,7 @@ use cidr::IpInet;
 use fcnet::{FirecrackerNetwork, FirecrackerNetworkOperation, FirecrackerNetworkType};
 use fctools::{
     fs_backend::{blocking::BlockingFsBackend, FsBackend},
-    process_spawner::{DirectProcessSpawner, ProcessSpawner, SuProcessSpawner},
+    process_spawner::{DirectProcessSpawner, ProcessSpawner},
     vm::{
         configuration::{InitMethod, VmConfiguration, VmConfigurationData},
         models::{
@@ -30,7 +30,7 @@ use fctools::{
         executor::{
             jailed::{FlatJailRenamer, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
-            ResourceOwnership, VmmExecutor, VmmExecutorError,
+            VmmExecutor, VmmExecutorError,
         },
         installation::VmmInstallation,
         process::VmmProcessState,
@@ -52,6 +52,8 @@ pub struct TestOptions {
     pub toolchain: TestOptionsToolchain,
     pub waits: TestOptionsWaits,
     pub network_interface: String,
+    pub jailer_uid: u32,
+    pub jailer_gid: u32,
 }
 
 #[allow(unused)]
@@ -80,6 +82,11 @@ impl TestOptions {
                 serde_json::from_str(&content).expect("options.json is malformed")
             })
             .await
+    }
+
+    pub fn get_blocking() -> Self {
+        let content = std::fs::read_to_string(get_test_path("options.json")).expect("Could not read options.json");
+        serde_json::from_str(&content).expect("options.json is malformed")
     }
 }
 
@@ -132,6 +139,10 @@ pub fn get_fs_backend() -> Arc<impl FsBackend> {
 pub struct FailingRunner;
 
 impl ProcessSpawner for FailingRunner {
+    fn upgrades_ownership(&self) -> bool {
+        false
+    }
+
     async fn spawn(
         &self,
         _path: &Path,
@@ -234,7 +245,7 @@ where
         assert_eq!(process.state(), VmmProcessState::Started);
     }
 
-    let (mut unrestricted_process, mut jailed_process) = get_vmm_processes();
+    let (mut unrestricted_process, mut jailed_process) = get_vmm_processes(TestOptions::get().await);
 
     init_process(&mut jailed_process).await;
     init_process(&mut unrestricted_process).await;
@@ -245,7 +256,7 @@ where
     println!("Succeeded with jailed VM");
 }
 
-fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
+fn get_vmm_processes(test_options: &TestOptions) -> (TestVmmProcess, TestVmmProcess) {
     let socket_path = get_tmp_path();
 
     let unrestricted_firecracker_arguments = VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()))
@@ -254,19 +265,17 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
         VmmArguments::new(VmmApiSocket::Enabled(socket_path)).config_path("/jailed.json");
 
     let jailer_arguments = JailerArguments::new(
-        1000,
-        1000,
+        test_options.jailer_uid,
+        test_options.jailer_gid,
         rand::thread_rng().next_u32().to_string().try_into().unwrap(),
     )
     .cgroup_version(JailerCgroupVersion::V2);
-    let unrestricted_executor = UnrestrictedVmmExecutor::new(unrestricted_firecracker_arguments)
-        .resource_ownership(ResourceOwnership::Downgraded { uid: 1000, gid: 1000 });
+    let unrestricted_executor = UnrestrictedVmmExecutor::new(unrestricted_firecracker_arguments);
     let jailed_executor = JailedVmmExecutor::new(
         jailer_firecracker_arguments,
         jailer_arguments,
         FlatJailRenamer::default(),
-    )
-    .resource_ownership(ResourceOwnership::Downgraded { uid: 1000, gid: 1000 });
+    );
 
     (
         TestVmmProcess::new(
@@ -293,7 +302,7 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
 // VM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVm = fctools::vm::Vm<TestExecutor, SuProcessSpawner, BlockingFsBackend>;
+pub type TestVm = fctools::vm::Vm<TestExecutor, DirectProcessSpawner, BlockingFsBackend>;
 
 type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>>;
 
@@ -465,9 +474,11 @@ impl VmBuilder {
             MachineConfiguration::new(1, 128).track_dirty_pages(true),
         )
         .drive(Drive::new("rootfs", true).path_on_host(get_test_path("assets/rootfs.ext4")));
+
+        let test_options = TestOptions::get_blocking();
         let mut jailer_arguments = JailerArguments::new(
-            unsafe { libc::geteuid() },
-            unsafe { libc::getegid() },
+            test_options.jailer_uid,
+            test_options.jailer_gid,
             rand::thread_rng().next_u32().to_string().try_into().unwrap(),
         )
         .cgroup_version(JailerCgroupVersion::V2);
@@ -577,9 +588,9 @@ impl VmBuilder {
             TestExecutor::Unrestricted(_) => false,
         };
 
-        let mut vm: fctools::vm::Vm<TestExecutor, SuProcessSpawner, BlockingFsBackend> = TestVm::prepare(
+        let mut vm: fctools::vm::Vm<TestExecutor, DirectProcessSpawner, BlockingFsBackend> = TestVm::prepare(
             executor,
-            SuProcessSpawner::new("495762"),
+            DirectProcessSpawner,
             BlockingFsBackend,
             get_real_firecracker_installation(),
             configuration,

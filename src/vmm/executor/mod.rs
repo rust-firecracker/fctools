@@ -30,13 +30,6 @@ pub mod unrestricted;
 pub(super) static PROCESS_UID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::geteuid() });
 pub(super) static PROCESS_GID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::getegid() });
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum ResourceOwnership {
-    Shared,
-    Upgraded,
-    Downgraded { uid: u32, gid: u32 },
-}
-
 /// An error emitted by a [VmmExecutor].
 #[derive(Debug, thiserror::Error)]
 pub enum VmmExecutorError {
@@ -136,7 +129,7 @@ pub(crate) async fn change_owner(
     Ok(())
 }
 
-async fn create_file_with_tree(fs_backend: Arc<impl FsBackend>, path: PathBuf) -> Result<(), VmmExecutorError> {
+async fn create_file_with_tree(fs_backend: Arc<impl FsBackend>, path: &Path) -> Result<(), VmmExecutorError> {
     if let Some(parent_path) = path.parent() {
         fs_backend
             .create_dir_all(parent_path)
