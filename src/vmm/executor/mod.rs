@@ -25,6 +25,7 @@ pub mod jailed;
 #[cfg(feature = "unrestricted-vmm-executor")]
 pub mod unrestricted;
 
+/// An error emitted by a [VmmExecutor].
 #[derive(Debug, thiserror::Error)]
 pub enum VmmExecutorError {
     #[error("A non-FS I/O error occurred: `{0}")]
@@ -54,7 +55,7 @@ pub enum VmmExecutorError {
     Other(Box<dyn std::error::Error + Send>),
 }
 
-/// A VMM executor manages the environment of a VMM process, correctly invoking the process, while
+/// A [VmmExecutor] manages the environment of a VMM, correctly invoking its process, while
 /// setting up and subsequently cleaning its environment. This allows modularity between different modes of VMM execution.
 pub trait VmmExecutor: Send + Sync {
     /// Get the host location of the VMM socket, if one exists.
@@ -75,7 +76,7 @@ pub trait VmmExecutor: Send + Sync {
         outer_paths: Vec<PathBuf>,
     ) -> impl Future<Output = Result<HashMap<PathBuf, PathBuf>, VmmExecutorError>> + Send;
 
-    /// Invoke the VMM on the given FirecrackerInstallation and return the spawned tokio Child.
+    /// Invoke the VMM on the given [VmmInstallation] and return the spawned async [Child] process.
     fn invoke(
         &self,
         installation: &VmmInstallation,

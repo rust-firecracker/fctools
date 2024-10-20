@@ -18,7 +18,7 @@ pub enum VsockGrpcError {
 }
 
 /// An extension that allows connecting to guest applications that expose a gRPC server being tunneled over
-/// the Firecracker vsock device. The established tonic Channel-s can be used with codegen or any other type
+/// the Firecracker vsock device. The established tonic [Channel]-s can be used with codegen or any other type
 /// of tonic client.
 pub trait VsockGrpcExt {
     /// Connect to a guest port over gRPC eagerly, i.e. by establishing the connection right away.
@@ -26,7 +26,7 @@ pub trait VsockGrpcExt {
     fn vsock_connect_over_grpc(
         &self,
         guest_port: u32,
-        configure_endpoint: impl (FnOnce(Endpoint) -> Endpoint) + Send,
+        configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
     ) -> impl Future<Output = Result<Channel, VsockGrpcError>> + Send;
 
     /// Connect to a guest port over gRPC lazily, i.e. not actually establishing the connection until
@@ -40,16 +40,19 @@ pub trait VsockGrpcExt {
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VsockGrpcExt for Vm<E, S, F> {
-    async fn vsock_connect_over_grpc(
+    fn vsock_connect_over_grpc(
         &self,
         guest_port: u32,
-        configure_endpoint: impl (FnOnce(Endpoint) -> Endpoint) + Send,
-    ) -> Result<Channel, VsockGrpcError> {
-        let (endpoint, service) = create_endpoint_and_service(&self, guest_port, configure_endpoint)?;
-        Ok(endpoint
-            .connect_with_connector(service)
-            .await
-            .map_err(VsockGrpcError::ConnectionFailed)?)
+        configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
+    ) -> impl Future<Output = Result<Channel, VsockGrpcError>> + Send {
+        let result = create_endpoint_and_service(&self, guest_port, configure_endpoint);
+        async move {
+            let (endpoint, service) = result?;
+            Ok(endpoint
+                .connect_with_connector(service)
+                .await
+                .map_err(VsockGrpcError::ConnectionFailed)?)
+        }
     }
 
     fn vsock_lazily_connect_over_grpc(

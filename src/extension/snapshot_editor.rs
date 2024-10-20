@@ -10,7 +10,7 @@ use crate::vmm::installation::VmmInstallation;
 /// An extension that provides bindings to functionality exposed by Firecracker's "snapshot-editor" binary.
 /// Internally this performs sanity checks and then spawns and awaits a "snapshot-editor" process.
 pub trait SnapshotEditorExt {
-    /// Get a SnapshotEditor bindings struct that is bound to this installation's lifetime.
+    /// Get a [SnapshotEditor] binding that is bound to this [VmmInstallation]'s lifetime.
     fn snapshot_editor(&self) -> SnapshotEditor<'_>;
 }
 
@@ -22,7 +22,7 @@ impl SnapshotEditorExt for VmmInstallation {
     }
 }
 
-/// A struct exposing bindings to a "snapshot-editor" binary of this installation.
+/// A struct exposing bindings to a "snapshot-editor" binary of this [VmmInstallation].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SnapshotEditor<'p> {
     path: &'p PathBuf,

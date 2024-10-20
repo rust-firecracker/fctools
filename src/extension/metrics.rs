@@ -303,15 +303,15 @@ pub enum MetricsTaskError {
 /// A spawned Tokio task that gathers Firecracker's metrics.
 #[derive(Debug)]
 pub struct MetricsTask {
-    /// The join handle to the task that can be used to abort it or check on it.
+    /// The [JoinHandle] to the task that can be used to abort it or check on it.
     pub join_handle: JoinHandle<Result<(), MetricsTaskError>>,
-    /// An asynchronous channel receiver that can be used to fetch the metrics sent out by the task.
+    /// An asynchronous [mpsc::Receiver] that can be used to fetch the metrics sent out by the task.
     pub receiver: mpsc::Receiver<Metrics>,
 }
 
-/// Spawn a dedicated Tokio task that gathers Firecracker's metrics from the given metrics path
-/// using the provided filesystem backend, with an asynchronous MPSC channel limited by the
-/// provided upper bound (buffer).
+/// Spawn a dedicated Tokio task that gathers Firecracker's metrics from the given metrics path with an
+/// asynchronous [mpsc] channel limited by the provided upper bound (buffer). Support for an agnostic
+/// [FsBackend](crate::fs_backend::FsBackend) is currently not implemented.
 pub fn spawn_metrics_task(metrics_path: impl AsRef<Path> + Send + 'static, buffer: usize) -> MetricsTask {
     let (sender, receiver) = mpsc::channel(buffer);
 

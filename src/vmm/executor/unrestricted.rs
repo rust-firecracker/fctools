@@ -18,8 +18,9 @@ use crate::{
 
 use super::{create_file_with_tree, force_chown, join_on_set, VmmExecutor, VmmExecutorError};
 
-/// An executor that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
-/// This executor allows rootless execution, given that the user has access to /dev/kvm.
+/// A [VmmExecutor] that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
+/// This [VmmExecutor] allows rootless execution, given that the user has been granted access to /dev/kvm, but using
+/// this "direct" mode of execution is not recommended by Firecracker developers in production scenarios.
 #[derive(Debug)]
 pub struct UnrestrictedVmmExecutor {
     vmm_arguments: VmmArguments,

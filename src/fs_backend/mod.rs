@@ -9,7 +9,7 @@ pub mod unsend_proxy;
 #[cfg(feature = "tokio-uring-fs-backend")]
 pub mod tokio_uring;
 
-/// An error emitted by an FS backend, being either an owned or an arced value of a std::io::Error.
+/// An error emitted by an [FsBackend], being either an owned or an [Arc] value of a [std::io::Error].
 #[derive(Debug)]
 pub enum FsBackendError {
     Owned(std::io::Error),
@@ -17,7 +17,7 @@ pub enum FsBackendError {
 }
 
 impl FsBackendError {
-    /// Consume this FcBackendError into an arc that can further be cloned.
+    /// Consume this [FsBackendError] into an [Arc] that can further be cloned.
     pub fn into_cloneable(self) -> Arc<std::io::Error> {
         match self {
             FsBackendError::Owned(error) => Arc::new(error),
@@ -46,9 +46,9 @@ impl std::fmt::Display for FsBackendError {
     }
 }
 
-/// A filesystem backend provides fctools with filesystem operations on the host OS. This trait represents
-/// a Send backend, as all returned futures have a Send bound. The !Send variant is the UnsendFsBackend, and
-/// compatibility in one direction is provided: UnsendFsBackend is implemented for any FsBackend.
+/// An [FsBackend] provides fctools with filesystem operations on the host OS. This trait represents
+/// a [Send] backend, as all returned futures have a [Send] bound. The not-[Send] variant is the [UnsendFsBackend], and
+/// compatibility in one direction is provided: [UnsendFsBackend] is implemented for any [FsBackend].
 pub trait FsBackend: Send + Sync + 'static {
     fn check_exists(&self, path: &Path) -> impl Future<Output = Result<bool, FsBackendError>> + Send;
 
@@ -81,10 +81,10 @@ pub trait FsBackend: Send + Sync + 'static {
     ) -> impl Future<Output = Result<(), FsBackendError>> + Send;
 }
 
-/// A filesystem backend variant that is !Send and thus compatible with tokio-uring, monoio, glommio and
-/// other !Send async runtimes. An UnsendFsBackend, unlike FsBackend, can't be properly passed to an fctools
-/// executor, VMM process or VM as they operate in a tokio Send environment, but they can be proxied and
-/// used from a Send context via UnsendProxyFsBackend.
+/// An [FsBackend] variant that is not [Send] and thus compatible with tokio-uring, monoio, glommio and
+/// other not [Send] async runtimes. An [UnsendFsBackend], unlike [FsBackend], can't be properly passed to a VMM
+/// executor, VMM process or VM as they operate in a tokio Send environment, but can be proxied and
+/// used from a [Send] context via specialized inter-thread proxy.
 pub trait UnsendFsBackend {
     fn check_exists(&self, path: &Path) -> impl Future<Output = Result<bool, FsBackendError>>;
 

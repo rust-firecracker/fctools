@@ -24,9 +24,9 @@ use super::{
     Vm, VmError, VmState,
 };
 
-/// An extension to Vm providing up-to-date, exhaustive and easy-to-use bindings to the Firecracker Management API.
-/// If the bindings here prove to be in some way inadequate, api_custom_request allows you to also call the Management
-/// API with an arbitrary HTTP request, although bypassing some safeguards imposed by the provided bindings.
+/// An extension to [Vm] providing up-to-date, exhaustive and easy-to-use bindings to the Firecracker Management API.
+/// If the bindings here prove to be in some way inadequate, [VmApi::api_custom_request] allows you to also call the Management
+/// API with an arbitrary HTTP request, though while bypassing some safeguards imposed by the provided bindings.
 pub trait VmApi {
     fn api_custom_request(
         &mut self,

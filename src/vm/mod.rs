@@ -27,11 +27,11 @@ pub mod configuration;
 pub mod models;
 pub mod snapshot;
 
-/// A VM is an abstraction over a VMM process, and seamlessly and performantly automates away tasks not handled by a VMM process
-/// on its own, such as: moving resources in and out, transforming resource paths from inner to outer and vice versa,
-/// removing VM traces, creating snapshots, binding to the exact endpoints of the API server, fallback-based shutdown.
+/// A [Vm] is an abstraction over a [VmmProcess], and automates away tasks not handled by a VMM process in an opinionated
+/// fashion, such as: moving resources in and out, transforming resource paths from inner to outer and vice versa,
+/// removing VM traces, creating snapshots, binding to the exact endpoints of the API server and fallback-based shutdown.
 ///
-/// A VM is tied to an executor E, process spawner S and filesystem backend F.
+/// A [Vm] is tied to 3 components: [VmmExecutor] E, [ProcessSpawner] S and [FsBackend] F.
 #[derive(Debug)]
 pub struct Vm<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
     vmm_process: VmmProcess<E, S, F>,
@@ -44,19 +44,19 @@ pub struct Vm<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
     snapshot_traces: Vec<PathBuf>,
 }
 
-/// The high-level state of a VM. Unlike the state of a VmmProcess, this state tracks the virtual machine and its operating state,
-/// not that of Firecracker.
+/// The high-level state of a [Vm]. Unlike the state of a [VmmProcess], this state tracks the virtual machine and its operating state,
+/// not that of the VMM itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmState {
-    /// The VM has been prepared but not started yet.
+    /// The [Vm] has been prepared but not started yet.
     NotStarted,
-    /// The VM was booted and is running.
+    /// The [Vm] was booted and is running.
     Running,
-    /// The VM was booted, but was paused per API request.
+    /// The [Vm] was booted, but was paused per API request.
     Paused,
-    /// The VM (and VMM process) exited gracefully, typically with a 0 exit code.
+    /// The [Vm] (and [VmmProcess]) exited gracefully, typically with a 0 exit status.
     Exited,
-    /// The VM (and VMM process) exited with the provided abnormal exit code.
+    /// The [Vm] (and [VmmProcess]) exited with the provided abnormal exit status.
     Crashed(ExitStatus),
 }
 
@@ -72,7 +72,7 @@ impl std::fmt::Display for VmState {
     }
 }
 
-/// All errors that can be produced by a managed VM.
+/// All errors that can be produced by a [Vm].
 #[derive(Debug, thiserror::Error)]
 pub enum VmError {
     #[error("The underlying VMM process returned an error: `{0}`")]
@@ -126,7 +126,7 @@ pub enum ShutdownMethod {
     Kill,
 }
 
-/// A set of common absolute (outer) paths associated with a VM.
+/// A set of common absolute (outer) paths associated with a [Vm].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccessiblePaths {
     /// A hash map of drive IDs to paths of their sockets, if those were configured.
@@ -143,8 +143,8 @@ pub struct AccessiblePaths {
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
-    /// Prepare the full environment of a VM without booting it. Analogously to the VMM process, the passed-in resources
-    /// can be either owned or arced; in the former case they will be put into an arc.
+    /// Prepare the full environment of a [Vm] without booting it. Analogously to the [VmmProcess], the passed-in resources
+    /// can be either owned or [Arc]-ed; in the former case they will be put into an [Arc].
     pub async fn prepare(
         executor: impl Into<Arc<E>>,
         process_spawner: impl Into<Arc<S>>,
@@ -300,7 +300,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         })
     }
 
-    /// Retrieve the state of the VM, based on internal tracking and that being done by the VMM process.
+    /// Retrieve the [VmState] of the [Vm], based on internal tracking and that being done by the [VmmProcess].
     pub fn state(&mut self) -> VmState {
         match self.vmm_process.state() {
             VmmProcessState::Started => match self.is_paused {
@@ -313,7 +313,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         }
     }
 
-    /// Start/boot the VM and perform all associated initialization steps according to the configuration, if necessary.
+    /// Start/boot the [Vm] and perform all necessary initialization steps according to the [VmConfiguration].
     pub async fn start(&mut self, socket_wait_timeout: Duration) -> Result<(), VmError> {
         self.ensure_state(VmState::NotStarted)?;
         let configuration = self
@@ -377,8 +377,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         Ok(())
     }
 
-    /// Shut down the VM by applying the given shutdown methods in order with the given timeout, until one of them works
-    /// without erroring or all of them error.
+    /// Shut down the [Vm] by sequentially applying the given [Vec<ShutdownMethod>] in order with the given timeout [Duration],
+    /// until one of them works without erroring or all of them have errored.
     pub async fn shutdown(&mut self, shutdown_methods: Vec<ShutdownMethod>, timeout: Duration) -> Result<(), VmError> {
         self.ensure_paused_or_running()?;
         let mut last_result = Ok(());
@@ -416,7 +416,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         Ok(())
     }
 
-    /// Clean up the full environment of this VM after it having been shut down.
+    /// Clean up the full environment of this [Vm] after it being [VmState::Exited] or [VmState::Crashed].
     pub async fn cleanup(&mut self) -> Result<(), VmError> {
         self.ensure_exited_or_crashed()?;
         self.vmm_process.cleanup().await.map_err(VmError::ProcessError)?;
@@ -428,23 +428,28 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         let mut join_set = JoinSet::new();
 
         if let Some(log_path) = self.accessible_paths.log_path.clone() {
-            join_set.spawn_blocking(move || std::fs::remove_file(log_path));
+            let fs_backend = self.fs_backend.clone();
+            join_set.spawn(async move { fs_backend.remove_file(&log_path).await });
         }
 
         if let Some(metrics_path) = self.accessible_paths.metrics_path.clone() {
-            join_set.spawn_blocking(move || std::fs::remove_file(metrics_path));
+            let fs_backend = self.fs_backend.clone();
+            join_set.spawn(async move { fs_backend.remove_file(&metrics_path).await });
         }
 
         if let Some(multiplexer_path) = self.accessible_paths.vsock_multiplexer_path.clone() {
-            join_set.spawn_blocking(move || std::fs::remove_file(multiplexer_path));
+            let fs_backend = self.fs_backend.clone();
+            join_set.spawn(async move { fs_backend.remove_file(&multiplexer_path).await });
 
             for listener_path in self.accessible_paths.vsock_listener_paths.clone() {
-                join_set.spawn_blocking(move || std::fs::remove_file(listener_path));
+                let fs_backend = self.fs_backend.clone();
+                join_set.spawn(async move { fs_backend.remove_file(&listener_path).await });
             }
         }
 
         while let Some(snapshot_trace_path) = self.snapshot_traces.pop() {
-            join_set.spawn_blocking(move || std::fs::remove_file(snapshot_trace_path));
+            let fs_backend = self.fs_backend.clone();
+            join_set.spawn(async move { fs_backend.remove_file(&snapshot_trace_path).await });
         }
 
         while let Some(remove_result) = join_set.join_next().await {
@@ -454,23 +459,23 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         Ok(())
     }
 
-    /// Take out the pipes of the underlying VMM process.
+    /// Take out the [VmmProcessPipes] of the underlying [VmmProcess].
     pub fn take_pipes(&mut self) -> Result<VmmProcessPipes, VmError> {
         self.ensure_paused_or_running()?;
         self.vmm_process.take_pipes().map_err(VmError::ProcessError)
     }
 
-    /// Get a set of standard accessible/outer paths for this VM.
+    /// Get a set of standard [AccessiblePaths] for this [Vm].
     pub fn get_accessible_paths(&self) -> &AccessiblePaths {
         &self.accessible_paths
     }
 
-    /// Translate an arbitrary inner path of this VM into an accessible/outer path.
+    /// Translate an arbitrary inner path of this [Vm] into an owned accessible/outer path.
     pub fn get_accessible_path_from_inner(&self, inner_path: impl AsRef<Path>) -> PathBuf {
         self.vmm_process.inner_to_outer_path(inner_path)
     }
 
-    /// Register a user-defined vsock listener path into the AccessiblePaths, so that it can be tracked.
+    /// Register a user-defined vsock listener path into the [AccessiblePaths], so that it can be tracked.
     pub fn register_vsock_listener_path(&mut self, listener_path: impl Into<PathBuf>) {
         self.accessible_paths.vsock_listener_paths.push(listener_path.into());
     }

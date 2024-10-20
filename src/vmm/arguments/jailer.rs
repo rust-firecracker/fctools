@@ -5,7 +5,7 @@ use std::{
 
 use crate::vmm::id::VmmId;
 
-/// Arguments that are passed by relevant executors into the "jailer" binary.
+/// Arguments that can be passed into the "jailer" binary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JailerArguments {
     uid: u32,

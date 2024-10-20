@@ -10,24 +10,24 @@ use uuid::Uuid;
 
 use super::{FsBackend, FsBackendError, UnsendFsBackend};
 
-/// A FS backend that runs an UnsendFsBackend on a separate OS thread and wraps the !Send backend
-/// in a Send context by exchanging requests and responses to and from the OS thread via a channel
-/// pair (mpsc and broadcast) used internally.
+/// An [FsBackend] that runs an [UnsendFsBackend] on a separate OS thread and wraps the not-[Send] backend
+/// in a [Send] context by exchanging requests and responses to and from the OS thread via a channel
+/// pair ([tokio::sync::mpsc] and [tokio::sync::broadcast]) used internally.
 ///
-/// A minor change the !Send proxy makes to circumvent std::io::Error being !Clone is that all owned
-/// FsBackendError-s emitted by the !Send backend will be converted into arced errors. The Clone
-/// requirement is needed due to a broadcast channel being used as a response recv channel on this
-/// Send side.
+/// A minor change the [UnsendProxy] makes to circumvent [std::io::Error] being not [Clone] is that all owned
+/// [FsBackendError]-s emitted by the [UnsendFsBackend] will be converted into [Arc]-ed errors. The [Clone]
+/// requirement is needed due to a [tokio::sync::broadcast] channel being used as a response recv channel on this
+/// [Send] side.
 pub struct UnsendProxyFsBackend {
     request_sender: mpsc::Sender<ProxyRequest>,
     response_receiver: broadcast::Receiver<ProxyResponse>,
     thread_join_handle: std::thread::JoinHandle<()>,
 }
 
-/// The !Send end of an UnsendProxyFsBackend that is executed on the dedicated thread, and wraps the !Send
-/// backend via an in-memory channel server that is accessed through the other end.
+/// The not-[Send] end of an [UnsendProxyFsBackend] that is executed on the dedicated thread, and wraps the
+/// [UnsendFsBackend] via an in-memory channel server that is accessed through the other end.
 ///
-/// The run() future is !Send and must be blocked on via the chosen async runtime on the thread. Usually
+/// The [UnsendProxy::run] future is not [Send] and must be blocked on via the chosen async runtime on the thread. Usually
 /// a Send runtime like Tokio multi_thread should not be used, since your backend would then already be
 /// Send and an UnsendProxyFsBackend wrapper would not be needed.
 pub struct UnsendProxy<S: SpawnTask, F: UnsendFsBackend> {
@@ -175,24 +175,12 @@ enum ProxyResponseBody {
     UnitAction(Result<(), Arc<std::io::Error>>),
 }
 
-/// SpawnTask is a lean trait that abstracts over spawning a ?Send future onto an async runtime.
+/// [SpawnTask] is a lean trait that abstracts over spawning a potentially [Send] future onto an async runtime.
 pub trait SpawnTask {
     fn spawn<F>(&self, future: F)
     where
         F: Future + 'static,
         F::Output: 'static;
-}
-
-pub struct TokioLocalSpawnTask;
-
-impl SpawnTask for TokioLocalSpawnTask {
-    fn spawn<F>(&self, future: F)
-    where
-        F: Future + 'static,
-        F::Output: 'static,
-    {
-        tokio::task::spawn_local(future);
-    }
 }
 
 #[inline(always)]
@@ -203,9 +191,9 @@ fn wrong_response_error<R>() -> Result<R, FsBackendError> {
 }
 
 impl UnsendProxyFsBackend {
-    /// Create a proxy backend using the given SpawnTask, proxied backend, runner and channel capacity. The runner is expected
-    /// to instantiate your async runtime of choice that is compatible with the provided SpawnTask, and block it on the
-    /// future returned from ProxyServer's run() (the ProxyServer instance is provided to the runner).
+    /// Create a [UnsendProxyFsBackend] using the given [SpawnTask], proxied [UnsendFsBackend], runner function and channel capacity.
+    /// The runner function is expected to instantiate your async runtime of choice that is compatible with the provided [SpawnTask],
+    /// and block it on the [UnsendProxy::run] future.
     pub fn new<
         F: UnsendFsBackend + Send + 'static,
         S: SpawnTask + Send + 'static,
@@ -253,7 +241,7 @@ impl UnsendProxyFsBackend {
         }
     }
 
-    /// Get a reference to the proxy thread's JoinHandle.
+    /// Get a reference to the proxy thread's [std::thread::JoinHandle].
     pub fn thread_join_handle(&self) -> &std::thread::JoinHandle<()> {
         &self.thread_join_handle
     }

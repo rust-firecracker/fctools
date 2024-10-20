@@ -78,6 +78,8 @@ fctools = { path = ".", features = ["full"] }
 [features]
 full = [
     "vm",
+    "direct-process-spawner",
+    "elevation-process-spawners",
     "unrestricted-vmm-executor",
     "jailed-vmm-executor",
     "metrics-extension",
@@ -90,6 +92,10 @@ full = [
     "tokio-uring-fs-backend",
 ]
 default = []
+# process spawner
+process-spawner = []
+direct-process-spawner = ["process-spawner"]
+elevation-process-spawners = ["process-spawner"]
 # fs backend
 fs-backend = []
 blocking-fs-backend = ["fs-backend", "tokio/fs"]
@@ -117,7 +123,6 @@ vmm-process = [
     "dep:http",
 ]
 # other
-process-spawner = []
 vm = ["vmm-process", "dep:serde", "dep:serde_json"]
 # extensions
 metrics-extension = ["dep:serde", "dep:serde_json", "tokio/fs"]

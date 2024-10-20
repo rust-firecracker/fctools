@@ -2,8 +2,8 @@ use std::path::Path;
 
 use super::{FsBackendError, UnsendFsBackend};
 
-/// A !Send filesystem backend that uses tokio-uring with io-uring for all its operations except
-/// remove_dir_all, copy, hard_link, where it falls back to tokio::fs (which is the same as the
+/// An [UnsendFsBackend] that uses tokio-uring with io-uring for all its operations except
+/// remove_dir_all, copy, hard_link, where it falls back to [tokio::fs] (which is the same as the
 /// blocking Send backend), as these operations are unimplemented in tokio-uring.
 pub struct TokioUringFsBackend;
 

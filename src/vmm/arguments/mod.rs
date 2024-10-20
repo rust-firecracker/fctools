@@ -3,7 +3,7 @@ use std::path::PathBuf;
 pub mod command_modifier;
 pub mod jailer;
 
-/// Arguments passed by relevant executors to the "firecracker" binary.
+/// Arguments that can be passed to the main VMM/"firecracker" binary.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VmmArguments {
     // main
@@ -25,9 +25,9 @@ pub struct VmmArguments {
     seccomp_path: Option<PathBuf>,
 }
 
-/// An override that can be applied to the configuration file passed down to Firecracker.
-/// This can be used directly, but is most often utilized internally on the VM layer in order to
-/// enforce opinionated config file usage or removal.
+/// An override that can be applied to the configuration file passed down to Firecracker. This
+/// exists in order to allow upstream overrides to work, which are necessary on the VM layer that
+/// would create and enforce a configuration file with an init method.
 pub enum VmmConfigurationOverride {
     NoOverride,
     Disable,
@@ -206,7 +206,7 @@ impl VmmArguments {
     }
 }
 
-/// A configuration of a Firecracker API Unix socket.
+/// A configuration of a VMM API Unix socket.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VmmApiSocket {
     /// The socket should be disabled via --no-api argument.
@@ -215,7 +215,7 @@ pub enum VmmApiSocket {
     Enabled(PathBuf),
 }
 
-/// A level of logging applied by Firecracker.
+/// A level of logging applied by the VMM.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "vm", derive(serde::Serialize, serde::Deserialize))]
 pub enum VmmLogLevel {

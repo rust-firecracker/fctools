@@ -20,9 +20,9 @@ use crate::{
 
 use super::{create_file_with_tree, force_chown, force_mkdir, VmmExecutor, VmmExecutorError};
 
-/// An executor that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
+/// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
-/// process itself won't.
+/// process itself won't unless configured to run as UID 0 and GID 0 (root).
 #[derive(Debug)]
 pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
     vmm_arguments: VmmArguments,

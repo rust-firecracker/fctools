@@ -28,8 +28,8 @@ use crate::{
 
 use super::arguments::VmmConfigurationOverride;
 
-/// A VMM process is an abstraction that manages a (possibly wrapped) Firecracker process. It is
-/// tied to the given VMM executor E, process spawner S and filesystem backend F.
+/// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
+/// tied to the given [VmmExecutor] E, [ProcessSpawner] S and [FsBackend] F.
 #[derive(Debug)]
 pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
     executor: Arc<E>,
@@ -43,8 +43,8 @@ pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
     outer_paths: Option<Vec<PathBuf>>,
 }
 
-/// Raw Tokio pipes of a VMM process: stdin, stdout and stderr. All must always be redirected
-/// by the respective runner implementation.
+/// Raw Tokio pipes of a [VmmProcess]: stdin, stdout and stderr. All must always be redirected
+/// by the respective [ProcessSpawner] implementation.
 #[derive(Debug)]
 pub struct VmmProcessPipes {
     /// The standard input pipe.
@@ -55,8 +55,8 @@ pub struct VmmProcessPipes {
     pub stderr: ChildStderr,
 }
 
-/// The state of a VMM process.
-/// Keep in mind: the VMM process lifecycle is not that of the VM! If the process has
+/// The state of a [VmmProcess].
+/// Keep in mind: the [VmmProcess] lifecycle is not that of the VM! If the process has
 /// started without a config file, API requests will need to be issued first in order
 /// to start it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,7 +85,7 @@ impl std::fmt::Display for VmmProcessState {
     }
 }
 
-/// Error caused during a VMM process operation.
+/// Error caused during a [VmmProcess] operation.
 #[derive(Debug, thiserror::Error)]
 pub enum VmmProcessError {
     #[error("Expected the VMM process to have the `{expected}` state, but it actually had the `{actual}` state")]
@@ -122,9 +122,9 @@ pub enum VmmProcessError {
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
-    /// Create a new VMM process from the given component. Each component is either its owned value or an Arc; in the
-    /// former case it will be put into an Arc, otherwise the Arc will be kept. This allows for performant non-clone-based
-    /// sharing of VMM components between multiple VMM processes.
+    /// Create a new [VmmProcess] from the given component. Each component is either its owned value or an [Arc]; in the
+    /// former case it will be put into an [Arc], otherwise the [Arc] will be kept. This allows for performant non-clone-based
+    /// sharing of [VmmProcess] components between multiple [VmmProcess]-es.
     pub fn new(
         executor: impl Into<Arc<E>>,
         process_spawner: impl Into<Arc<S>>,
@@ -148,7 +148,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         }
     }
 
-    /// Prepare the VM process environment. Allowed in AwaitingPrepare state, will result in AwaitingStart state.
+    /// Prepare the [VmmProcess] environment. Allowed in [VmmProcessState::AwaitingPrepare], will result in [VmmProcessState::AwaitingStart].
     pub async fn prepare(&mut self) -> Result<HashMap<PathBuf, PathBuf>, VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingPrepare)?;
         let path_mappings = self
@@ -167,7 +167,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         Ok(path_mappings)
     }
 
-    /// Invoke the VM process. Allowed in AwaitingStart state, will result in Started state.
+    /// Invoke the [VmmProcess]. Allowed in [VmmProcessState::AwaitingStart], will result in [VmmProcessState::Started].
     pub async fn invoke(&mut self, configuration_override: VmmConfigurationOverride) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.child = Some(
@@ -185,7 +185,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     }
 
     /// Send a given request (without a URI being set) to the given route of the Firecracker API server.
-    /// Allowed in Started state.
+    /// Allowed in [VmmProcessState::Started].
     pub async fn send_api_request(
         &mut self,
         route: impl AsRef<str>,
@@ -210,9 +210,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
             .map_err(VmmProcessError::HyperClientFailed)
     }
 
-    /// Take out the stdout, stdin, stderr pipes of the underlying VM process. This can be only done once,
+    /// Take out the stdout, stdin, stderr pipes of the underlying process. This can be only done once,
     /// if some code takes out the pipes, it now owns them for the remaining lifespan of the process.
-    /// Allowed in Started state.
+    /// Allowed in [VmmProcessState::Started].
     pub fn take_pipes(&mut self) -> Result<VmmProcessPipes, VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
         let child_ref = self.child.as_mut().expect("No child while running");
@@ -231,7 +231,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         Ok(VmmProcessPipes { stdin, stdout, stderr })
     }
 
-    /// Gets the outer path to the VM process's socket, if one has been configured, via the executor.
+    /// Gets the outer path to the API server socket, if one has been configured, via the executor.
     pub fn get_socket_path(&self) -> Option<PathBuf> {
         self.executor.get_socket_path(self.installation.as_ref())
     }
@@ -242,9 +242,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
             .inner_to_outer_path(self.installation.as_ref(), inner_path.as_ref())
     }
 
-    /// Send a graceful shutdown request via Ctrl+Alt+Del to the VM process. Allowed on x86_64 as per Firecracker docs,
+    /// Send a graceful shutdown request via Ctrl+Alt+Del to the [VmmProcess]. Allowed on x86_64 as per Firecracker docs,
     /// on ARM either try to write "reboot\n" to stdin or pause the VM and SIGKILL it for a comparable effect.
-    /// Allowed in Started state, will result in Exited state.
+    /// Allowed in [VmmProcessState::Started], will result in [VmmProcessState::Exited].
     pub async fn send_ctrl_alt_del(&mut self) -> Result<(), VmmProcessError> {
         let response = self
             .send_api_request(
@@ -262,8 +262,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         Ok(())
     }
 
-    /// Send an immediate forceful shutdown request in the form of a SIGKILL signal to the VM process.
-    /// Allowed in Started state, will result in Crashed state.
+    /// Send an immediate forceful shutdown request in the form of a SIGKILL signal to the [VmmProcess].
+    /// Allowed in [VmmProcessState::Started] state, will result in [VmmProcessState::Crashed] state.
     pub fn send_sigkill(&mut self) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
         self.child
@@ -273,8 +273,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
             .map_err(VmmProcessError::SigkillFailed)
     }
 
-    /// Wait until the VM process exits. Careful not to wait forever! Allowed in Started state, will result
-    /// in either Exited or Crashed state, returning the exit status.
+    /// Wait until the [VmmProcess] exits. Careful not to wait forever! Allowed in [VmmProcessState::Started], will result
+    /// in either [VmmProcessState::Started] or [VmmProcessState::Crashed], returning the [ExitStatus] of the process.
     pub async fn wait_for_exit(&mut self) -> Result<ExitStatus, VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
         self.child
@@ -285,15 +285,24 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
             .map_err(VmmProcessError::WaitFailed)
     }
 
-    /// Returns the current state of the VM process. Needs mutability since the tracking will need to be updated.
-    /// Allowed in any state.
+    /// Returns the current [VmmProcessState] of the [VmmProcess]. Needs mutable access (as well as most other
+    /// [VmmProcess] methods relying on it) in order to query the process Allowed in any [VmmProcessState].
     pub fn state(&mut self) -> VmmProcessState {
-        self.update_state();
+        if let Some(ref mut child) = self.child {
+            if let Ok(Some(exit_status)) = child.try_wait() {
+                if exit_status.success() {
+                    self.state = VmmProcessState::Exited;
+                } else {
+                    self.state = VmmProcessState::Crashed(exit_status);
+                }
+            }
+        }
+
         self.state
     }
 
-    /// Cleans up the VM process environment. Always call this as a sort of async drop mechanism! Allowed in Exited
-    /// or Crashed state.
+    /// Cleans up the [VmmProcess]'s environment. Always call this as a sort of async [Drop] mechanism! Allowed in
+    /// [VmmProcessState::Exited] or [VmmProcessState::Crashed].
     pub async fn cleanup(&mut self) -> Result<(), VmmProcessError> {
         self.ensure_exited_or_crashed()?;
         self.executor
@@ -329,22 +338,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
 
         Err(VmmProcessError::ExpectedExitedOrCrashed { actual: state })
     }
-
-    fn update_state(&mut self) {
-        if let Some(ref mut child) = self.child {
-            if let Ok(Some(exit_status)) = child.try_wait() {
-                if exit_status.success() {
-                    self.state = VmmProcessState::Exited;
-                } else {
-                    self.state = VmmProcessState::Crashed(exit_status);
-                }
-            }
-        }
-    }
 }
 
-/// An extension to a hyper Response<Incoming> (returned by the Firecracker API socket) that allows
-/// easy streaming of the response body.
+/// An extension to a hyper [Response<Incoming>] (returned by the Firecracker API socket) that allows
+/// easy streaming of the response body into a [String] or [BytesMut].
 pub trait HyperResponseExt: Send {
     /// Stream the entire response body into a byte buffer (BytesMut).
     fn recv_to_buf(&mut self) -> impl Future<Output = Result<BytesMut, hyper::Error>> + Send;

@@ -22,7 +22,7 @@ pub enum VsockHttpError {
     CannotBind(tokio::io::Error),
 }
 
-/// An error that can be emitted by the VsockHttpPool abstraction.
+/// An error that can be emitted by the [VsockHttpPool] abstraction.
 #[derive(Debug, thiserror::Error)]
 pub enum VsockHttpPoolError {
     #[error("A vsock URI cannot be constructed: `{0}`")]

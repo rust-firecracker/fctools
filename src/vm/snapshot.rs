@@ -7,7 +7,7 @@ use super::{
     models::{LoadSnapshot, MemoryBackend, MemoryBackendType},
 };
 
-/// The data associated with a snapshot created for a VM.
+/// The data associated with a snapshot created for a [Vm](crate::vm::Vm).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotData {
     pub(super) snapshot_path: PathBuf,
@@ -16,7 +16,7 @@ pub struct SnapshotData {
 }
 
 impl SnapshotData {
-    /// Copy over the data of this snapshot to the given destinations using the given filesystem backend,
+    /// Copy over the data of this snapshot to the given destinations using the given [FsBackend],
     /// also modifying the data to refer to these new destinations.
     pub async fn copy(
         &mut self,

@@ -2,6 +2,10 @@ use std::path::Path;
 
 use super::{FsBackend, FsBackendError};
 
+/// An [FsBackend] that uses [tokio::fs] internally, which simply wraps blocking I/O in Tokio's
+/// [tokio::task::spawn_blocking] thread-pool. The performance of async-ified blocking I/O is proven to
+/// be less than that of io-uring solutions that are fully async, but those are currently unacceptably
+/// immature in the Rust ecosystem, so the [BlockingFsBackend] is still the recommended option.
 pub struct BlockingFsBackend;
 
 impl FsBackend for BlockingFsBackend {

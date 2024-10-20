@@ -25,7 +25,7 @@ pub enum VmConfiguration {
 }
 
 impl VmConfiguration {
-    /// Get a mutable reference to the data inside this configuration.
+    /// Get a mutable reference to the [VmConfigurationData] inside this configuration.
     pub fn data_mut(&mut self) -> &mut VmConfigurationData {
         match self {
             VmConfiguration::New {
@@ -39,7 +39,7 @@ impl VmConfiguration {
         }
     }
 
-    /// Get a shared reference to the data inside this configuration.
+    /// Get a shared reference to the [VmConfigurationData] inside this configuration.
     pub fn data(&self) -> &VmConfigurationData {
         match self {
             VmConfiguration::New {

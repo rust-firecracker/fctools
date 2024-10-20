@@ -1,6 +1,12 @@
+/// A [VmmId] is an identifier that is universally accepted by the "firecracker" and "jailer" binaries to
+/// identify the VMM instance being created. When unspecified, it is equal to "anonymous-instance".
+///
+/// The values must be between 5 and 60 characters long, and only contain alphanumeric characters and/or
+/// dashes.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VmmId(String);
 
+/// An error produced when constructing a [VmmId] from an unchecked [String].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, thiserror::Error)]
 pub enum VmmIdError {
     #[error("The provided ID was too short")]
@@ -56,7 +62,7 @@ mod tests {
     use crate::vmm::id::{VmmId, VmmIdError};
 
     #[test]
-    fn firecracker_id_rejects_when_too_short() {
+    fn vmm_id_rejects_when_too_short() {
         for l in 0..5 {
             let str = (0..l).map(|_| "l").collect::<String>();
             assert_eq!(VmmId::new(str), Err(VmmIdError::TooShort));
@@ -64,7 +70,7 @@ mod tests {
     }
 
     #[test]
-    fn firecracker_id_rejects_when_too_long() {
+    fn vmm_id_rejects_when_too_long() {
         for l in 61..100 {
             let str = (0..l).map(|_| "L").collect::<String>();
             assert_eq!(VmmId::new(str), Err(VmmIdError::TooLong));
@@ -72,7 +78,7 @@ mod tests {
     }
 
     #[test]
-    fn firecracker_id_rejects_when_invalid_character() {
+    fn vmm_id_rejects_when_invalid_character() {
         for c in ['~', '_', '$', '#', '+'] {
             let str = (0..10).map(|_| c).collect::<String>();
             assert_eq!(VmmId::new(str), Err(VmmIdError::ContainsInvalidCharacter));
@@ -80,7 +86,7 @@ mod tests {
     }
 
     #[test]
-    fn firecracker_id_accepts_valid() {
+    fn vmm_id_accepts_valid() {
         for str in ["vmm-id", "longer-id", "L1Nda74-", "very-loNg-ID"] {
             VmmId::new(str).unwrap();
         }

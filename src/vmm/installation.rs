@@ -7,8 +7,8 @@ use tokio::process::Command;
 
 use crate::fs_backend::{FsBackend, FsBackendError};
 
-/// A VMM installation encapsulates release binaries of the most important automatable
-/// Firecracker components: firecracker, jailer, snapshot-editor. Using a partial installation with only
+/// A [VmmInstallation] encapsulates release binaries of the most important automatable VMM components:
+/// "firecracker", "jailer" and "snapshot-editor". Using a partial installation with only
 /// some of these binaries is neither recommended nor supported.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VmmInstallation {
@@ -17,7 +17,7 @@ pub struct VmmInstallation {
     pub snapshot_editor_path: PathBuf,
 }
 
-/// Error caused during installation verification.
+/// Error caused during [VmmInstallation] verification.
 #[derive(Debug, thiserror::Error)]
 pub enum VmmInstallationError {
     #[error("An error was emitted by the FS backend: `{0}`")]
@@ -33,8 +33,8 @@ pub enum VmmInstallationError {
 }
 
 impl VmmInstallation {
-    /// Verify the installation using the given filesystem backend by ensuring all binaries exist,
-    /// are executable and yield the correct type and version when forked.
+    /// Verify the [VmmInstallation] using the given [FsBackend] by ensuring all binaries exist,
+    /// are executable and yield the correct type and version when spawned and awaited with "--version".
     pub async fn verify(
         &self,
         fs_backend: &impl FsBackend,

@@ -1,15 +1,19 @@
+#[allow(unused)]
+use super::{jailer::JailerArguments, VmmArguments};
+
 use std::{fmt::Debug, path::PathBuf};
 
-/// A command modifier is a simple transformation that can be applied to a &mut Vec<String> of arguments
-/// and a &mut PathBuf binary path. This allows customizing executor behavior beyond the scope of what the
-/// FirecrackerArguments and JailerArguments take into consideration, such as prepending, appending or
-/// replacing parts of the command string. Multiple command modifiers can also be chained together.
+/// A [CommandModifier] is a simple transformation that can be applied to a [Vec<String>] of arguments
+/// and a [PathBuf] binary path. This allows customizing argument behavior beyond the scope of what the
+/// [VmmArguments] and [JailerArguments] take into consideration, such as prepending, appending or
+/// replacing parts of the command [String]. Multiple [CommandModifier] should be chained together and
+/// executed in the exact order they were configured.
 pub trait CommandModifier: Debug + Send + Sync {
-    /// Apply the modification to the given args and binary path.
+    /// Apply the modification to the given arguments and binary path.
     fn apply(&self, binary_path: &mut PathBuf, arguments: &mut Vec<String>);
 }
 
-/// A command modifier that wraps the "firecracker"/"jailer" invocation behind iproute2's "netns exec" command
+/// A [CommandModifier] that wraps the "firecracker"/"jailer" invocation behind iproute2's "netns exec" command
 /// in order to put the spawned process in a certain network namespace via the iproute2 utility.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NetnsCommandModifier {

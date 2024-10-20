@@ -1,7 +1,9 @@
 use std::{
+    ffi::OsString,
     future::Future,
     path::{Path, PathBuf},
     process::Stdio,
+    sync::LazyLock,
 };
 
 use tokio::{
@@ -9,7 +11,7 @@ use tokio::{
     process::{Child, Command},
 };
 
-/// A process spawner is layer 1 of fctools and concerns itself with spawning a rootful or rootless process.
+/// A [ProcessSpawner] concerns itself with spawning a rootful or rootless process from the given binary path and arguments.
 /// The command delegated to the spawner is either a "firecracker" or "jailer" invocation for starting the respective
 /// processes, or an elevated "chown"/"mkdir" invocation from the executors.
 pub trait ProcessSpawner: Send + Sync + 'static {
@@ -25,11 +27,13 @@ pub trait ProcessSpawner: Send + Sync + 'static {
     ) -> impl Future<Output = Result<Child, std::io::Error>> + Send;
 }
 
-/// A process spawner that directly invokes the underlying process.
+/// A [ProcessSpawner] that directly invokes the underlying process.
 #[derive(Debug)]
+#[cfg(feature = "direct-process-spawner")]
 pub struct DirectProcessSpawner;
 
 #[inline(always)]
+#[cfg(feature = "direct-process-spawner")]
 fn get_stdio(pipes_to_null: bool) -> Stdio {
     if pipes_to_null {
         Stdio::null()
@@ -38,6 +42,7 @@ fn get_stdio(pipes_to_null: bool) -> Stdio {
     }
 }
 
+#[cfg(feature = "direct-process-spawner")]
 impl ProcessSpawner for DirectProcessSpawner {
     fn increases_privileges(&self) -> bool {
         false
@@ -55,34 +60,43 @@ impl ProcessSpawner for DirectProcessSpawner {
     }
 }
 
-/// A process spawner that elevates the permissions of the process via the "su" CLI utility.
+#[cfg(feature = "elevation-process-spawners")]
+static SU_OS_STRING: LazyLock<OsString> = LazyLock::new(|| OsString::from("su"));
+
+/// A [ProcessSpawner] that elevates the permissions of the process via the "su" CLI utility.
+#[cfg(feature = "elevation-process-spawners")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SuProcessSpawner {
-    su_path: PathBuf,
+    su_path: Option<PathBuf>,
     password: String,
 }
 
+#[cfg(feature = "elevation-process-spawners")]
 impl SuProcessSpawner {
     pub fn new(password: impl Into<String>) -> Self {
         Self {
-            su_path: PathBuf::from("/usr/bin/su"),
+            su_path: None,
             password: password.into(),
         }
     }
 
     pub fn su_path(mut self, su_path: impl Into<PathBuf>) -> Self {
-        self.su_path = su_path.into();
+        self.su_path = Some(su_path.into());
         self
     }
 }
 
+#[cfg(feature = "elevation-process-spawners")]
 impl ProcessSpawner for SuProcessSpawner {
     fn increases_privileges(&self) -> bool {
         true
     }
 
     async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
-        let mut command = Command::new(self.su_path.as_os_str());
+        let mut command = Command::new(match self.su_path {
+            Some(ref path) => path.as_os_str(),
+            None => SU_OS_STRING.as_os_str(),
+        });
         command
             .stderr(get_stdio(pipes_to_null))
             .stdout(get_stdio(pipes_to_null))
@@ -106,29 +120,53 @@ impl ProcessSpawner for SuProcessSpawner {
     }
 }
 
-/// A process spawner that escalates the privileges of the process via the "sudo" CLI utility.
+/// A [ProcessSpawner] that escalates the privileges of the process via the "sudo" CLI utility.
+#[cfg(feature = "elevation-process-spawners")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SudoProcessSpawner {
-    /// The path to the "sudo" binary on the system, typically: /usr/bin/sudo.
-    pub sudo_path: PathBuf,
-    /// Optionally, the password needed to authenticate. Sudo often doesn't prompt for it if the
-    /// user has already logged in, but it's recommended to pass it anyway so that authentication
-    /// doesn't unexpectedly start failing.
-    pub password: Option<String>,
+    sudo_path: Option<PathBuf>,
+    password: Option<String>,
 }
 
+#[cfg(feature = "elevation-process-spawners")]
+impl SudoProcessSpawner {
+    pub fn new() -> Self {
+        Self {
+            sudo_path: None,
+            password: None,
+        }
+    }
+
+    pub fn sudo_path(mut self, sudo_path: impl Into<PathBuf>) -> Self {
+        self.sudo_path = Some(sudo_path.into());
+        self
+    }
+
+    pub fn password(mut self, password: impl Into<String>) -> Self {
+        self.password = Some(password.into());
+        self
+    }
+}
+
+#[cfg(feature = "elevation-process-spawners")]
+static SUDO_OS_STRING: LazyLock<OsString> = LazyLock::new(|| OsString::from("sudo"));
+
+#[cfg(feature = "elevation-process-spawners")]
 impl ProcessSpawner for SudoProcessSpawner {
     fn increases_privileges(&self) -> bool {
         true
     }
 
     async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
-        let mut command = Command::new(self.sudo_path.as_os_str());
-        command.arg("-S");
-        command.arg("-s");
-        command.arg(path);
-        command.args(arguments);
+        let mut command = Command::new(match self.sudo_path {
+            Some(ref path) => path.as_os_str(),
+            None => SUDO_OS_STRING.as_os_str(),
+        });
         command
+            .arg("-S")
+            .arg("-s")
+            .arg(path)
+            .args(arguments)
             .stderr(get_stdio(pipes_to_null))
             .stdout(get_stdio(pipes_to_null))
             .stdin(Stdio::piped());
@@ -155,14 +193,10 @@ impl ProcessSpawner for SudoProcessSpawner {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "elevation-process-spawners", feature = "direct-process-spawner"))]
 #[test]
 fn process_spawners_have_correct_increases_privileges_flags() {
     assert!(!DirectProcessSpawner.increases_privileges());
     assert!(SuProcessSpawner::new("password").increases_privileges());
-    assert!(SudoProcessSpawner {
-        sudo_path: which::which("sudo").unwrap(),
-        password: None
-    }
-    .increases_privileges());
+    assert!(SudoProcessSpawner::new().increases_privileges());
 }
