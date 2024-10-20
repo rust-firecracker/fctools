@@ -18,7 +18,9 @@ use crate::{
     },
 };
 
-use super::{change_owner, create_file_with_tree, UserPrivilegePolicy, VmmExecutor, VmmExecutorError};
+use super::{
+    change_owner, create_file_with_tree, ResourceOwnership, VmmExecutor, VmmExecutorError, PROCESS_GID, PROCESS_UID,
+};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
@@ -29,7 +31,7 @@ pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
     jailer_arguments: JailerArguments,
     jail_move_method: JailMoveMethod,
     jail_renamer: R,
-    privilege_policy: UserPrivilegePolicy,
+    resource_ownership: ResourceOwnership,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
 }
 
@@ -41,7 +43,7 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
             jail_move_method: JailMoveMethod::Copy,
             jail_renamer,
             command_modifier_chain: Vec::new(),
-            privilege_policy: UserPrivilegePolicy::SameUser,
+            resource_ownership: ResourceOwnership::Shared,
         }
     }
 
@@ -60,8 +62,8 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
         self
     }
 
-    pub fn privilege_policy(mut self, privilege_policy: UserPrivilegePolicy) -> Self {
-        self.privilege_policy = privilege_policy;
+    pub fn resource_ownership(mut self, resource_ownership: ResourceOwnership) -> Self {
+        self.resource_ownership = resource_ownership;
         self
     }
 }
@@ -107,12 +109,12 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             None => &PathBuf::from("/srv/jailer"),
         };
 
-        if let UserPrivilegePolicy::Escalate(ref user) = self.privilege_policy {
-            change_owner(chroot_base_dir, user, process_spawner.as_ref()).await?;
-        }
-
         // Create jail and delete previous one if necessary
         let jail_path = Arc::new(self.get_jail_path(installation));
+        if let ResourceOwnership::Upgraded = self.resource_ownership {
+            change_owner(&chroot_base_dir, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+        }
+
         if fs_backend
             .check_exists(&jail_path)
             .await
@@ -149,6 +151,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         if let Some(ref log_path) = self.vmm_arguments.log_path {
             join_set.spawn(create_file_with_tree(fs_backend.clone(), jail_path.jail_join(log_path)));
         }
+
         if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
             join_set.spawn(create_file_with_tree(
                 fs_backend.clone(),
@@ -166,10 +169,6 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                 .map_err(VmmExecutorError::FsBackendError)?
             {
                 return Err(VmmExecutorError::ExpectedResourceMissing(outer_path.clone()));
-            }
-
-            if let UserPrivilegePolicy::Escalate(ref user) = self.privilege_policy {
-                change_owner(&outer_path, user, process_spawner.as_ref()).await?;
             }
 
             let inner_path = self
@@ -221,8 +220,8 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             result.map_err(VmmExecutorError::TaskJoinFailed)??;
         }
 
-        if let UserPrivilegePolicy::Deescalate(ref user) = self.privilege_policy {
-            change_owner(&jail_path, user, process_spawner.as_ref()).await?;
+        if let ResourceOwnership::Downgraded { uid, gid } = self.resource_ownership {
+            change_owner(&jail_path, uid, gid, process_spawner.as_ref()).await?;
         }
 
         Ok(path_mappings)
@@ -253,10 +252,15 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     async fn cleanup(
         &self,
         installation: &VmmInstallation,
-        _process_spawner: Arc<impl ProcessSpawner>,
+        process_spawner: Arc<impl ProcessSpawner>,
         fs_backend: Arc<impl FsBackend>,
     ) -> Result<(), VmmExecutorError> {
         let jail_path = self.get_jail_path(installation);
+
+        if let ResourceOwnership::Upgraded = self.resource_ownership {
+            change_owner(&jail_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+        }
+
         let jail_parent_path = jail_path
             .parent()
             .ok_or(VmmExecutorError::ExpectedDirectoryParentMissing)?;

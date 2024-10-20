@@ -12,7 +12,7 @@ use cidr::IpInet;
 use fcnet::{FirecrackerNetwork, FirecrackerNetworkOperation, FirecrackerNetworkType};
 use fctools::{
     fs_backend::{blocking::BlockingFsBackend, FsBackend},
-    process_spawner::{DirectProcessSpawner, ProcessSpawner},
+    process_spawner::{DirectProcessSpawner, ProcessSpawner, SuProcessSpawner},
     vm::{
         configuration::{InitMethod, VmConfiguration, VmConfigurationData},
         models::{
@@ -30,7 +30,7 @@ use fctools::{
         executor::{
             jailed::{FlatJailRenamer, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
-            User, UserPrivilegePolicy, VmmExecutor, VmmExecutorError,
+            ResourceOwnership, VmmExecutor, VmmExecutorError,
         },
         installation::VmmInstallation,
         process::VmmProcessState,
@@ -132,10 +132,6 @@ pub fn get_fs_backend() -> Arc<impl FsBackend> {
 pub struct FailingRunner;
 
 impl ProcessSpawner for FailingRunner {
-    fn increases_privileges(&self) -> bool {
-        false
-    }
-
     async fn spawn(
         &self,
         _path: &Path,
@@ -263,13 +259,14 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
         rand::thread_rng().next_u32().to_string().try_into().unwrap(),
     )
     .cgroup_version(JailerCgroupVersion::V2);
-    let unrestricted_executor = UnrestrictedVmmExecutor::new(unrestricted_firecracker_arguments);
+    let unrestricted_executor = UnrestrictedVmmExecutor::new(unrestricted_firecracker_arguments)
+        .resource_ownership(ResourceOwnership::Downgraded { uid: 1000, gid: 1000 });
     let jailed_executor = JailedVmmExecutor::new(
         jailer_firecracker_arguments,
         jailer_arguments,
         FlatJailRenamer::default(),
     )
-    .privilege_policy(UserPrivilegePolicy::Deescalate(User { uid: 1000, gid: 1000 }));
+    .resource_ownership(ResourceOwnership::Downgraded { uid: 1000, gid: 1000 });
 
     (
         TestVmmProcess::new(
@@ -296,7 +293,7 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
 // VM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVm = fctools::vm::Vm<TestExecutor, DirectProcessSpawner, BlockingFsBackend>;
+pub type TestVm = fctools::vm::Vm<TestExecutor, SuProcessSpawner, BlockingFsBackend>;
 
 type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>>;
 
@@ -580,9 +577,9 @@ impl VmBuilder {
             TestExecutor::Unrestricted(_) => false,
         };
 
-        let mut vm: fctools::vm::Vm<TestExecutor, DirectProcessSpawner, BlockingFsBackend> = TestVm::prepare(
+        let mut vm: fctools::vm::Vm<TestExecutor, SuProcessSpawner, BlockingFsBackend> = TestVm::prepare(
             executor,
-            DirectProcessSpawner,
+            SuProcessSpawner::new("495762"),
             BlockingFsBackend,
             get_real_firecracker_installation(),
             configuration,

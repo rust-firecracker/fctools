@@ -27,33 +27,14 @@ pub mod jailed;
 #[cfg_attr(docsrs, doc(cfg(feature = "unrestricted-vmm-executor")))]
 pub mod unrestricted;
 
-pub(crate) static PROCESS_UID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::geteuid() });
-pub(crate) static PROCESS_GID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::getegid() });
+pub(super) static PROCESS_UID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::geteuid() });
+pub(super) static PROCESS_GID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::getegid() });
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum UserPrivilegePolicy {
-    SameUser,
-    Escalate(User),
-    Deescalate(User),
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct User {
-    pub uid: u32,
-    pub gid: u32,
-}
-
-impl User {
-    pub fn root() -> Self {
-        Self { uid: 0, gid: 0 }
-    }
-
-    pub fn of_process() -> Self {
-        Self {
-            uid: *PROCESS_UID,
-            gid: *PROCESS_GID,
-        }
-    }
+pub enum ResourceOwnership {
+    Shared,
+    Upgraded,
+    Downgraded { uid: u32, gid: u32 },
 }
 
 /// An error emitted by a [VmmExecutor].
@@ -127,7 +108,8 @@ pub trait VmmExecutor: Send + Sync {
 
 pub(crate) async fn change_owner(
     path: &Path,
-    user: &User,
+    uid: u32,
+    gid: u32,
     process_spawner: &impl ProcessSpawner,
 ) -> Result<(), VmmExecutorError> {
     let mut child = process_spawner
@@ -136,7 +118,7 @@ pub(crate) async fn change_owner(
             vec![
                 "-f".to_string(),
                 "-R".to_string(),
-                format!("{}:{}", user.uid, user.gid),
+                format!("{uid}:{gid}"),
                 path.to_string_lossy().into_owned(),
             ],
             false,

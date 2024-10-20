@@ -16,7 +16,10 @@ use crate::{
     },
 };
 
-use super::{change_owner, create_file_with_tree, join_on_set, UserPrivilegePolicy, VmmExecutor, VmmExecutorError};
+use super::{
+    change_owner, create_file_with_tree, join_on_set, ResourceOwnership, VmmExecutor, VmmExecutorError, PROCESS_GID,
+    PROCESS_UID,
+};
 
 /// A [VmmExecutor] that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
 /// This [VmmExecutor] allows rootless execution, given that the user has been granted access to /dev/kvm, but using
@@ -29,7 +32,7 @@ pub struct UnrestrictedVmmExecutor {
     remove_logs_on_cleanup: bool,
     pipes_to_null: bool,
     id: Option<VmmId>,
-    privilege_policy: Arc<UserPrivilegePolicy>,
+    resource_ownership: Arc<ResourceOwnership>,
 }
 
 impl UnrestrictedVmmExecutor {
@@ -41,7 +44,7 @@ impl UnrestrictedVmmExecutor {
             remove_logs_on_cleanup: false,
             pipes_to_null: false,
             id: None,
-            privilege_policy: Arc::new(UserPrivilegePolicy::SameUser),
+            resource_ownership: Arc::new(ResourceOwnership::Shared),
         }
     }
 
@@ -74,6 +77,11 @@ impl UnrestrictedVmmExecutor {
         self.id = Some(id);
         self
     }
+
+    pub fn resource_ownership(mut self, resource_ownership: ResourceOwnership) -> Self {
+        self.resource_ownership = Arc::new(resource_ownership);
+        self
+    }
 }
 
 impl VmmExecutor for UnrestrictedVmmExecutor {
@@ -104,19 +112,19 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         for path in outer_paths.clone() {
             let fs_backend = fs_backend.clone();
             let process_spawner = process_spawner.clone();
-            let privilege_policy = self.privilege_policy.clone();
+            let resource_ownership = self.resource_ownership.clone();
 
             join_set.spawn(async move {
+                if let ResourceOwnership::Upgraded = *resource_ownership {
+                    change_owner(&path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+                }
+
                 if !fs_backend
                     .check_exists(&path)
                     .await
                     .map_err(VmmExecutorError::FsBackendError)?
                 {
                     return Err(VmmExecutorError::ExpectedResourceMissing(path));
-                }
-
-                if let UserPrivilegePolicy::Escalate(ref user) = *privilege_policy {
-                    change_owner(&path, user, process_spawner.as_ref()).await?;
                 }
 
                 Ok(())
@@ -126,18 +134,18 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
             let fs_backend = fs_backend.clone();
             let process_spawner = process_spawner.clone();
-            let privilege_policy = self.privilege_policy.clone();
+            let privilege_policy = self.resource_ownership.clone();
 
             join_set.spawn(async move {
+                if let ResourceOwnership::Upgraded = *privilege_policy {
+                    change_owner(&socket_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+                }
+
                 if fs_backend
                     .check_exists(&socket_path)
                     .await
                     .map_err(VmmExecutorError::FsBackendError)?
                 {
-                    if let UserPrivilegePolicy::Escalate(ref user) = *privilege_policy {
-                        change_owner(&socket_path, user, process_spawner.as_ref()).await?;
-                    }
-
                     fs_backend
                         .remove_file(&socket_path)
                         .await
@@ -196,18 +204,18 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
             let process_spawner = process_spawner.clone();
             let fs_backend = fs_backend.clone();
-            let privilege_policy = self.privilege_policy.clone();
+            let privilege_policy = self.resource_ownership.clone();
 
             join_set.spawn(async move {
+                if let ResourceOwnership::Upgraded = *privilege_policy {
+                    change_owner(&socket_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+                }
+
                 if fs_backend
                     .check_exists(&socket_path)
                     .await
                     .map_err(VmmExecutorError::FsBackendError)?
                 {
-                    if let UserPrivilegePolicy::Escalate(ref user) = *privilege_policy {
-                        change_owner(&socket_path, user, process_spawner.as_ref()).await?;
-                    }
-
                     fs_backend
                         .remove_file(&socket_path)
                         .await

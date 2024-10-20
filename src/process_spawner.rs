@@ -15,9 +15,6 @@ use tokio::{
 /// The command delegated to the spawner is either a "firecracker" or "jailer" invocation for starting the respective
 /// processes, or an elevated "chown"/"mkdir" invocation from the executors.
 pub trait ProcessSpawner: Send + Sync + 'static {
-    /// Whether the processes spawned by this process have higher privileges than the main application process.
-    fn increases_privileges(&self) -> bool;
-
     /// Spawn the process with the given binary path and arguments.
     fn spawn(
         &self,
@@ -44,10 +41,6 @@ fn get_stdio(pipes_to_null: bool) -> Stdio {
 
 #[cfg(feature = "direct-process-spawner")]
 impl ProcessSpawner for DirectProcessSpawner {
-    fn increases_privileges(&self) -> bool {
-        false
-    }
-
     async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
         let mut command = Command::new(path);
         command
@@ -88,10 +81,6 @@ impl SuProcessSpawner {
 
 #[cfg(feature = "elevation-process-spawners")]
 impl ProcessSpawner for SuProcessSpawner {
-    fn increases_privileges(&self) -> bool {
-        true
-    }
-
     async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
         let mut command = Command::new(match self.su_path {
             Some(ref path) => path.as_os_str(),
@@ -153,10 +142,6 @@ static SUDO_OS_STRING: LazyLock<OsString> = LazyLock::new(|| OsString::from("sud
 
 #[cfg(feature = "elevation-process-spawners")]
 impl ProcessSpawner for SudoProcessSpawner {
-    fn increases_privileges(&self) -> bool {
-        true
-    }
-
     async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
         let mut command = Command::new(match self.sudo_path {
             Some(ref path) => path.as_os_str(),
@@ -191,12 +176,4 @@ impl ProcessSpawner for SudoProcessSpawner {
 
         Ok(child)
     }
-}
-
-#[cfg(all(test, feature = "elevation-process-spawners", feature = "direct-process-spawner"))]
-#[test]
-fn process_spawners_have_correct_increases_privileges_flags() {
-    assert!(!DirectProcessSpawner.increases_privileges());
-    assert!(SuProcessSpawner::new("password").increases_privileges());
-    assert!(SudoProcessSpawner::new().increases_privileges());
 }
