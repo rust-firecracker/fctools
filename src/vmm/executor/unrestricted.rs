@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-use super::{create_file_with_tree, force_chown_to_self, join_on_set, VmmExecutor, VmmExecutorError};
+use super::{change_owner, create_file_with_tree, join_on_set, UserPrivilegePolicy, VmmExecutor, VmmExecutorError};
 
 /// A [VmmExecutor] that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
 /// This [VmmExecutor] allows rootless execution, given that the user has been granted access to /dev/kvm, but using
@@ -29,6 +29,7 @@ pub struct UnrestrictedVmmExecutor {
     remove_logs_on_cleanup: bool,
     pipes_to_null: bool,
     id: Option<VmmId>,
+    privilege_policy: Arc<UserPrivilegePolicy>,
 }
 
 impl UnrestrictedVmmExecutor {
@@ -40,6 +41,7 @@ impl UnrestrictedVmmExecutor {
             remove_logs_on_cleanup: false,
             pipes_to_null: false,
             id: None,
+            privilege_policy: Arc::new(UserPrivilegePolicy::SameUser),
         }
     }
 
@@ -102,6 +104,8 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         for path in outer_paths.clone() {
             let fs_backend = fs_backend.clone();
             let process_spawner = process_spawner.clone();
+            let privilege_policy = self.privilege_policy.clone();
+
             join_set.spawn(async move {
                 if !fs_backend
                     .check_exists(&path)
@@ -111,20 +115,29 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                     return Err(VmmExecutorError::ExpectedResourceMissing(path));
                 }
 
-                force_chown_to_self(&path, process_spawner.as_ref()).await
+                if let UserPrivilegePolicy::Escalate(ref user) = *privilege_policy {
+                    change_owner(&path, user, process_spawner.as_ref()).await?;
+                }
+
+                Ok(())
             });
         }
 
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
             let fs_backend = fs_backend.clone();
             let process_spawner = process_spawner.clone();
+            let privilege_policy = self.privilege_policy.clone();
+
             join_set.spawn(async move {
                 if fs_backend
                     .check_exists(&socket_path)
                     .await
                     .map_err(VmmExecutorError::FsBackendError)?
                 {
-                    force_chown_to_self(&socket_path, process_spawner.as_ref()).await?;
+                    if let UserPrivilegePolicy::Escalate(ref user) = *privilege_policy {
+                        change_owner(&socket_path, user, process_spawner.as_ref()).await?;
+                    }
+
                     fs_backend
                         .remove_file(&socket_path)
                         .await
@@ -183,13 +196,18 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
             let process_spawner = process_spawner.clone();
             let fs_backend = fs_backend.clone();
+            let privilege_policy = self.privilege_policy.clone();
+
             join_set.spawn(async move {
                 if fs_backend
                     .check_exists(&socket_path)
                     .await
                     .map_err(VmmExecutorError::FsBackendError)?
                 {
-                    force_chown_to_self(&socket_path, process_spawner.as_ref()).await?;
+                    if let UserPrivilegePolicy::Escalate(ref user) = *privilege_policy {
+                        change_owner(&socket_path, user, process_spawner.as_ref()).await?;
+                    }
+
                     fs_backend
                         .remove_file(&socket_path)
                         .await

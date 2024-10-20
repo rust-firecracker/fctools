@@ -30,7 +30,7 @@ use fctools::{
         executor::{
             jailed::{FlatJailRenamer, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
-            VmmExecutor, VmmExecutorError,
+            User, UserPrivilegePolicy, VmmExecutor, VmmExecutorError,
         },
         installation::VmmInstallation,
         process::VmmProcessState,
@@ -268,7 +268,8 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
         jailer_firecracker_arguments,
         jailer_arguments,
         FlatJailRenamer::default(),
-    );
+    )
+    .privilege_policy(UserPrivilegePolicy::Deescalate(User { uid: 1000, gid: 1000 }));
 
     (
         TestVmmProcess::new(

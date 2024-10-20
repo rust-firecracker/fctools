@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-use super::{create_file_with_tree, force_chown, force_chown_to_self, force_mkdir, VmmExecutor, VmmExecutorError};
+use super::{change_owner, create_file_with_tree, UserPrivilegePolicy, VmmExecutor, VmmExecutorError};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
@@ -29,6 +29,7 @@ pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
     jailer_arguments: JailerArguments,
     jail_move_method: JailMoveMethod,
     jail_renamer: R,
+    privilege_policy: UserPrivilegePolicy,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
 }
 
@@ -40,6 +41,7 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
             jail_move_method: JailMoveMethod::Copy,
             jail_renamer,
             command_modifier_chain: Vec::new(),
+            privilege_policy: UserPrivilegePolicy::SameUser,
         }
     }
 
@@ -55,6 +57,11 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
 
     pub fn command_modifiers(mut self, command_modifiers: impl IntoIterator<Item = Box<dyn CommandModifier>>) -> Self {
         self.command_modifier_chain.extend(command_modifiers);
+        self
+    }
+
+    pub fn privilege_policy(mut self, privilege_policy: UserPrivilegePolicy) -> Self {
+        self.privilege_policy = privilege_policy;
         self
     }
 }
@@ -99,14 +106,10 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             Some(dir) => &dir,
             None => &PathBuf::from("/srv/jailer"),
         };
-        if !fs_backend
-            .check_exists(&chroot_base_dir)
-            .await
-            .map_err(VmmExecutorError::FsBackendError)?
-        {
-            force_mkdir(fs_backend.as_ref(), chroot_base_dir, process_spawner.as_ref()).await?;
+
+        if let UserPrivilegePolicy::Escalate(ref user) = self.privilege_policy {
+            change_owner(chroot_base_dir, user, process_spawner.as_ref()).await?;
         }
-        force_chown_to_self(chroot_base_dir, process_spawner.as_ref()).await?; // grants access to jail as well
 
         // Create jail and delete previous one if necessary
         let jail_path = Arc::new(self.get_jail_path(installation));
@@ -165,7 +168,9 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                 return Err(VmmExecutorError::ExpectedResourceMissing(outer_path.clone()));
             }
 
-            force_chown_to_self(&outer_path, process_spawner.as_ref()).await?;
+            if let UserPrivilegePolicy::Escalate(ref user) = self.privilege_policy {
+                change_owner(&outer_path, user, process_spawner.as_ref()).await?;
+            }
 
             let inner_path = self
                 .jail_renamer
@@ -216,17 +221,8 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             result.map_err(VmmExecutorError::TaskJoinFailed)??;
         }
 
-        if self.jailer_arguments.uid != unsafe { libc::geteuid() }
-            || self.jailer_arguments.gid != unsafe { libc::getegid() }
-        {
-            force_chown(
-                &self.get_jail_path(installation),
-                self.jailer_arguments.uid,
-                self.jailer_arguments.gid,
-                true,
-                process_spawner.as_ref(),
-            )
-            .await?;
+        if let UserPrivilegePolicy::Deescalate(ref user) = self.privilege_policy {
+            change_owner(&jail_path, user, process_spawner.as_ref()).await?;
         }
 
         Ok(path_mappings)

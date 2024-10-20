@@ -4,7 +4,7 @@ use std::{
     os::unix::process::ExitStatusExt,
     path::{Path, PathBuf},
     process::ExitStatus,
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 
 #[cfg(feature = "jailed-vmm-executor")]
@@ -26,6 +26,35 @@ pub mod jailed;
 #[cfg(feature = "unrestricted-vmm-executor")]
 #[cfg_attr(docsrs, doc(cfg(feature = "unrestricted-vmm-executor")))]
 pub mod unrestricted;
+
+pub(crate) static PROCESS_UID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::geteuid() });
+pub(crate) static PROCESS_GID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::getegid() });
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum UserPrivilegePolicy {
+    SameUser,
+    Escalate(User),
+    Deescalate(User),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct User {
+    pub uid: u32,
+    pub gid: u32,
+}
+
+impl User {
+    pub fn root() -> Self {
+        Self { uid: 0, gid: 0 }
+    }
+
+    pub fn of_process() -> Self {
+        Self {
+            uid: *PROCESS_UID,
+            gid: *PROCESS_GID,
+        }
+    }
+}
 
 /// An error emitted by a [VmmExecutor].
 #[derive(Debug, thiserror::Error)]
@@ -96,38 +125,18 @@ pub trait VmmExecutor: Send + Sync {
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
-pub(crate) async fn force_chown_to_self(
+pub(crate) async fn change_owner(
     path: &Path,
+    user: &User,
     process_spawner: &impl ProcessSpawner,
 ) -> Result<(), VmmExecutorError> {
-    force_chown(
-        path,
-        unsafe { libc::geteuid() },
-        unsafe { libc::getegid() },
-        false,
-        process_spawner,
-    )
-    .await
-}
-
-pub(crate) async fn force_chown(
-    path: &Path,
-    uid: u32,
-    gid: u32,
-    enforce: bool,
-    process_spawner: &impl ProcessSpawner,
-) -> Result<(), VmmExecutorError> {
-    if !process_spawner.increases_privileges() && !enforce {
-        return Ok(());
-    }
-
     let mut child = process_spawner
         .spawn(
             &PathBuf::from("chown"),
             vec![
                 "-f".to_string(),
                 "-R".to_string(),
-                format!("{uid}:{gid}"),
+                format!("{}:{}", user.uid, user.gid),
                 path.to_string_lossy().into_owned(),
             ],
             false,
@@ -140,37 +149,6 @@ pub(crate) async fn force_chown(
     // "safely" be ignored, which is better than inducing the overhead of global locking on chown paths
     if !exit_status.success() && exit_status.into_raw() != 256 {
         return Err(VmmExecutorError::ChownExitedWithWrongStatus(exit_status));
-    }
-
-    Ok(())
-}
-
-#[cfg(feature = "jailed-vmm-executor")]
-async fn force_mkdir(
-    fs_backend: &impl FsBackend,
-    path: &Path,
-    process_spawner: &impl ProcessSpawner,
-) -> Result<(), VmmExecutorError> {
-    if !process_spawner.increases_privileges() {
-        fs_backend
-            .create_dir_all(path)
-            .await
-            .map_err(VmmExecutorError::FsBackendError)?;
-        return Ok(());
-    }
-
-    let mut child = process_spawner
-        .spawn(
-            &PathBuf::from("mkdir"),
-            vec!["-p".to_string(), path.to_string_lossy().into_owned()],
-            true,
-        )
-        .await
-        .map_err(VmmExecutorError::ProcessSpawnFailed)?;
-    let exit_status = child.wait().await.map_err(VmmExecutorError::ShellForkFailed)?;
-
-    if !exit_status.success() {
-        return Err(VmmExecutorError::MkdirExitedWithWrongStatus(exit_status));
     }
 
     Ok(())
