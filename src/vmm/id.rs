@@ -1,10 +1,13 @@
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VmmId(String);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, thiserror::Error)]
 pub enum VmmIdError {
+    #[error("The provided ID was too short")]
     TooShort,
+    #[error("The provided ID was too long")]
     TooLong,
+    #[error("The provided ID contained an invalid character")]
     ContainsInvalidCharacter,
 }
 
