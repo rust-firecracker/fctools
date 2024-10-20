@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-use super::{create_file_with_tree, force_chown, join_on_set, VmmExecutor, VmmExecutorError};
+use super::{create_file_with_tree, force_chown_to_self, join_on_set, VmmExecutor, VmmExecutorError};
 
 /// A [VmmExecutor] that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
 /// This [VmmExecutor] allows rootless execution, given that the user has been granted access to /dev/kvm, but using
@@ -111,7 +111,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                     return Err(VmmExecutorError::ExpectedResourceMissing(path));
                 }
 
-                force_chown(&path, process_spawner.as_ref()).await
+                force_chown_to_self(&path, process_spawner.as_ref()).await
             });
         }
 
@@ -124,7 +124,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                     .await
                     .map_err(VmmExecutorError::FsBackendError)?
                 {
-                    force_chown(&socket_path, process_spawner.as_ref()).await?;
+                    force_chown_to_self(&socket_path, process_spawner.as_ref()).await?;
                     fs_backend
                         .remove_file(&socket_path)
                         .await
@@ -189,7 +189,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                     .await
                     .map_err(VmmExecutorError::FsBackendError)?
                 {
-                    force_chown(&socket_path, process_spawner.as_ref()).await?;
+                    force_chown_to_self(&socket_path, process_spawner.as_ref()).await?;
                     fs_backend
                         .remove_file(&socket_path)
                         .await

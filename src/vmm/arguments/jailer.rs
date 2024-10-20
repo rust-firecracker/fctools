@@ -8,8 +8,8 @@ use crate::vmm::id::VmmId;
 /// Arguments that can be passed into the "jailer" binary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JailerArguments {
-    uid: u32,
-    gid: u32,
+    pub(crate) uid: u32,
+    pub(crate) gid: u32,
     pub(crate) jail_id: VmmId,
 
     cgroup_values: HashMap<String, String>,

@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-use super::{create_file_with_tree, force_chown, force_mkdir, VmmExecutor, VmmExecutorError};
+use super::{create_file_with_tree, force_chown, force_chown_to_self, force_mkdir, VmmExecutor, VmmExecutorError};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
@@ -106,7 +106,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         {
             force_mkdir(fs_backend.as_ref(), chroot_base_dir, process_spawner.as_ref()).await?;
         }
-        force_chown(chroot_base_dir, process_spawner.as_ref()).await?; // grants access to jail as well
+        force_chown_to_self(chroot_base_dir, process_spawner.as_ref()).await?; // grants access to jail as well
 
         // Create jail and delete previous one if necessary
         let jail_path = Arc::new(self.get_jail_path(installation));
@@ -165,7 +165,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                 return Err(VmmExecutorError::ExpectedResourceMissing(outer_path.clone()));
             }
 
-            force_chown(&outer_path, process_spawner.as_ref()).await?;
+            force_chown_to_self(&outer_path, process_spawner.as_ref()).await?;
 
             let inner_path = self
                 .jail_renamer
@@ -214,6 +214,19 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
 
         while let Some(result) = join_set.join_next().await {
             result.map_err(VmmExecutorError::TaskJoinFailed)??;
+        }
+
+        if self.jailer_arguments.uid != unsafe { libc::geteuid() }
+            || self.jailer_arguments.gid != unsafe { libc::getegid() }
+        {
+            force_chown(
+                &self.get_jail_path(installation),
+                self.jailer_arguments.uid,
+                self.jailer_arguments.gid,
+                true,
+                process_spawner.as_ref(),
+            )
+            .await?;
         }
 
         Ok(path_mappings)

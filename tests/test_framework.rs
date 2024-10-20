@@ -258,8 +258,8 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
         VmmArguments::new(VmmApiSocket::Enabled(socket_path)).config_path("/jailed.json");
 
     let jailer_arguments = JailerArguments::new(
-        unsafe { libc::geteuid() },
-        unsafe { libc::getegid() },
+        1000,
+        1000,
         rand::thread_rng().next_u32().to_string().try_into().unwrap(),
     )
     .cgroup_version(JailerCgroupVersion::V2);

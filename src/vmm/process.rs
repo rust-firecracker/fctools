@@ -21,12 +21,12 @@ use crate::{
     fs_backend::FsBackend,
     process_spawner::ProcessSpawner,
     vmm::{
-        executor::{force_chown, VmmExecutor, VmmExecutorError},
+        executor::{VmmExecutor, VmmExecutorError},
         installation::VmmInstallation,
     },
 };
 
-use super::arguments::VmmConfigurationOverride;
+use super::{arguments::VmmConfigurationOverride, executor::force_chown_to_self};
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
 /// tied to the given [VmmExecutor] E, [ProcessSpawner] S and [FsBackend] F.
@@ -196,7 +196,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         let hyper_client = self
             .hyper_client
             .get_or_try_init(|| async {
-                force_chown(&socket_path, self.process_spawner.as_ref())
+                force_chown_to_self(&socket_path, self.process_spawner.as_ref())
                     .await
                     .map_err(VmmProcessError::ExecutorError)?;
                 Ok(Client::builder(TokioExecutor::new()).build(HyperUnixConnector))

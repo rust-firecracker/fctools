@@ -96,26 +96,41 @@ pub trait VmmExecutor: Send + Sync {
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
-pub(crate) async fn force_chown(path: &Path, process_spawner: &impl ProcessSpawner) -> Result<(), VmmExecutorError> {
-    if !process_spawner.increases_privileges() {
+pub(crate) async fn force_chown_to_self(
+    path: &Path,
+    process_spawner: &impl ProcessSpawner,
+) -> Result<(), VmmExecutorError> {
+    force_chown(
+        path,
+        unsafe { libc::geteuid() },
+        unsafe { libc::getegid() },
+        false,
+        process_spawner,
+    )
+    .await
+}
+
+pub(crate) async fn force_chown(
+    path: &Path,
+    uid: u32,
+    gid: u32,
+    enforce: bool,
+    process_spawner: &impl ProcessSpawner,
+) -> Result<(), VmmExecutorError> {
+    if !process_spawner.increases_privileges() && !enforce {
         return Ok(());
     }
-
-    // SAFETY: calling FFI libc functions that return the process UID and GID can never result in UB
-    let uid = unsafe { libc::geteuid() };
-    let gid = unsafe { libc::getegid() };
 
     let mut child = process_spawner
         .spawn(
             &PathBuf::from("chown"),
             vec![
-                "chown".to_string(),
                 "-f".to_string(),
                 "-R".to_string(),
                 format!("{uid}:{gid}"),
                 path.to_string_lossy().into_owned(),
             ],
-            true,
+            false,
         )
         .await
         .map_err(VmmExecutorError::ProcessSpawnFailed)?;
