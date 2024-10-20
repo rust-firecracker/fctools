@@ -11,9 +11,8 @@ use crate::{
     process_spawner::ProcessSpawner,
     vmm::{
         arguments::{
-            command_modifier::CommandModifier,
-            firecracker::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigurationOverride},
-            jailer::JailerArguments,
+            command_modifier::CommandModifier, jailer::JailerArguments, VmmApiSocket, VmmArguments,
+            VmmConfigurationOverride,
         },
         installation::VmmInstallation,
     },
@@ -26,7 +25,7 @@ use super::{create_file_with_tree, force_chown, force_mkdir, VmmExecutor, VmmExe
 /// process itself won't.
 #[derive(Debug)]
 pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
-    firecracker_arguments: FirecrackerArguments,
+    vmm_arguments: VmmArguments,
     jailer_arguments: JailerArguments,
     jail_move_method: JailMoveMethod,
     jail_renamer: R,
@@ -34,13 +33,9 @@ pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
 }
 
 impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
-    pub fn new(
-        firecracker_arguments: FirecrackerArguments,
-        jailer_arguments: JailerArguments,
-        jail_renamer: R,
-    ) -> Self {
+    pub fn new(vmm_arguments: VmmArguments, jailer_arguments: JailerArguments, jail_renamer: R) -> Self {
         Self {
-            firecracker_arguments,
+            vmm_arguments,
             jailer_arguments,
             jail_move_method: JailMoveMethod::Copy,
             jail_renamer,
@@ -78,11 +73,9 @@ pub enum JailMoveMethod {
 
 impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
-        match &self.firecracker_arguments.api_socket {
-            FirecrackerApiSocket::Disabled => None,
-            FirecrackerApiSocket::Enabled(socket_path) => {
-                Some(self.get_jail_path(installation).jail_join(&socket_path))
-            }
+        match &self.vmm_arguments.api_socket {
+            VmmApiSocket::Disabled => None,
+            VmmApiSocket::Enabled(socket_path) => Some(self.get_jail_path(installation).jail_join(&socket_path)),
         }
     }
 
@@ -135,7 +128,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         let mut join_set = JoinSet::new();
 
         // Ensure socket parent directory exists so that the firecracker process can bind inside of it
-        if let FirecrackerApiSocket::Enabled(ref socket_path) = self.firecracker_arguments.api_socket {
+        if let VmmApiSocket::Enabled(ref socket_path) = self.vmm_arguments.api_socket {
             if let Some(socket_parent_dir) = socket_path.parent() {
                 let socket_parent_dir = socket_parent_dir.to_owned();
                 let fs_backend = fs_backend.clone();
@@ -150,10 +143,10 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         }
 
         // Ensure argument paths exist
-        if let Some(ref log_path) = self.firecracker_arguments.log_path {
+        if let Some(ref log_path) = self.vmm_arguments.log_path {
             join_set.spawn(create_file_with_tree(fs_backend.clone(), jail_path.jail_join(log_path)));
         }
-        if let Some(ref metrics_path) = self.firecracker_arguments.metrics_path {
+        if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
             join_set.spawn(create_file_with_tree(
                 fs_backend.clone(),
                 jail_path.jail_join(metrics_path),
@@ -230,12 +223,12 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        configuration_override: FirecrackerConfigurationOverride,
+        configuration_override: VmmConfigurationOverride,
     ) -> Result<Child, VmmExecutorError> {
         let mut arguments = self.jailer_arguments.join(&installation.firecracker_path);
         let mut binary_path = installation.jailer_path.clone();
         arguments.push("--".to_string());
-        arguments.extend(self.firecracker_arguments.join(configuration_override));
+        arguments.extend(self.vmm_arguments.join(configuration_override));
 
         for command_modifier in &self.command_modifier_chain {
             command_modifier.apply(&mut binary_path, &mut arguments);

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use fctools::vmm::{
-    arguments::firecracker::FirecrackerConfigurationOverride,
+    arguments::VmmConfigurationOverride,
     process::{HyperResponseExt, VmmProcessState},
 };
 use http::Uri;
@@ -64,10 +64,7 @@ async fn vmm_can_take_out_pipes() {
 async fn vmm_operations_are_rejected_in_incorrect_states() {
     run_vmm_process_test(|mut process| async move {
         process.prepare().await.unwrap_err();
-        process
-            .invoke(FirecrackerConfigurationOverride::NoOverride)
-            .await
-            .unwrap_err();
+        process.invoke(VmmConfigurationOverride::NoOverride).await.unwrap_err();
         process.cleanup().await.unwrap_err();
 
         shutdown(&mut process).await;
@@ -76,10 +73,7 @@ async fn vmm_operations_are_rejected_in_incorrect_states() {
         process.send_ctrl_alt_del().await.unwrap_err();
         process.wait_for_exit().await.unwrap_err();
         process.prepare().await.unwrap_err();
-        process
-            .invoke(FirecrackerConfigurationOverride::NoOverride)
-            .await
-            .unwrap_err();
+        process.invoke(VmmConfigurationOverride::NoOverride).await.unwrap_err();
     })
     .await;
 }

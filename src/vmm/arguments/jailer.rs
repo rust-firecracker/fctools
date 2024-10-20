@@ -3,14 +3,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::firecracker::FirecrackerId;
+use crate::vmm::id::VmmId;
 
 /// Arguments that are passed by relevant executors into the "jailer" binary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JailerArguments {
     uid: u32,
     gid: u32,
-    pub(crate) jail_id: FirecrackerId,
+    pub(crate) jail_id: VmmId,
 
     cgroup_values: HashMap<String, String>,
     cgroup_version: Option<JailerCgroupVersion>,
@@ -23,7 +23,7 @@ pub struct JailerArguments {
 }
 
 impl JailerArguments {
-    pub fn new(uid: u32, gid: u32, jail_id: FirecrackerId) -> Self {
+    pub fn new(uid: u32, gid: u32, jail_id: VmmId) -> Self {
         Self {
             uid,
             gid,
@@ -162,12 +162,12 @@ pub enum JailerCgroupVersion {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::vmm::arguments::firecracker::FirecrackerId;
+    use crate::vmm::id::VmmId;
 
     use super::{JailerArguments, JailerCgroupVersion};
 
     fn new() -> JailerArguments {
-        JailerArguments::new(1, 1, FirecrackerId::new("jail-id").unwrap())
+        JailerArguments::new(1, 1, VmmId::new("jail-id").unwrap())
     }
 
     #[test]

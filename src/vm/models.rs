@@ -2,6 +2,8 @@ use std::{net::Ipv4Addr, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::vmm::arguments::VmmLogLevel;
+
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReprAction {
     pub action_type: ReprActionType,
@@ -279,7 +281,7 @@ pub struct LoggerSystem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) log_path: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    level: Option<LogLevel>,
+    level: Option<VmmLogLevel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     show_level: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -304,7 +306,7 @@ impl LoggerSystem {
         self
     }
 
-    pub fn level(mut self, level: LogLevel) -> Self {
+    pub fn level(mut self, level: VmmLogLevel) -> Self {
         self.level = Some(level);
         self
     }
@@ -323,16 +325,6 @@ impl LoggerSystem {
         self.module = Some(module.into());
         self
     }
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum LogLevel {
-    Off,
-    Trace,
-    Debug,
-    Info,
-    Warn,
-    Error,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]

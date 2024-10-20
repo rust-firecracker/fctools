@@ -1,5 +1,7 @@
 #[cfg(feature = "vmm-arguments")]
 pub mod arguments;
+#[cfg(feature = "vmm-arguments")]
+pub mod id;
 
 #[cfg(feature = "vmm-executor")]
 pub mod executor;

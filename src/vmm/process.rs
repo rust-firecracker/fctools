@@ -26,7 +26,7 @@ use crate::{
     },
 };
 
-use super::arguments::firecracker::FirecrackerConfigurationOverride;
+use super::arguments::VmmConfigurationOverride;
 
 /// A VMM process is an abstraction that manages a (possibly wrapped) Firecracker process. It is
 /// tied to the given VMM executor E, process spawner S and filesystem backend F.
@@ -168,10 +168,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     }
 
     /// Invoke the VM process. Allowed in AwaitingStart state, will result in Started state.
-    pub async fn invoke(
-        &mut self,
-        configuration_override: FirecrackerConfigurationOverride,
-    ) -> Result<(), VmmProcessError> {
+    pub async fn invoke(&mut self, configuration_override: VmmConfigurationOverride) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.child = Some(
             self.executor

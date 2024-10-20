@@ -1,4 +1,4 @@
-use std::{os::unix::fs::FileTypeExt, sync::Arc, time::Duration};
+use std::{os::unix::fs::FileTypeExt, time::Duration};
 
 use fctools::{
     fs_backend::blocking::BlockingFsBackend,
@@ -11,10 +11,7 @@ use fctools::{
         ShutdownMethod, VmState,
     },
     vmm::{
-        arguments::{
-            firecracker::{FirecrackerApiSocket, FirecrackerArguments},
-            jailer::JailerArguments,
-        },
+        arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
         executor::{
             jailed::{FlatJailRenamer, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
@@ -217,7 +214,7 @@ fn vm_can_boot_with_net_iface() {
 async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
     let executor = match is_jailed {
         true => TestExecutor::Jailed(JailedVmmExecutor::new(
-            FirecrackerArguments::new(FirecrackerApiSocket::Enabled(get_tmp_path())),
+            VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
             JailerArguments::new(
                 unsafe { libc::geteuid() },
                 unsafe { libc::getegid() },
@@ -225,16 +222,16 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
             ),
             FlatJailRenamer::default(),
         )),
-        false => TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(FirecrackerArguments::new(
-            FirecrackerApiSocket::Enabled(get_tmp_path()),
-        ))),
+        false => TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(
+            get_tmp_path(),
+        )))),
     };
 
     let mut vm = TestVm::prepare(
-        Arc::new(executor),
-        Arc::new(DirectProcessSpawner),
-        Arc::new(BlockingFsBackend),
-        Arc::new(get_real_firecracker_installation()),
+        executor,
+        DirectProcessSpawner,
+        BlockingFsBackend,
+        get_real_firecracker_installation(),
         snapshot.into_configuration(Some(true), None),
     )
     .await

@@ -10,7 +10,7 @@ use crate::{
     fs_backend::{FsBackend, FsBackendError},
     process_spawner::ProcessSpawner,
     vmm::{
-        arguments::firecracker::FirecrackerConfigurationOverride,
+        arguments::VmmConfigurationOverride,
         executor::VmmExecutor,
         installation::VmmInstallation,
         process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
@@ -325,14 +325,14 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             .get_socket_path()
             .ok_or(VmError::DisabledApiSocketIsUnsupported)?;
 
-        let mut configuration_override = FirecrackerConfigurationOverride::NoOverride;
+        let mut configuration_override = VmmConfigurationOverride::NoOverride;
         if let VmConfiguration::New {
             ref init_method,
             ref data,
         } = configuration
         {
             if let InitMethod::ViaJsonConfiguration(inner_path) = init_method {
-                configuration_override = FirecrackerConfigurationOverride::Enable(inner_path.clone());
+                configuration_override = VmmConfigurationOverride::Enable(inner_path.clone());
                 prepare_file(self.fs_backend.clone(), inner_path.clone(), true).await?;
                 self.fs_backend
                     .write_file(

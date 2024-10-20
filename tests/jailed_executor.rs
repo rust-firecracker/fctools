@@ -2,14 +2,12 @@ use std::path::PathBuf;
 
 use assert_matches::assert_matches;
 use fctools::vmm::{
-    arguments::{
-        firecracker::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerId},
-        jailer::JailerArguments,
-    },
+    arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
     executor::{
         jailed::{FlatJailRenamer, JailMoveMethod, JailRenamer, JailedVmmExecutor},
         VmmExecutor, VmmExecutorError,
     },
+    id::VmmId,
 };
 use rand::RngCore;
 use test_framework::{get_fake_firecracker_installation, get_fs_backend, get_process_spawner, get_tmp_path, jail_join};
@@ -244,23 +242,22 @@ fn setup_executor(
     metrics_path: Option<PathBuf>,
     jail_move_method: Option<JailMoveMethod>,
 ) -> (JailedVmmExecutor<FlatJailRenamer>, PathBuf) {
-    let jail_id = FirecrackerId::new(rand::thread_rng().next_u32().to_string()).unwrap();
+    let jail_id = VmmId::new(rand::thread_rng().next_u32().to_string()).unwrap();
     let actual_chroot_base_dir = chroot_base_dir.clone().or(Some(PathBuf::from("/srv/jailer"))).unwrap();
     let mut jailer_arguments =
         JailerArguments::new(unsafe { libc::geteuid() }, unsafe { libc::getegid() }, jail_id.clone());
     if let Some(chroot_base_dir) = chroot_base_dir {
         jailer_arguments = jailer_arguments.chroot_base_dir(chroot_base_dir);
     }
-    let mut firecracker_arguments =
-        FirecrackerArguments::new(socket_path.map_or(FirecrackerApiSocket::Disabled, FirecrackerApiSocket::Enabled));
+    let mut vmm_arguments = VmmArguments::new(socket_path.map_or(VmmApiSocket::Disabled, VmmApiSocket::Enabled));
     if let Some(log_path) = log_path {
-        firecracker_arguments = firecracker_arguments.log_path(log_path);
+        vmm_arguments = vmm_arguments.log_path(log_path);
     }
     if let Some(metrics_path) = metrics_path {
-        firecracker_arguments = firecracker_arguments.metrics_path(metrics_path);
+        vmm_arguments = vmm_arguments.metrics_path(metrics_path);
     }
 
-    let executor = JailedVmmExecutor::new(firecracker_arguments, jailer_arguments, FlatJailRenamer::default())
+    let executor = JailedVmmExecutor::new(vmm_arguments, jailer_arguments, FlatJailRenamer::default())
         .jail_move_method(jail_move_method.or(Some(JailMoveMethod::Copy)).unwrap());
 
     let jail_path = actual_chroot_base_dir

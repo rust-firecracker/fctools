@@ -18,7 +18,7 @@ use crate::{
     process_spawner::ProcessSpawner,
 };
 
-use super::{arguments::firecracker::FirecrackerConfigurationOverride, installation::VmmInstallation};
+use super::{arguments::VmmConfigurationOverride, installation::VmmInstallation};
 
 #[cfg(feature = "jailed-vmm-executor")]
 pub mod jailed;
@@ -80,7 +80,7 @@ pub trait VmmExecutor: Send + Sync {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        configuration_override: FirecrackerConfigurationOverride,
+        configuration_override: VmmConfigurationOverride,
     ) -> impl Future<Output = Result<Child, VmmExecutorError>> + Send;
 
     /// Clean up all transient resources of the VMM invocation.

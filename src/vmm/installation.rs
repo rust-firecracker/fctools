@@ -40,21 +40,21 @@ impl VmmInstallation {
         fs_backend: &impl FsBackend,
         expected_version: impl AsRef<str>,
     ) -> Result<(), VmmInstallationError> {
-        verify_imp(
-            fs_backend,
-            &self.firecracker_path,
-            expected_version.as_ref(),
-            "Firecracker",
-        )
-        .await?;
-        verify_imp(fs_backend, &self.jailer_path, expected_version.as_ref(), "Jailer").await?;
-        verify_imp(
-            fs_backend,
-            &self.snapshot_editor_path,
-            expected_version.as_ref(),
-            "snapshot-editor",
-        )
-        .await?;
+        tokio::try_join!(
+            verify_imp(
+                fs_backend,
+                &self.firecracker_path,
+                expected_version.as_ref(),
+                "Firecracker",
+            ),
+            verify_imp(fs_backend, &self.jailer_path, expected_version.as_ref(), "Jailer"),
+            verify_imp(
+                fs_backend,
+                &self.snapshot_editor_path,
+                expected_version.as_ref(),
+                "snapshot-editor",
+            )
+        )?;
         Ok(())
     }
 }

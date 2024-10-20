@@ -23,8 +23,8 @@ use fctools::{
     vmm::{
         arguments::{
             command_modifier::NetnsCommandModifier,
-            firecracker::{FirecrackerApiSocket, FirecrackerArguments, FirecrackerConfigurationOverride},
-            jailer::JailerArguments,
+            jailer::{JailerArguments, JailerCgroupVersion},
+            VmmApiSocket, VmmArguments, VmmConfigurationOverride,
         },
         executor::{
             jailed::{FlatJailRenamer, JailedVmmExecutor},
@@ -187,7 +187,7 @@ impl VmmExecutor for TestExecutor {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        config_override: FirecrackerConfigurationOverride,
+        config_override: VmmConfigurationOverride,
     ) -> Result<Child, VmmExecutorError> {
         match self {
             TestExecutor::Unrestricted(e) => e.invoke(installation, process_spawner, config_override).await,
@@ -230,10 +230,7 @@ where
         assert_eq!(process.state(), VmmProcessState::AwaitingPrepare);
         process.prepare().await.unwrap();
         assert_eq!(process.state(), VmmProcessState::AwaitingStart);
-        process
-            .invoke(FirecrackerConfigurationOverride::NoOverride)
-            .await
-            .unwrap();
+        process.invoke(VmmConfigurationOverride::NoOverride).await.unwrap();
         assert_eq!(process.state(), VmmProcessState::Started);
     }
 
@@ -251,17 +248,17 @@ where
 fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
     let socket_path = get_tmp_path();
 
-    let unrestricted_firecracker_arguments =
-        FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path.clone()))
-            .config_path(get_test_path("configs/unrestricted.json"));
+    let unrestricted_firecracker_arguments = VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()))
+        .config_path(get_test_path("configs/unrestricted.json"));
     let jailer_firecracker_arguments =
-        FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path)).config_path("/jailed.json");
+        VmmArguments::new(VmmApiSocket::Enabled(socket_path)).config_path("/jailed.json");
 
     let jailer_arguments = JailerArguments::new(
         unsafe { libc::geteuid() },
         unsafe { libc::getegid() },
         rand::thread_rng().next_u32().to_string().try_into().unwrap(),
-    );
+    )
+    .cgroup_version(JailerCgroupVersion::V2);
     let unrestricted_executor = UnrestrictedVmmExecutor::new(unrestricted_firecracker_arguments);
     let jailed_executor = JailedVmmExecutor::new(
         jailer_firecracker_arguments,
@@ -454,9 +451,8 @@ impl VmBuilder {
             MachineConfiguration::new(1, 128).track_dirty_pages(true),
         )
         .drive(Drive::new("rootfs", true).path_on_host(get_test_path("assets/rootfs.ext4")));
-        let mut unrestricted_executor = UnrestrictedVmmExecutor::new(FirecrackerArguments::new(
-            FirecrackerApiSocket::Enabled(socket_path.clone()),
-        ));
+        let mut unrestricted_executor =
+            UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())));
         if let Some(ref network) = self.unrestricted_network_data {
             unrestricted_executor =
                 unrestricted_executor.command_modifier(NetnsCommandModifier::new(&network.netns_name));
@@ -471,14 +467,15 @@ impl VmBuilder {
             unsafe { libc::geteuid() },
             unsafe { libc::getegid() },
             rand::thread_rng().next_u32().to_string().try_into().unwrap(),
-        );
+        )
+        .cgroup_version(JailerCgroupVersion::V2);
         if let Some(ref network) = self.jailed_network_data {
             jailer_arguments =
                 jailer_arguments.network_namespace_path(format!("/var/run/netns/{}", network.netns_name));
         }
 
         let jailed_executor = TestExecutor::Jailed(JailedVmmExecutor::new(
-            FirecrackerArguments::new(FirecrackerApiSocket::Enabled(socket_path)),
+            VmmArguments::new(VmmApiSocket::Enabled(socket_path)),
             jailer_arguments,
             FlatJailRenamer::default(),
         ));
