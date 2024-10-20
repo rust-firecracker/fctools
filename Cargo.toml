@@ -1,6 +1,6 @@
 [package]
 name = "fctools"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 description = "An exhaustive, highly modular and extensible host SDK for the Firecracker microVM manager."
 license = "MIT"
@@ -75,6 +75,7 @@ fcnet = { version = "0.5.1", default-features = false, features = [
 ] }
 
 fctools = { path = ".", features = ["full"] }
+file-lock = "2.1.11"
 
 [features]
 full = [

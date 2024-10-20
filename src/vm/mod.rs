@@ -19,10 +19,16 @@ use crate::{
     },
 };
 use api::VmApi;
+use bytes::Bytes;
 use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
 use http::StatusCode;
+use http_body_util::Full;
+use hyper_util::rt::TokioIo;
 use models::LoadSnapshot;
-use tokio::task::{JoinError, JoinSet};
+use tokio::{
+    net::UnixStream,
+    task::{JoinError, JoinSet},
+};
 
 pub mod api;
 pub mod configuration;
@@ -353,12 +359,27 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
 
         let fs_backend = self.fs_backend.clone();
         tokio::time::timeout(socket_wait_timeout, async move {
+            // wait until socket exists
             loop {
-                if fs_backend.check_exists(&socket_path).await? {
+                if let Ok(true) = fs_backend.check_exists(&socket_path).await {
                     break;
                 }
             }
-            tokio::time::sleep(Duration::from_millis(1)).await;
+
+            // wait until socket accepts HTTP connections
+            loop {
+                let Ok(stream) = UnixStream::connect(&socket_path).await else {
+                    continue;
+                };
+
+                if hyper::client::conn::http1::handshake::<_, Full<Bytes>>(TokioIo::new(stream))
+                    .await
+                    .is_ok()
+                {
+                    break;
+                }
+            }
+
             Ok(())
         })
         .await

@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     future::Future,
+    io::Write,
     path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
@@ -37,7 +38,10 @@ use fctools::{
 };
 use rand::{Rng, RngCore};
 use serde::Deserialize;
-use tokio::{process::Child, sync::OnceCell};
+use tokio::{
+    process::Child,
+    sync::{Mutex, MutexGuard, OnceCell},
+};
 use uuid::Uuid;
 
 static TEST_TOOLCHAIN: OnceCell<TestOptions> = OnceCell::const_new();
@@ -561,11 +565,13 @@ impl VmBuilder {
         let fcnet_path = get_test_path("toolchain/fcnet");
 
         if let Some(ref network_data) = network_data {
+            let lock = get_network_lock().await;
             network_data
                 .network
                 .run(FirecrackerNetworkOperation::Add)
                 .await
                 .unwrap();
+            drop(lock);
         }
 
         let is_jailed = match executor {
@@ -594,11 +600,13 @@ impl VmBuilder {
         function(vm, is_jailed).await;
 
         if let Some(network_data) = network_data {
+            let lock = get_network_lock().await;
             network_data
                 .network
                 .run(FirecrackerNetworkOperation::Delete)
                 .await
                 .unwrap();
+            drop(lock);
         }
     }
 }
@@ -612,4 +620,26 @@ pub async fn shutdown_test_vm(vm: &mut TestVm, shutdown_method: ShutdownMethod) 
     .await
     .unwrap();
     vm.cleanup().await.unwrap();
+}
+
+static NETWORK_LOCKING_MUTEX: Mutex<()> = Mutex::const_new(());
+
+#[allow(unused)]
+struct NetworkLock<'a> {
+    mutex_guard: MutexGuard<'a, ()>,
+    file_lock: file_lock::FileLock,
+}
+
+async fn get_network_lock<'a>() -> NetworkLock<'a> {
+    let mutex_guard = NETWORK_LOCKING_MUTEX.lock().await;
+    let file_lock = tokio::task::spawn_blocking(|| {
+        let file_options = file_lock::FileOptions::new().write(true).create(true);
+        let mut lock = file_lock::FileLock::lock("/tmp/fctools_test_net_lock", true, file_options).unwrap();
+        lock.file.write(b"lock_data").unwrap();
+        lock
+    })
+    .await
+    .unwrap();
+
+    NetworkLock { mutex_guard, file_lock }
 }

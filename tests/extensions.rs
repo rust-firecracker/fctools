@@ -1,8 +1,7 @@
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
 use fctools::{
     extension::{metrics::spawn_metrics_task, snapshot_editor::SnapshotEditorExt},
-    fs_backend::{tokio_uring::TokioUringFsBackend, UnsendFsBackend},
     vm::{
         api::VmApi,
         models::{CreateSnapshot, MetricsSystem, SnapshotType},
@@ -127,18 +126,4 @@ fn metrics_task_can_be_cancelled_via_join_handle() {
             );
             shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
         });
-}
-
-#[test]
-fn utest() {
-    tokio_uring::start(async {
-        let backend = TokioUringFsBackend;
-        backend
-            .copy(
-                &PathBuf::from("/home/kanpov/Documents/debian.ext4"),
-                &PathBuf::from("/home/kanpov/Documents/debian_copy.ext4"),
-            )
-            .await
-            .unwrap();
-    });
 }
