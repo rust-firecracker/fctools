@@ -18,8 +18,6 @@ pub enum VsockHttpError {
     CannotConnect(tokio::io::Error),
     #[error("Could not perform an HTTP handshake with the vsock socket: `{0}`")]
     CannotHandshake(hyper::Error),
-    #[error("Could not bind to a host-side Unix socket: `{0}`")]
-    CannotBind(tokio::io::Error),
 }
 
 /// An error that can be emitted by the [VsockHttpPool] abstraction.
