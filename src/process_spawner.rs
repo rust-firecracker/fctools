@@ -38,7 +38,7 @@ fn get_stdio(pipes_to_null: bool) -> Stdio {
     if pipes_to_null {
         Stdio::null()
     } else {
-        Stdio::inherit()
+        Stdio::piped()
     }
 }
 

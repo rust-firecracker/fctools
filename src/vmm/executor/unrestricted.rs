@@ -31,6 +31,7 @@ pub struct UnrestrictedVmmExecutor {
     remove_logs_on_cleanup: bool,
     pipes_to_null: bool,
     id: Option<VmmId>,
+    downgrade: Option<(u32, u32)>,
 }
 
 impl UnrestrictedVmmExecutor {
@@ -42,6 +43,7 @@ impl UnrestrictedVmmExecutor {
             remove_logs_on_cleanup: false,
             pipes_to_null: false,
             id: None,
+            downgrade: None,
         }
     }
 
@@ -74,6 +76,11 @@ impl UnrestrictedVmmExecutor {
         self.id = Some(id);
         self
     }
+
+    pub fn downgrade_ownership(mut self, uid: u32, gid: u32) -> Self {
+        self.downgrade = Some((uid, gid));
+        self
+    }
 }
 
 impl VmmExecutor for UnrestrictedVmmExecutor {
@@ -88,8 +95,12 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         inner_path.to_owned()
     }
 
-    fn traceless(&self) -> bool {
+    fn is_traceless(&self) -> bool {
         false
+    }
+
+    fn ownership_downgrade(&self) -> Option<(u32, u32)> {
+        self.downgrade
     }
 
     async fn prepare(
@@ -148,11 +159,21 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
         // Ensure argument paths exist
         if let Some(log_path) = self.vmm_arguments.log_path.clone() {
-            let fs_backend = fs_backend.clone();
-            join_set.spawn(async move { create_file_with_tree(fs_backend, &log_path).await });
+            join_set.spawn(create_file_with_tree(
+                fs_backend.clone(),
+                process_spawner.clone(),
+                self.downgrade,
+                log_path,
+            ));
         }
+
         if let Some(metrics_path) = self.vmm_arguments.metrics_path.clone() {
-            join_set.spawn(async move { create_file_with_tree(fs_backend.clone(), &metrics_path).await });
+            join_set.spawn(create_file_with_tree(
+                fs_backend.clone(),
+                process_spawner.clone(),
+                self.downgrade,
+                metrics_path,
+            ));
         }
 
         join_on_set(join_set).await?;

@@ -197,7 +197,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmApi for Vm<E, S, F> {
         send_api_request(self, "/snapshot/create", "PUT", Some(&create_snapshot)).await?;
         let snapshot_path = self.vmm_process.inner_to_outer_path(create_snapshot.snapshot_path);
         let mem_file_path = self.vmm_process.inner_to_outer_path(create_snapshot.mem_file_path);
-        if !self.executor_traceless {
+        if !self.executor.is_traceless() {
             self.snapshot_traces.push(snapshot_path.clone());
             self.snapshot_traces.push(mem_file_path.clone());
         }

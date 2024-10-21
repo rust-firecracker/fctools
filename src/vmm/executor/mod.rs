@@ -71,7 +71,9 @@ pub trait VmmExecutor: Send + Sync {
     fn inner_to_outer_path(&self, installation: &VmmInstallation, inner_path: &Path) -> PathBuf;
 
     // Returns a boolean determining whether this executor leaves any traces on the host filesystem after cleanup.
-    fn traceless(&self) -> bool;
+    fn is_traceless(&self) -> bool;
+
+    fn ownership_downgrade(&self) -> Option<(u32, u32)>;
 
     /// Prepare all transient resources for the VMM invocation.
     fn prepare(
@@ -129,7 +131,12 @@ pub(crate) async fn change_owner(
     Ok(())
 }
 
-async fn create_file_with_tree(fs_backend: Arc<impl FsBackend>, path: &Path) -> Result<(), VmmExecutorError> {
+async fn create_file_with_tree(
+    fs_backend: Arc<impl FsBackend>,
+    process_spawner: Arc<impl ProcessSpawner>,
+    downgrade: Option<(u32, u32)>,
+    path: PathBuf,
+) -> Result<(), VmmExecutorError> {
     if let Some(parent_path) = path.parent() {
         fs_backend
             .create_dir_all(parent_path)
@@ -141,6 +148,11 @@ async fn create_file_with_tree(fs_backend: Arc<impl FsBackend>, path: &Path) -> 
         .create_file(&path)
         .await
         .map_err(VmmExecutorError::FsBackendError)?;
+
+    if let Some((uid, gid)) = downgrade {
+        change_owner(&path, uid, gid, process_spawner.as_ref()).await?;
+    }
+
     Ok(())
 }
 

@@ -90,8 +90,12 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         self.get_jail_path(installation).jail_join(inner_path)
     }
 
-    fn traceless(&self) -> bool {
+    fn is_traceless(&self) -> bool {
         true
+    }
+
+    fn ownership_downgrade(&self) -> Option<(u32, u32)> {
+        self.downgrade
     }
 
     async fn prepare(
@@ -146,39 +150,22 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         }
 
         // Ensure argument paths exist
-        if let Some(ref log_path) = self.vmm_arguments.log_path {
-            let path = jail_path.jail_join(&log_path);
-            let downgrade = self.downgrade.clone();
-            let fs_backend = fs_backend.clone();
-            let process_spawner = process_spawner.clone();
-
-            join_set.spawn(async move {
-                create_file_with_tree(fs_backend, &path).await?;
-
-                if let Some((uid, gid)) = downgrade {
-                    println!("{uid} {gid}");
-                    change_owner(&path, uid, gid, process_spawner.as_ref()).await?;
-                }
-
-                Ok(())
-            });
+        if let Some(ref log_path) = self.vmm_arguments.log_path.clone() {
+            join_set.spawn(create_file_with_tree(
+                fs_backend.clone(),
+                process_spawner.clone(),
+                self.downgrade,
+                jail_path.jail_join(log_path),
+            ));
         }
 
-        if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
-            let path = jail_path.jail_join(&metrics_path);
-            let downgrade = self.downgrade.clone();
-            let fs_backend = fs_backend.clone();
-            let process_spawner = process_spawner.clone();
-
-            join_set.spawn(async move {
-                create_file_with_tree(fs_backend, &path).await?;
-
-                if let Some((uid, gid)) = downgrade {
-                    change_owner(&path, uid, gid, process_spawner.as_ref()).await?;
-                }
-
-                Ok(())
-            });
+        if let Some(ref metrics_path) = self.vmm_arguments.metrics_path.clone() {
+            join_set.spawn(create_file_with_tree(
+                fs_backend.clone(),
+                process_spawner.clone(),
+                self.downgrade,
+                jail_path.jail_join(metrics_path),
+            ));
         }
 
         // Apply jail renamer and move in the resources in parallel (via a join set)

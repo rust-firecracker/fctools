@@ -174,10 +174,17 @@ impl VmmExecutor for TestExecutor {
         }
     }
 
-    fn traceless(&self) -> bool {
+    fn is_traceless(&self) -> bool {
         match self {
-            TestExecutor::Unrestricted(e) => e.traceless(),
-            TestExecutor::Jailed(e) => e.traceless(),
+            TestExecutor::Unrestricted(e) => e.is_traceless(),
+            TestExecutor::Jailed(e) => e.is_traceless(),
+        }
+    }
+
+    fn ownership_downgrade(&self) -> Option<(u32, u32)> {
+        match self {
+            TestExecutor::Unrestricted(e) => e.ownership_downgrade(),
+            TestExecutor::Jailed(e) => e.ownership_downgrade(),
         }
     }
 

@@ -13,7 +13,7 @@ use crate::{
     process_spawner::ProcessSpawner,
     vmm::{
         arguments::VmmConfigurationOverride,
-        executor::VmmExecutor,
+        executor::{change_owner, VmmExecutor, VmmExecutorError},
         installation::VmmInstallation,
         process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
     },
@@ -38,11 +38,12 @@ pub mod snapshot;
 pub struct Vm<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
     vmm_process: VmmProcess<E, S, F>,
     fs_backend: Arc<F>,
+    process_spawner: Arc<S>,
+    executor: Arc<E>,
     is_paused: bool,
     original_configuration_data: VmConfigurationData,
     configuration: Option<VmConfiguration>,
     accessible_paths: AccessiblePaths,
-    executor_traceless: bool,
     snapshot_traces: Vec<PathBuf>,
 }
 
@@ -79,6 +80,8 @@ impl std::fmt::Display for VmState {
 pub enum VmError {
     #[error("The underlying VMM process returned an error: `{0}`")]
     ProcessError(VmmProcessError),
+    #[error("The underlying VMM executor returned an error: `{0}`")]
+    ExecutorError(VmmExecutorError),
     #[error("Joining on an async task failed: `{0}`")]
     TaskJoinFailed(JoinError),
     #[error("Expected the VM to be in the `{expected}` state, but it was actually in the `{actual}` state")]
@@ -193,8 +196,13 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         };
 
         // prepare
-        let executor_traceless = executor.traceless();
-        let mut vmm_process = VmmProcess::new(executor, process_spawner, fs_backend.clone(), installation, outer_paths);
+        let mut vmm_process = VmmProcess::new(
+            executor.clone(),
+            process_spawner.clone(),
+            fs_backend.clone(),
+            installation,
+            outer_paths,
+        );
         let mut path_mappings = vmm_process.prepare().await.map_err(VmError::ProcessError)?;
 
         // transform data according to returned mappings
@@ -250,34 +258,64 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         if let Some(ref logger) = configuration.data().logger_system {
             if let Some(ref log_path) = logger.log_path {
                 let new_log_path = vmm_process.inner_to_outer_path(log_path);
-                prepare_join_set.spawn(prepare_file(fs_backend.clone(), new_log_path.clone(), false));
+                prepare_join_set.spawn(prepare_file(
+                    fs_backend.clone(),
+                    process_spawner.clone(),
+                    new_log_path.clone(),
+                    executor.ownership_downgrade(),
+                    false,
+                ));
                 accessible_paths.log_path = Some(new_log_path);
             }
         }
 
         if let Some(ref metrics_system) = configuration.data().metrics_system {
             let new_metrics_path = vmm_process.inner_to_outer_path(&metrics_system.metrics_path);
-            prepare_join_set.spawn(prepare_file(fs_backend.clone(), new_metrics_path.clone(), false));
+            prepare_join_set.spawn(prepare_file(
+                fs_backend.clone(),
+                process_spawner.clone(),
+                new_metrics_path.clone(),
+                executor.ownership_downgrade(),
+                false,
+            ));
             accessible_paths.metrics_path = Some(new_metrics_path);
         }
 
         if let Some(ref vsock) = configuration.data().vsock_device {
             let new_uds_path = vmm_process.inner_to_outer_path(&vsock.uds_path);
-            prepare_join_set.spawn(prepare_file(fs_backend.clone(), new_uds_path.clone(), true));
+            prepare_join_set.spawn(prepare_file(
+                fs_backend.clone(),
+                process_spawner.clone(),
+                new_uds_path.clone(),
+                executor.ownership_downgrade(),
+                true,
+            ));
             accessible_paths.vsock_multiplexer_path = Some(new_uds_path);
         }
 
         if let Some(ref logger) = configuration.data().logger_system {
             if let Some(ref log_path) = logger.log_path {
                 let new_log_path = vmm_process.inner_to_outer_path(log_path);
-                prepare_join_set.spawn(prepare_file(fs_backend.clone(), new_log_path.clone(), false));
+                prepare_join_set.spawn(prepare_file(
+                    fs_backend.clone(),
+                    process_spawner.clone(),
+                    new_log_path.clone(),
+                    executor.ownership_downgrade(),
+                    false,
+                ));
                 accessible_paths.log_path = Some(new_log_path);
             }
         }
 
         if let Some(ref metrics) = configuration.data().metrics_system {
             let new_metrics_path = vmm_process.inner_to_outer_path(&metrics.metrics_path);
-            prepare_join_set.spawn(prepare_file(fs_backend.clone(), new_metrics_path.clone(), false));
+            prepare_join_set.spawn(prepare_file(
+                fs_backend.clone(),
+                process_spawner.clone(),
+                new_metrics_path.clone(),
+                executor.ownership_downgrade(),
+                false,
+            ));
             accessible_paths.metrics_path = Some(new_metrics_path);
         }
 
@@ -293,11 +331,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         Ok(Self {
             vmm_process,
             fs_backend,
+            process_spawner,
+            executor,
             is_paused: false,
             original_configuration_data,
             configuration: Some(configuration),
             accessible_paths,
-            executor_traceless,
             snapshot_traces: Vec::new(),
         })
     }
@@ -335,7 +374,14 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         {
             if let InitMethod::ViaJsonConfiguration(inner_path) = init_method {
                 configuration_override = VmmConfigurationOverride::Enable(inner_path.clone());
-                prepare_file(self.fs_backend.clone(), inner_path.clone(), true).await?;
+                prepare_file(
+                    self.fs_backend.clone(),
+                    self.process_spawner.clone(),
+                    inner_path.clone(),
+                    self.executor.ownership_downgrade(),
+                    true,
+                )
+                .await?;
                 self.fs_backend
                     .write_file(
                         &self.vmm_process.inner_to_outer_path(inner_path),
@@ -424,7 +470,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         self.ensure_exited_or_crashed()?;
         self.vmm_process.cleanup().await.map_err(VmError::ProcessError)?;
 
-        if self.executor_traceless {
+        if self.executor.is_traceless() {
             return Ok(());
         }
 
@@ -516,7 +562,13 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
     }
 }
 
-async fn prepare_file(fs_backend: Arc<impl FsBackend>, path: PathBuf, only_tree: bool) -> Result<(), VmError> {
+async fn prepare_file(
+    fs_backend: Arc<impl FsBackend>,
+    process_spawner: Arc<impl ProcessSpawner>,
+    path: PathBuf,
+    downgrade: Option<(u32, u32)>,
+    only_tree: bool,
+) -> Result<(), VmError> {
     if let Some(parent_path) = path.parent() {
         fs_backend
             .create_dir_all(parent_path)
@@ -526,6 +578,12 @@ async fn prepare_file(fs_backend: Arc<impl FsBackend>, path: PathBuf, only_tree:
 
     if !only_tree {
         fs_backend.create_file(&path).await.map_err(VmError::FsBackendError)?;
+    }
+
+    if let Some((uid, gid)) = downgrade {
+        change_owner(&path, uid, gid, process_spawner.as_ref())
+            .await
+            .map_err(VmError::ExecutorError)?;
     }
 
     Ok(())
