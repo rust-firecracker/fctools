@@ -165,7 +165,7 @@ fn vm_tracks_state_with_crash() {
 
 #[test]
 fn vm_can_snapshot_while_original_is_running() {
-    VmBuilder::new().run_with_snapshotting_context(|mut vm, is_jailed| async move {
+    VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
         vm.api_pause().await.unwrap();
         let snapshot = vm
             .api_create_snapshot(CreateSnapshot::new(get_tmp_path(), get_tmp_path()))
@@ -184,7 +184,7 @@ fn vm_can_snapshot_while_original_is_running() {
 
 #[test]
 fn vm_can_snapshot_after_original_has_exited() {
-    VmBuilder::new().run_with_snapshotting_context(|mut vm, snapshotting_context| async move {
+    VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
         vm.api_pause().await.unwrap();
         let mut snapshot = vm
             .api_create_snapshot(CreateSnapshot::new(get_tmp_path(), get_tmp_path()))
@@ -197,7 +197,7 @@ fn vm_can_snapshot_after_original_has_exited() {
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
 
-        restore_vm_from_snapshot(snapshot.clone(), snapshotting_context).await;
+        restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
         snapshot.remove(&BlockingFsBackend).await.unwrap();
     });
 }

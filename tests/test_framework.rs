@@ -444,10 +444,10 @@ impl VmBuilder {
         F: Clone + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        self.run_with_snapshotting_context(move |vm, _| function(vm));
+        self.run_with_is_jailed(move |vm, _| function(vm));
     }
 
-    pub fn run_with_snapshotting_context<F, Fut>(self, function: F)
+    pub fn run_with_is_jailed<F, Fut>(self, function: F)
     where
         F: Fn(TestVm, bool) -> Fut + Send,
         F: Clone + 'static,

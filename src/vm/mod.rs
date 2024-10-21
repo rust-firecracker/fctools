@@ -22,7 +22,10 @@ use api::VmApi;
 use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
 use http::StatusCode;
 use models::LoadSnapshot;
-use tokio::task::{JoinError, JoinSet};
+use tokio::{
+    net::UnixStream,
+    task::{JoinError, JoinSet},
+};
 
 pub mod api;
 pub mod configuration;
@@ -404,6 +407,16 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 if let Ok(true) = fs_backend.check_exists(&socket_path).await {
                     break;
                 }
+            }
+
+            loop {
+                let Ok(stream) = UnixStream::connect(&socket_path).await else {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    continue;
+                };
+
+                drop(stream);
+                break;
             }
 
             Ok(())
