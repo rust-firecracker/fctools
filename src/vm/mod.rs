@@ -622,10 +622,12 @@ async fn prepare_file(
         fs_backend.create_file(&path).await.map_err(VmError::FsBackendError)?;
     }
 
-    if let Some((uid, gid)) = downgrade {
-        change_owner(&path, uid, gid, process_spawner.as_ref())
-            .await
-            .map_err(VmError::ExecutorError)?;
+    if let Some(parent_path) = path.parent() {
+        if let Some((uid, gid)) = downgrade {
+            change_owner(&parent_path, uid, gid, process_spawner.as_ref())
+                .await
+                .map_err(VmError::ExecutorError)?;
+        }
     }
 
     Ok(())
