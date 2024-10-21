@@ -31,7 +31,7 @@ pub struct UnrestrictedVmmExecutor {
     remove_logs_on_cleanup: bool,
     pipes_to_null: bool,
     id: Option<VmmId>,
-    downgrade: Option<(u32, u32)>,
+    ownership_downgrade: Option<(u32, u32)>,
 }
 
 impl UnrestrictedVmmExecutor {
@@ -43,7 +43,7 @@ impl UnrestrictedVmmExecutor {
             remove_logs_on_cleanup: false,
             pipes_to_null: false,
             id: None,
-            downgrade: None,
+            ownership_downgrade: None,
         }
     }
 
@@ -78,7 +78,7 @@ impl UnrestrictedVmmExecutor {
     }
 
     pub fn downgrade_ownership(mut self, uid: u32, gid: u32) -> Self {
-        self.downgrade = Some((uid, gid));
+        self.ownership_downgrade = Some((uid, gid));
         self
     }
 }
@@ -99,8 +99,8 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         false
     }
 
-    fn ownership_downgrade(&self) -> Option<(u32, u32)> {
-        self.downgrade
+    fn get_ownership_downgrade(&self) -> Option<(u32, u32)> {
+        self.ownership_downgrade
     }
 
     async fn prepare(
@@ -162,7 +162,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             join_set.spawn(create_file_with_tree(
                 fs_backend.clone(),
                 process_spawner.clone(),
-                self.downgrade,
+                self.ownership_downgrade,
                 log_path,
             ));
         }
@@ -171,7 +171,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             join_set.spawn(create_file_with_tree(
                 fs_backend.clone(),
                 process_spawner.clone(),
-                self.downgrade,
+                self.ownership_downgrade,
                 metrics_path,
             ));
         }
@@ -232,6 +232,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                         .await
                         .map_err(VmmExecutorError::FsBackendError)?;
                 }
+
                 Ok(())
             });
         }
@@ -240,7 +241,13 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             if let Some(ref log_path) = self.vmm_arguments.log_path {
                 let fs_backend = fs_backend.clone();
                 let log_path = log_path.clone();
+                let process_spawner = process_spawner.clone();
+
                 join_set.spawn(async move {
+                    if process_spawner.upgrades_ownership() {
+                        change_owner(&log_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+                    }
+
                     fs_backend
                         .remove_file(&log_path)
                         .await
@@ -254,6 +261,10 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                 let fs_backend = fs_backend.clone();
                 let metrics_path = metrics_path.clone();
                 join_set.spawn(async move {
+                    if process_spawner.upgrades_ownership() {
+                        change_owner(&metrics_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+                    }
+
                     fs_backend
                         .remove_file(&metrics_path)
                         .await

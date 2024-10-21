@@ -181,10 +181,10 @@ impl VmmExecutor for TestExecutor {
         }
     }
 
-    fn ownership_downgrade(&self) -> Option<(u32, u32)> {
+    fn get_ownership_downgrade(&self) -> Option<(u32, u32)> {
         match self {
-            TestExecutor::Unrestricted(e) => e.ownership_downgrade(),
-            TestExecutor::Jailed(e) => e.ownership_downgrade(),
+            TestExecutor::Unrestricted(e) => e.get_ownership_downgrade(),
+            TestExecutor::Jailed(e) => e.get_ownership_downgrade(),
         }
     }
 

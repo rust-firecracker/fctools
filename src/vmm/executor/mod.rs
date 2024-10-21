@@ -27,8 +27,8 @@ pub mod jailed;
 #[cfg_attr(docsrs, doc(cfg(feature = "unrestricted-vmm-executor")))]
 pub mod unrestricted;
 
-pub(super) static PROCESS_UID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::geteuid() });
-pub(super) static PROCESS_GID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::getegid() });
+pub(crate) static PROCESS_UID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::geteuid() });
+pub(crate) static PROCESS_GID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::getegid() });
 
 /// An error emitted by a [VmmExecutor].
 #[derive(Debug, thiserror::Error)]
@@ -73,7 +73,8 @@ pub trait VmmExecutor: Send + Sync {
     // Returns a boolean determining whether this executor leaves any traces on the host filesystem after cleanup.
     fn is_traceless(&self) -> bool;
 
-    fn ownership_downgrade(&self) -> Option<(u32, u32)>;
+    // Returns the UID and GID of the user to downgrade ownership to, if one was configured.
+    fn get_ownership_downgrade(&self) -> Option<(u32, u32)>;
 
     /// Prepare all transient resources for the VMM invocation.
     fn prepare(
@@ -138,6 +139,10 @@ async fn create_file_with_tree(
     path: PathBuf,
 ) -> Result<(), VmmExecutorError> {
     if let Some(parent_path) = path.parent() {
+        if process_spawner.upgrades_ownership() {
+            change_owner(&parent_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+        }
+
         fs_backend
             .create_dir_all(parent_path)
             .await

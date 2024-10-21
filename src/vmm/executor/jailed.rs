@@ -29,15 +29,15 @@ pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
     jailer_arguments: JailerArguments,
     jail_move_method: JailMoveMethod,
     jail_renamer: R,
-    downgrade: Option<(u32, u32)>,
+    ownership_downgrade: Option<(u32, u32)>,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
 }
 
 impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
     pub fn new(vmm_arguments: VmmArguments, jailer_arguments: JailerArguments, jail_renamer: R) -> Self {
-        let mut downgrade = None;
+        let mut ownership_downgrade = None;
         if jailer_arguments.uid != *PROCESS_UID || jailer_arguments.gid != *PROCESS_GID {
-            downgrade = Some((jailer_arguments.uid, jailer_arguments.gid));
+            ownership_downgrade = Some((jailer_arguments.uid, jailer_arguments.gid));
         }
 
         Self {
@@ -45,7 +45,7 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
             jailer_arguments,
             jail_move_method: JailMoveMethod::Copy,
             jail_renamer,
-            downgrade,
+            ownership_downgrade,
             command_modifier_chain: Vec::new(),
         }
     }
@@ -94,8 +94,8 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         true
     }
 
-    fn ownership_downgrade(&self) -> Option<(u32, u32)> {
-        self.downgrade
+    fn get_ownership_downgrade(&self) -> Option<(u32, u32)> {
+        self.ownership_downgrade
     }
 
     async fn prepare(
@@ -105,14 +105,11 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
-        // Ensure chroot base dir exists and is accessible
-        let chroot_base_dir = match &self.jailer_arguments.chroot_base_dir {
-            Some(dir) => &dir,
-            None => &PathBuf::from("/srv/jailer"),
-        };
-
         // Create jail and delete previous one if necessary
         let jail_path = Arc::new(self.get_jail_path(installation));
+        let chroot_base_dir = jail_path
+            .parent()
+            .ok_or(VmmExecutorError::ExpectedDirectoryParentMissing)?;
         if process_spawner.upgrades_ownership() {
             change_owner(&chroot_base_dir, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
         }
@@ -154,7 +151,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             join_set.spawn(create_file_with_tree(
                 fs_backend.clone(),
                 process_spawner.clone(),
-                self.downgrade,
+                self.ownership_downgrade,
                 jail_path.jail_join(log_path),
             ));
         }
@@ -163,7 +160,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             join_set.spawn(create_file_with_tree(
                 fs_backend.clone(),
                 process_spawner.clone(),
-                self.downgrade,
+                self.ownership_downgrade,
                 jail_path.jail_join(metrics_path),
             ));
         }
@@ -172,6 +169,10 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         let mut path_mappings = HashMap::with_capacity(outer_paths.len());
 
         for outer_path in outer_paths {
+            if process_spawner.upgrades_ownership() {
+                change_owner(&outer_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+            }
+
             if !fs_backend
                 .check_exists(&outer_path)
                 .await
@@ -229,7 +230,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             result.map_err(VmmExecutorError::TaskJoinFailed)??;
         }
 
-        if let Some((uid, gid)) = self.downgrade {
+        if let Some((uid, gid)) = self.ownership_downgrade {
             change_owner(&jail_path, uid, gid, process_spawner.as_ref()).await?;
         }
 

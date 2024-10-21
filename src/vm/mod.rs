@@ -13,7 +13,7 @@ use crate::{
     process_spawner::ProcessSpawner,
     vmm::{
         arguments::VmmConfigurationOverride,
-        executor::{change_owner, VmmExecutor, VmmExecutorError},
+        executor::{change_owner, VmmExecutor, VmmExecutorError, PROCESS_GID, PROCESS_UID},
         installation::VmmInstallation,
         process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
     },
@@ -262,7 +262,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                     fs_backend.clone(),
                     process_spawner.clone(),
                     new_log_path.clone(),
-                    executor.ownership_downgrade(),
+                    executor.get_ownership_downgrade(),
                     false,
                 ));
                 accessible_paths.log_path = Some(new_log_path);
@@ -275,7 +275,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 fs_backend.clone(),
                 process_spawner.clone(),
                 new_metrics_path.clone(),
-                executor.ownership_downgrade(),
+                executor.get_ownership_downgrade(),
                 false,
             ));
             accessible_paths.metrics_path = Some(new_metrics_path);
@@ -287,7 +287,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 fs_backend.clone(),
                 process_spawner.clone(),
                 new_uds_path.clone(),
-                executor.ownership_downgrade(),
+                executor.get_ownership_downgrade(),
                 true,
             ));
             accessible_paths.vsock_multiplexer_path = Some(new_uds_path);
@@ -300,7 +300,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                     fs_backend.clone(),
                     process_spawner.clone(),
                     new_log_path.clone(),
-                    executor.ownership_downgrade(),
+                    executor.get_ownership_downgrade(),
                     false,
                 ));
                 accessible_paths.log_path = Some(new_log_path);
@@ -313,7 +313,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 fs_backend.clone(),
                 process_spawner.clone(),
                 new_metrics_path.clone(),
-                executor.ownership_downgrade(),
+                executor.get_ownership_downgrade(),
                 false,
             ));
             accessible_paths.metrics_path = Some(new_metrics_path);
@@ -378,7 +378,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                     self.fs_backend.clone(),
                     self.process_spawner.clone(),
                     inner_path.clone(),
-                    self.executor.ownership_downgrade(),
+                    self.executor.get_ownership_downgrade(),
                     true,
                 )
                 .await?;
@@ -467,6 +467,20 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
 
     /// Clean up the full environment of this [Vm] after it being [VmState::Exited] or [VmState::Crashed].
     pub async fn cleanup(&mut self) -> Result<(), VmError> {
+        async fn remove_file(
+            process_spawner: Arc<impl ProcessSpawner>,
+            fs_backend: Arc<impl FsBackend>,
+            path: PathBuf,
+        ) -> Result<(), VmError> {
+            if process_spawner.upgrades_ownership() {
+                change_owner(&path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
+                    .await
+                    .map_err(VmError::ExecutorError)?;
+            }
+
+            fs_backend.remove_file(&path).await.map_err(VmError::FsBackendError)
+        }
+
         self.ensure_exited_or_crashed()?;
         self.vmm_process.cleanup().await.map_err(VmError::ProcessError)?;
 
@@ -477,28 +491,43 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         let mut join_set = JoinSet::new();
 
         if let Some(log_path) = self.accessible_paths.log_path.clone() {
-            let fs_backend = self.fs_backend.clone();
-            join_set.spawn(async move { fs_backend.remove_file(&log_path).await });
+            join_set.spawn(remove_file(
+                self.process_spawner.clone(),
+                self.fs_backend.clone(),
+                log_path,
+            ));
         }
 
         if let Some(metrics_path) = self.accessible_paths.metrics_path.clone() {
-            let fs_backend = self.fs_backend.clone();
-            join_set.spawn(async move { fs_backend.remove_file(&metrics_path).await });
+            join_set.spawn(remove_file(
+                self.process_spawner.clone(),
+                self.fs_backend.clone(),
+                metrics_path,
+            ));
         }
 
         if let Some(multiplexer_path) = self.accessible_paths.vsock_multiplexer_path.clone() {
-            let fs_backend = self.fs_backend.clone();
-            join_set.spawn(async move { fs_backend.remove_file(&multiplexer_path).await });
+            join_set.spawn(remove_file(
+                self.process_spawner.clone(),
+                self.fs_backend.clone(),
+                multiplexer_path,
+            ));
 
             for listener_path in self.accessible_paths.vsock_listener_paths.clone() {
-                let fs_backend = self.fs_backend.clone();
-                join_set.spawn(async move { fs_backend.remove_file(&listener_path).await });
+                join_set.spawn(remove_file(
+                    self.process_spawner.clone(),
+                    self.fs_backend.clone(),
+                    listener_path,
+                ));
             }
         }
 
         while let Some(snapshot_trace_path) = self.snapshot_traces.pop() {
-            let fs_backend = self.fs_backend.clone();
-            join_set.spawn(async move { fs_backend.remove_file(&snapshot_trace_path).await });
+            join_set.spawn(remove_file(
+                self.process_spawner.clone(),
+                self.fs_backend.clone(),
+                snapshot_trace_path,
+            ));
         }
 
         while let Some(remove_result) = join_set.join_next().await {
