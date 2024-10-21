@@ -124,6 +124,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                 .await
                 .map_err(VmmExecutorError::FsBackendError)?;
         }
+
         fs_backend
             .create_dir_all(&jail_path)
             .await
@@ -169,29 +170,34 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         let mut path_mappings = HashMap::with_capacity(outer_paths.len());
 
         for outer_path in outer_paths {
-            if process_spawner.upgrades_ownership() {
-                change_owner(&outer_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
-            }
+            let expanded_inner_path = {
+                let inner_path = self
+                    .jail_renamer
+                    .rename_for_jail(&outer_path)
+                    .map_err(VmmExecutorError::JailRenamerFailed)?;
+                let expanded_inner_path = jail_path.jail_join(&inner_path);
+                path_mappings.insert(outer_path.clone(), inner_path);
 
-            if !fs_backend
-                .check_exists(&outer_path)
-                .await
-                .map_err(VmmExecutorError::FsBackendError)?
-            {
-                return Err(VmmExecutorError::ExpectedResourceMissing(outer_path.clone()));
-            }
-
-            let inner_path = self
-                .jail_renamer
-                .rename_for_jail(&outer_path)
-                .map_err(VmmExecutorError::JailRenamerFailed)?;
-            let expanded_inner_path = jail_path.jail_join(inner_path.as_ref());
-            path_mappings.insert(outer_path.clone(), inner_path);
+                expanded_inner_path
+            };
 
             let jail_move_method = self.jail_move_method;
             let fs_backend = fs_backend.clone();
+            let process_spawner = process_spawner.clone();
 
             join_set.spawn(async move {
+                if process_spawner.upgrades_ownership() {
+                    change_owner(&outer_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+                }
+
+                if !fs_backend
+                    .check_exists(&outer_path)
+                    .await
+                    .map_err(VmmExecutorError::FsBackendError)?
+                {
+                    return Err(VmmExecutorError::ExpectedResourceMissing(outer_path.clone()));
+                }
+
                 if let Some(new_path_parent_dir) = expanded_inner_path.parent() {
                     fs_backend
                         .create_dir_all(new_path_parent_dir)
