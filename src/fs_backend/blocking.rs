@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use nix::unistd::{Gid, Uid};
+
 use super::{FsBackend, FsBackendError};
 
 /// An [FsBackend] that uses [tokio::fs] internally, which simply wraps blocking I/O in Tokio's
@@ -54,4 +56,29 @@ impl FsBackend for BlockingFsBackend {
             .await
             .map_err(FsBackendError::Owned)
     }
+
+    async fn chownr(&self, path: &Path, uid: Uid, gid: Gid) -> Result<(), FsBackendError> {
+        let path = path.to_owned();
+        match tokio::task::spawn_blocking(move || chownr_impl(&path, uid, gid)).await {
+            Ok(result) => result,
+            Err(_) => Err(FsBackendError::Owned(std::io::Error::other(
+                "chownr_impl blocking task panicked",
+            ))),
+        }
+    }
+}
+
+fn chownr_impl(path: &Path, uid: Uid, gid: Gid) -> Result<(), FsBackendError> {
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path).map_err(FsBackendError::Owned)? {
+            let entry = entry.map_err(FsBackendError::Owned)?;
+            chownr_impl(entry.path().as_path(), uid, gid)?;
+        }
+    }
+
+    if nix::unistd::chown(path, Some(uid), Some(gid)).is_err() {
+        return Err(FsBackendError::Owned(std::io::Error::last_os_error()));
+    }
+
+    Ok(())
 }

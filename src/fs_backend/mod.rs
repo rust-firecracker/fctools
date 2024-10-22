@@ -8,6 +8,8 @@
 
 use std::{future::Future, ops::Deref, path::Path, sync::Arc};
 
+use nix::unistd::{Gid, Uid};
+
 #[cfg(feature = "blocking-fs-backend")]
 #[cfg_attr(docsrs, doc(cfg(feature = "blocking-fs-backend")))]
 pub mod blocking;
@@ -85,6 +87,8 @@ pub trait FsBackend: Send + Sync + 'static {
         destination_path: &Path,
     ) -> impl Future<Output = Result<(), FsBackendError>> + Send;
 
+    fn chownr(&self, path: &Path, uid: Uid, gid: Gid) -> impl Future<Output = Result<(), FsBackendError>> + Send;
+
     fn hard_link(
         &self,
         source_path: &Path,
@@ -116,6 +120,8 @@ pub trait UnsendFsBackend {
     fn remove_dir_all(&self, path: &Path) -> impl Future<Output = Result<(), FsBackendError>>;
 
     fn copy(&self, source_path: &Path, destination_path: &Path) -> impl Future<Output = Result<(), FsBackendError>>;
+
+    fn chownr(&self, path: &Path, uid: Uid, gid: Gid) -> impl Future<Output = Result<(), FsBackendError>>;
 
     fn hard_link(
         &self,
@@ -159,6 +165,10 @@ impl<F: FsBackend> UnsendFsBackend for F {
 
     fn copy(&self, source_path: &Path, destination_path: &Path) -> impl Future<Output = Result<(), FsBackendError>> {
         self.copy(source_path, destination_path)
+    }
+
+    fn chownr(&self, path: &Path, uid: Uid, gid: Gid) -> impl Future<Output = Result<(), FsBackendError>> {
+        self.chownr(path, uid, gid)
     }
 
     fn hard_link(

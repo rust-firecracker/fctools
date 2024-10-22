@@ -65,6 +65,8 @@ pub enum ChangeOwnerError {
     ProcessWaitFailed(std::io::Error),
     #[error("The \"chown\" process exited with a non-zero exit status: `{0}`")]
     ProcessExitedWithWrongStatus(ExitStatus),
+    #[error("An in-process recursive chown implementation in the filesystem backend failed: `{0}`")]
+    FsBackendError(FsBackendError),
 }
 
 /// A [VmmExecutor] manages the environment of a VMM, correctly invoking its process, while
@@ -112,27 +114,38 @@ pub(crate) async fn change_owner(
     path: &Path,
     uid: Uid,
     gid: Gid,
+    upgrade: bool,
     process_spawner: &impl ProcessSpawner,
+    fs_backend: &impl FsBackend,
 ) -> Result<(), ChangeOwnerError> {
-    let mut child = process_spawner
-        .spawn(
-            &PathBuf::from("chown"),
-            vec![
-                "-f".to_string(),
-                "-R".to_string(),
-                format!("{uid}:{gid}"),
-                path.to_string_lossy().into_owned(),
-            ],
-            false,
-        )
-        .await
-        .map_err(ChangeOwnerError::ProcessSpawnFailed)?;
-    let exit_status = child.wait().await.map_err(ChangeOwnerError::ProcessWaitFailed)?;
+    // use "chown" process spawning for upgrades since they require privilege acquiry that can't be done on the control process
+    // for downgrades or other types of ownership changes, use an in-process async implementation from the FS backend
+    if upgrade {
+        let mut child = process_spawner
+            .spawn(
+                &PathBuf::from("chown"),
+                vec![
+                    "-f".to_string(),
+                    "-R".to_string(),
+                    format!("{uid}:{gid}"),
+                    path.to_string_lossy().into_owned(),
+                ],
+                false,
+            )
+            .await
+            .map_err(ChangeOwnerError::ProcessSpawnFailed)?;
+        let exit_status = child.wait().await.map_err(ChangeOwnerError::ProcessWaitFailed)?;
 
-    // code 256 means that a concurrent chown is being called and the chown will still be applied, so this error can
-    // "safely" be ignored, which is better than inducing the overhead of global locking on chown paths
-    if !exit_status.success() && exit_status.into_raw() != 256 {
-        return Err(ChangeOwnerError::ProcessExitedWithWrongStatus(exit_status));
+        // code 256 means that a concurrent chown is being called and the chown will still be applied, so this error can
+        // "safely" be ignored, which is better than inducing the overhead of global locking on chown paths.
+        if !exit_status.success() && exit_status.into_raw() != 256 {
+            return Err(ChangeOwnerError::ProcessExitedWithWrongStatus(exit_status));
+        }
+    } else {
+        fs_backend
+            .chownr(path, uid, gid)
+            .await
+            .map_err(ChangeOwnerError::FsBackendError)?;
     }
 
     Ok(())
@@ -146,9 +159,16 @@ async fn create_file_with_tree(
 ) -> Result<(), VmmExecutorError> {
     if let Some(parent_path) = path.parent() {
         if process_spawner.upgrades_ownership() {
-            change_owner(&parent_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
-                .await
-                .map_err(VmmExecutorError::ChangeOwnerError)?;
+            change_owner(
+                &parent_path,
+                *PROCESS_UID,
+                *PROCESS_GID,
+                true,
+                process_spawner.as_ref(),
+                fs_backend.as_ref(),
+            )
+            .await
+            .map_err(VmmExecutorError::ChangeOwnerError)?;
         }
 
         fs_backend
@@ -163,7 +183,7 @@ async fn create_file_with_tree(
         .map_err(VmmExecutorError::FsBackendError)?;
 
     if let Some((uid, gid)) = downgrade {
-        change_owner(&path, uid, gid, process_spawner.as_ref())
+        change_owner(&path, uid, gid, false, process_spawner.as_ref(), fs_backend.as_ref())
             .await
             .map_err(VmmExecutorError::ChangeOwnerError)?;
     }

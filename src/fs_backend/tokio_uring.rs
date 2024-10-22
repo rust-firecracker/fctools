@@ -1,6 +1,8 @@
-use std::path::Path;
+use std::{future::Future, path::Path};
 
-use super::{FsBackendError, UnsendFsBackend};
+use nix::unistd::{Gid, Uid};
+
+use super::{blocking::BlockingFsBackend, FsBackendError, UnsendFsBackend};
 
 /// An [UnsendFsBackend] that uses tokio-uring with io-uring for all its operations except
 /// remove_dir_all, copy, hard_link, where it falls back to [tokio::fs] (which is the same as the
@@ -68,5 +70,10 @@ impl UnsendFsBackend for TokioUringFsBackend {
         tokio::fs::hard_link(source_path, destination_path)
             .await
             .map_err(FsBackendError::Owned)
+    }
+
+    fn chownr(&self, path: &Path, uid: Uid, gid: Gid) -> impl Future<Output = Result<(), FsBackendError>> {
+        // fall back to spawn_blocking-wrapped recursive implementation from BlockingFsBackend for now
+        BlockingFsBackend.chownr(path, uid, gid)
     }
 }

@@ -200,9 +200,16 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
             .hyper_client
             .get_or_try_init(|| async {
                 if self.process_spawner.upgrades_ownership() {
-                    change_owner(&socket_path, *PROCESS_UID, *PROCESS_GID, self.process_spawner.as_ref())
-                        .await
-                        .map_err(VmmProcessError::ChangeOwnerError)?;
+                    change_owner(
+                        &socket_path,
+                        *PROCESS_UID,
+                        *PROCESS_GID,
+                        true,
+                        self.process_spawner.as_ref(),
+                        self.fs_backend.as_ref(),
+                    )
+                    .await
+                    .map_err(VmmProcessError::ChangeOwnerError)?;
                 }
 
                 Ok(Client::builder(TokioExecutor::new()).build(HyperUnixConnector))

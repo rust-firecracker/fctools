@@ -119,9 +119,16 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
             join_set.spawn(async move {
                 if process_spawner.upgrades_ownership() {
-                    change_owner(&path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
-                        .await
-                        .map_err(VmmExecutorError::ChangeOwnerError)?;
+                    change_owner(
+                        &path,
+                        *PROCESS_UID,
+                        *PROCESS_GID,
+                        true,
+                        process_spawner.as_ref(),
+                        fs_backend.as_ref(),
+                    )
+                    .await
+                    .map_err(VmmExecutorError::ChangeOwnerError)?;
                 }
 
                 if !fs_backend
@@ -142,9 +149,16 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
             join_set.spawn(async move {
                 if process_spawner.upgrades_ownership() {
-                    change_owner(&socket_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
-                        .await
-                        .map_err(VmmExecutorError::ChangeOwnerError)?;
+                    change_owner(
+                        &socket_path,
+                        *PROCESS_UID,
+                        *PROCESS_GID,
+                        true,
+                        process_spawner.as_ref(),
+                        fs_backend.as_ref(),
+                    )
+                    .await
+                    .map_err(VmmExecutorError::ChangeOwnerError)?;
                 }
 
                 if fs_backend
@@ -224,9 +238,16 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
             join_set.spawn(async move {
                 if process_spawner.upgrades_ownership() {
-                    change_owner(&socket_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
-                        .await
-                        .map_err(VmmExecutorError::ChangeOwnerError)?;
+                    change_owner(
+                        &socket_path,
+                        *PROCESS_UID,
+                        *PROCESS_GID,
+                        true,
+                        process_spawner.as_ref(),
+                        fs_backend.as_ref(),
+                    )
+                    .await
+                    .map_err(VmmExecutorError::ChangeOwnerError)?;
                 }
 
                 if fs_backend
@@ -251,9 +272,16 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
                 join_set.spawn(async move {
                     if process_spawner.upgrades_ownership() {
-                        change_owner(&log_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
-                            .await
-                            .map_err(VmmExecutorError::ChangeOwnerError)?;
+                        change_owner(
+                            &log_path,
+                            *PROCESS_UID,
+                            *PROCESS_GID,
+                            true,
+                            process_spawner.as_ref(),
+                            fs_backend.as_ref(),
+                        )
+                        .await
+                        .map_err(VmmExecutorError::ChangeOwnerError)?;
                     }
 
                     fs_backend
@@ -270,9 +298,16 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
                 join_set.spawn(async move {
                     if process_spawner.upgrades_ownership() {
-                        change_owner(&metrics_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
-                            .await
-                            .map_err(VmmExecutorError::ChangeOwnerError)?;
+                        change_owner(
+                            &metrics_path,
+                            *PROCESS_UID,
+                            *PROCESS_GID,
+                            true,
+                            process_spawner.as_ref(),
+                            fs_backend.as_ref(),
+                        )
+                        .await
+                        .map_err(VmmExecutorError::ChangeOwnerError)?;
                     }
 
                     fs_backend

@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use nix::unistd::{Gid, Uid};
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
@@ -101,6 +102,9 @@ impl<S: SpawnTask, F: UnsendFsBackend + 'static> UnsendProxy<S, F> {
                         f.hard_link(&source_path, &destination_path).await
                     });
                 }
+                ProxyRequestBody::Chownr { uid, gid, path } => {
+                    self.respond(request.id, move |f| async move { f.chownr(&path, uid, gid).await });
+                }
                 ProxyRequestBody::RemoveDirAll(path) => {
                     self.respond(request.id, |f| async move { f.remove_dir_all(&path).await });
                 }
@@ -151,6 +155,11 @@ enum ProxyRequestBody {
     HardLink {
         source_path: PathBuf,
         destination_path: PathBuf,
+    },
+    Chownr {
+        uid: Uid,
+        gid: Gid,
+        path: PathBuf,
     },
     RemoveDirAll(PathBuf),
 }
@@ -354,5 +363,13 @@ impl FsBackend for UnsendProxyFsBackend {
 
     fn remove_dir_all(&self, path: &Path) -> impl Future<Output = Result<(), FsBackendError>> + Send {
         self.unit_request(ProxyRequestBody::RemoveDirAll(path.to_owned()))
+    }
+
+    fn chownr(&self, path: &Path, uid: Uid, gid: Gid) -> impl Future<Output = Result<(), FsBackendError>> + Send {
+        self.unit_request(ProxyRequestBody::Chownr {
+            uid,
+            gid,
+            path: path.to_owned(),
+        })
     }
 }

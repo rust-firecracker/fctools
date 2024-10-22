@@ -112,9 +112,16 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             .parent()
             .ok_or(VmmExecutorError::ExpectedDirectoryParentMissing)?;
         if process_spawner.upgrades_ownership() {
-            change_owner(&chroot_base_dir, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
-                .await
-                .map_err(VmmExecutorError::ChangeOwnerError)?;
+            change_owner(
+                &chroot_base_dir,
+                *PROCESS_UID,
+                *PROCESS_GID,
+                true,
+                process_spawner.as_ref(),
+                fs_backend.as_ref(),
+            )
+            .await
+            .map_err(VmmExecutorError::ChangeOwnerError)?;
         }
 
         if fs_backend
@@ -190,9 +197,16 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
 
             join_set.spawn(async move {
                 if process_spawner.upgrades_ownership() {
-                    change_owner(&outer_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
-                        .await
-                        .map_err(VmmExecutorError::ChangeOwnerError)?;
+                    change_owner(
+                        &outer_path,
+                        *PROCESS_UID,
+                        *PROCESS_GID,
+                        true,
+                        process_spawner.as_ref(),
+                        fs_backend.as_ref(),
+                    )
+                    .await
+                    .map_err(VmmExecutorError::ChangeOwnerError)?;
                 }
 
                 if !fs_backend
@@ -242,9 +256,16 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         }
 
         if let Some((uid, gid)) = self.ownership_downgrade {
-            change_owner(&jail_path, uid, gid, process_spawner.as_ref())
-                .await
-                .map_err(VmmExecutorError::ChangeOwnerError)?;
+            change_owner(
+                &jail_path,
+                uid,
+                gid,
+                false,
+                process_spawner.as_ref(),
+                fs_backend.as_ref(),
+            )
+            .await
+            .map_err(VmmExecutorError::ChangeOwnerError)?;
         }
 
         Ok(path_mappings)
@@ -281,9 +302,16 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         let jail_path = self.get_jail_path(installation);
 
         if process_spawner.upgrades_ownership() {
-            change_owner(&jail_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
-                .await
-                .map_err(VmmExecutorError::ChangeOwnerError)?;
+            change_owner(
+                &jail_path,
+                *PROCESS_UID,
+                *PROCESS_GID,
+                true,
+                process_spawner.as_ref(),
+                fs_backend.as_ref(),
+            )
+            .await
+            .map_err(VmmExecutorError::ChangeOwnerError)?;
         }
 
         let jail_parent_path = jail_path

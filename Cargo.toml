@@ -30,7 +30,7 @@ strip = "symbols"
 
 [dependencies]
 # common
-thiserror = "1.0.64"
+thiserror = "1.0.65"
 tokio = { version = "1.41.0", features = [
     "process",
     "io-util",
@@ -99,7 +99,7 @@ process-spawner = []
 direct-process-spawner = ["process-spawner"]
 elevation-process-spawners = ["process-spawner"]
 # fs backend
-fs-backend = []
+fs-backend = ["dep:nix"]
 blocking-fs-backend = ["fs-backend", "tokio/fs"]
 unsend-proxy-fs-backend = ["dep:uuid"]
 tokio-uring-fs-backend = ["dep:tokio-uring", "tokio/fs"]

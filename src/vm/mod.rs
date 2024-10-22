@@ -36,7 +36,8 @@ pub mod snapshot;
 /// fashion, such as: moving resources in and out, transforming resource paths from inner to outer and vice versa,
 /// removing VM traces, creating snapshots, binding to the exact endpoints of the API server and fallback-based shutdown.
 ///
-/// A [Vm] is tied to 3 components: [VmmExecutor] E, [ProcessSpawner] S and [FsBackend] F.
+/// A [Vm] is tied to 3 components: [VmmExecutor] E, [ProcessSpawner] S and [FsBackend] F, as it wraps a [VmmProcess] tied
+/// to these components with opinionated functionality.
 #[derive(Debug)]
 pub struct Vm<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
     vmm_process: VmmProcess<E, S, F>,
@@ -370,18 +371,19 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         } = configuration
         {
             if let InitMethod::ViaJsonConfiguration(inner_path) = init_method {
+                let outer_path = self.vmm_process.inner_to_outer_path(inner_path);
                 configuration_override = VmmConfigurationOverride::Enable(inner_path.clone());
                 prepare_file(
                     self.fs_backend.clone(),
                     self.process_spawner.clone(),
-                    inner_path.clone(),
+                    outer_path.clone(),
                     self.executor.get_ownership_downgrade(),
                     true,
                 )
                 .await?;
                 self.fs_backend
                     .write_file(
-                        &self.vmm_process.inner_to_outer_path(inner_path),
+                        &outer_path,
                         serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
                     )
                     .await
@@ -482,9 +484,16 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             path: PathBuf,
         ) -> Result<(), VmError> {
             if process_spawner.upgrades_ownership() {
-                change_owner(&path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
-                    .await
-                    .map_err(VmError::ChangeOwnerError)?;
+                change_owner(
+                    &path,
+                    *PROCESS_UID,
+                    *PROCESS_GID,
+                    true,
+                    process_spawner.as_ref(),
+                    fs_backend.as_ref(),
+                )
+                .await
+                .map_err(VmError::ChangeOwnerError)?;
             }
 
             fs_backend.remove_file(&path).await.map_err(VmError::FsBackendError)
@@ -620,9 +629,16 @@ async fn prepare_file(
 
     if let Some(parent_path) = path.parent() {
         if let Some((uid, gid)) = downgrade {
-            change_owner(&parent_path, uid, gid, process_spawner.as_ref())
-                .await
-                .map_err(VmError::ChangeOwnerError)?;
+            change_owner(
+                &parent_path,
+                uid,
+                gid,
+                false,
+                process_spawner.as_ref(),
+                fs_backend.as_ref(),
+            )
+            .await
+            .map_err(VmError::ChangeOwnerError)?;
         }
     }
 
