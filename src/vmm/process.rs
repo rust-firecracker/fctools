@@ -28,7 +28,7 @@ use crate::{
 
 use super::{
     arguments::VmmConfigurationOverride,
-    executor::{change_owner, PROCESS_GID, PROCESS_UID},
+    executor::{change_owner, ChangeOwnerError, PROCESS_GID, PROCESS_UID},
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
@@ -100,8 +100,8 @@ pub enum VmmProcessError {
     ExpectedExitedOrCrashed { actual: VmmProcessState },
     #[error("The VMM process's API socket had been disabled yet a request to the socket was attempted")]
     SocketWasDisabled,
-    #[error("Forcing chown of the API socket via the process spawner failed: `{0}`")]
-    CouldNotChownSocket(std::io::Error),
+    #[error("An ownership upgrade requested on VMM process level failed: `{0}`")]
+    ChangeOwnerError(ChangeOwnerError),
     #[error("An error occurred in the internal hyper-util HTTP connection pool: `{0}`")]
     HyperClientFailed(hyper_util::client::legacy::Error),
     #[error("Transmitting SIGKILL to the process failed: `{0}`")]
@@ -202,7 +202,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
                 if self.process_spawner.upgrades_ownership() {
                     change_owner(&socket_path, *PROCESS_UID, *PROCESS_GID, self.process_spawner.as_ref())
                         .await
-                        .map_err(VmmProcessError::ExecutorError)?;
+                        .map_err(VmmProcessError::ChangeOwnerError)?;
                 }
 
                 Ok(Client::builder(TokioExecutor::new()).build(HyperUnixConnector))

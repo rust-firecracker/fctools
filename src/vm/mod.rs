@@ -13,7 +13,7 @@ use crate::{
     process_spawner::ProcessSpawner,
     vmm::{
         arguments::VmmConfigurationOverride,
-        executor::{change_owner, VmmExecutor, VmmExecutorError, PROCESS_GID, PROCESS_UID},
+        executor::{change_owner, ChangeOwnerError, VmmExecutor, PROCESS_GID, PROCESS_UID},
         installation::VmmInstallation,
         process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
     },
@@ -83,8 +83,8 @@ impl std::fmt::Display for VmState {
 pub enum VmError {
     #[error("The underlying VMM process returned an error: `{0}`")]
     ProcessError(VmmProcessError),
-    #[error("The underlying VMM executor returned an error: `{0}`")]
-    ExecutorError(VmmExecutorError),
+    #[error("An ownership change requested on the VM level failed: `{0}`")]
+    ChangeOwnerError(ChangeOwnerError),
     #[error("Joining on an async task failed: `{0}`")]
     TaskJoinFailed(JoinError),
     #[error("Expected the VM to be in the `{expected}` state, but it was actually in the `{actual}` state")]
@@ -112,7 +112,7 @@ pub enum VmError {
     ApiResponseCouldNotBeReceived(hyper::Error),
     #[error("Expected the API response to be empty, but it contained the following response body: `{0}`")]
     ApiResponseExpectedEmpty(String),
-    #[error("No shutdown methods were specified for the VM shutdown operation")]
+    #[error("No shutdown methods were specified for a VM shutdown operation")]
     NoShutdownMethodsSpecified,
     #[error("A future timed out according to the given timeout duration")]
     Timeout,
@@ -488,7 +488,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             if process_spawner.upgrades_ownership() {
                 change_owner(&path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
                     .await
-                    .map_err(VmError::ExecutorError)?;
+                    .map_err(VmError::ChangeOwnerError)?;
             }
 
             fs_backend.remove_file(&path).await.map_err(VmError::FsBackendError)
@@ -626,7 +626,7 @@ async fn prepare_file(
         if let Some((uid, gid)) = downgrade {
             change_owner(&parent_path, uid, gid, process_spawner.as_ref())
                 .await
-                .map_err(VmError::ExecutorError)?;
+                .map_err(VmError::ChangeOwnerError)?;
         }
     }
 

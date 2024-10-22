@@ -118,7 +118,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
             join_set.spawn(async move {
                 if process_spawner.upgrades_ownership() {
-                    change_owner(&path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+                    change_owner(&path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
+                        .await
+                        .map_err(VmmExecutorError::ChangeOwnerError)?;
                 }
 
                 if !fs_backend
@@ -139,7 +141,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
             join_set.spawn(async move {
                 if process_spawner.upgrades_ownership() {
-                    change_owner(&socket_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+                    change_owner(&socket_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
+                        .await
+                        .map_err(VmmExecutorError::ChangeOwnerError)?;
                 }
 
                 if fs_backend
@@ -219,7 +223,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
             join_set.spawn(async move {
                 if process_spawner.upgrades_ownership() {
-                    change_owner(&socket_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+                    change_owner(&socket_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
+                        .await
+                        .map_err(VmmExecutorError::ChangeOwnerError)?;
                 }
 
                 if fs_backend
@@ -238,14 +244,15 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         if self.remove_logs_on_cleanup {
-            if let Some(ref log_path) = self.vmm_arguments.log_path {
+            if let Some(log_path) = self.vmm_arguments.log_path.clone() {
                 let fs_backend = fs_backend.clone();
-                let log_path = log_path.clone();
                 let process_spawner = process_spawner.clone();
 
                 join_set.spawn(async move {
                     if process_spawner.upgrades_ownership() {
-                        change_owner(&log_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+                        change_owner(&log_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
+                            .await
+                            .map_err(VmmExecutorError::ChangeOwnerError)?;
                     }
 
                     fs_backend
@@ -257,12 +264,14 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         if self.remove_metrics_on_cleanup {
-            if let Some(ref metrics_path) = self.vmm_arguments.metrics_path {
+            if let Some(metrics_path) = self.vmm_arguments.metrics_path.clone() {
                 let fs_backend = fs_backend.clone();
-                let metrics_path = metrics_path.clone();
+
                 join_set.spawn(async move {
                     if process_spawner.upgrades_ownership() {
-                        change_owner(&metrics_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref()).await?;
+                        change_owner(&metrics_path, *PROCESS_UID, *PROCESS_GID, process_spawner.as_ref())
+                            .await
+                            .map_err(VmmExecutorError::ChangeOwnerError)?;
                     }
 
                     fs_backend
