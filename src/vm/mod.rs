@@ -21,6 +21,7 @@ use crate::{
 use api::{VmApi, VmApiError};
 use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
 use models::LoadSnapshot;
+use nix::unistd::{Gid, Uid};
 use tokio::{
     net::UnixStream,
     task::{JoinError, JoinSet},
@@ -603,7 +604,7 @@ async fn prepare_file(
     fs_backend: Arc<impl FsBackend>,
     process_spawner: Arc<impl ProcessSpawner>,
     path: PathBuf,
-    downgrade: Option<(u32, u32)>,
+    downgrade: Option<(Uid, Gid)>,
     only_tree: bool,
 ) -> Result<(), VmError> {
     if let Some(parent_path) = path.parent() {

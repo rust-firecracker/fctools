@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use nix::unistd::{Gid, Uid};
 use tokio::{process::Child, task::JoinSet};
 
 use crate::{
@@ -29,7 +30,7 @@ pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
     jailer_arguments: JailerArguments,
     jail_move_method: JailMoveMethod,
     jail_renamer: R,
-    ownership_downgrade: Option<(u32, u32)>,
+    ownership_downgrade: Option<(Uid, Gid)>,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
 }
 
@@ -94,7 +95,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         true
     }
 
-    fn get_ownership_downgrade(&self) -> Option<(u32, u32)> {
+    fn get_ownership_downgrade(&self) -> Option<(Uid, Gid)> {
         self.ownership_downgrade
     }
 

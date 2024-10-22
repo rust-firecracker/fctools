@@ -36,6 +36,7 @@ use fctools::{
         process::VmmProcessState,
     },
 };
+use nix::unistd::{Gid, Uid};
 use rand::{Rng, RngCore};
 use serde::Deserialize;
 use tokio::{
@@ -181,7 +182,7 @@ impl VmmExecutor for TestExecutor {
         }
     }
 
-    fn get_ownership_downgrade(&self) -> Option<(u32, u32)> {
+    fn get_ownership_downgrade(&self) -> Option<(Uid, Gid)> {
         match self {
             TestExecutor::Unrestricted(e) => e.get_ownership_downgrade(),
             TestExecutor::Jailed(e) => e.get_ownership_downgrade(),
@@ -272,8 +273,8 @@ fn get_vmm_processes(test_options: &TestOptions) -> (TestVmmProcess, TestVmmProc
         VmmArguments::new(VmmApiSocket::Enabled(socket_path)).config_path("/jailed.json");
 
     let jailer_arguments = JailerArguments::new(
-        test_options.jailer_uid,
-        test_options.jailer_gid,
+        Uid::from_raw(test_options.jailer_uid),
+        Gid::from_raw(test_options.jailer_gid),
         rand::thread_rng().next_u32().to_string().try_into().unwrap(),
     )
     .cgroup_version(JailerCgroupVersion::V2);
@@ -484,8 +485,8 @@ impl VmBuilder {
 
         let test_options = TestOptions::get_blocking();
         let mut jailer_arguments = JailerArguments::new(
-            test_options.jailer_uid,
-            test_options.jailer_gid,
+            Uid::from_raw(test_options.jailer_uid),
+            Gid::from_raw(test_options.jailer_gid),
             rand::thread_rng().next_u32().to_string().try_into().unwrap(),
         )
         .cgroup_version(JailerCgroupVersion::V2);

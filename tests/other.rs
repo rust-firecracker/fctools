@@ -5,6 +5,7 @@ use fctools::{
     process_spawner::{DirectProcessSpawner, ProcessSpawner},
     vmm::installation::{VmmInstallation, VmmInstallationError},
 };
+use nix::unistd::geteuid;
 use test_framework::{get_test_path, TestOptions};
 use uuid::Uuid;
 
@@ -107,7 +108,7 @@ async fn direct_process_spawner_launches_simple_command() {
 
 #[tokio::test]
 async fn direct_process_spawner_runs_under_correct_uid() {
-    let uid = unsafe { libc::geteuid() };
+    let uid = geteuid();
     let stdout = String::from_utf8_lossy(
         &DirectProcessSpawner
             .spawn(
@@ -123,7 +124,7 @@ async fn direct_process_spawner_runs_under_correct_uid() {
             .stdout,
     )
     .into_owned();
-    assert_eq!(stdout.trim_end().parse::<u32>().unwrap(), uid);
+    assert_eq!(stdout.trim_end().parse::<u32>().unwrap(), uid.as_raw());
 }
 
 #[tokio::test]

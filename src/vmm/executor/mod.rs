@@ -9,6 +9,7 @@ use std::{
 
 #[cfg(feature = "jailed-vmm-executor")]
 use jailed::JailRenamerError;
+use nix::unistd::{Gid, Uid};
 #[cfg(feature = "unrestricted-vmm-executor")]
 use tokio::task::JoinSet;
 use tokio::{process::Child, task::JoinError};
@@ -27,8 +28,8 @@ pub mod jailed;
 #[cfg_attr(docsrs, doc(cfg(feature = "unrestricted-vmm-executor")))]
 pub mod unrestricted;
 
-pub(crate) static PROCESS_UID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::geteuid() });
-pub(crate) static PROCESS_GID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::getegid() });
+pub(crate) static PROCESS_UID: LazyLock<Uid> = LazyLock::new(|| nix::unistd::geteuid());
+pub(crate) static PROCESS_GID: LazyLock<Gid> = LazyLock::new(|| nix::unistd::getegid());
 
 /// An error emitted by a [VmmExecutor].
 #[derive(Debug, thiserror::Error)]
@@ -79,7 +80,7 @@ pub trait VmmExecutor: Send + Sync {
     fn is_traceless(&self) -> bool;
 
     // Returns the UID and GID of the user to downgrade ownership to, if one was configured.
-    fn get_ownership_downgrade(&self) -> Option<(u32, u32)>;
+    fn get_ownership_downgrade(&self) -> Option<(Uid, Gid)>;
 
     /// Prepare all transient resources for the VMM invocation.
     fn prepare(
@@ -109,8 +110,8 @@ pub trait VmmExecutor: Send + Sync {
 
 pub(crate) async fn change_owner(
     path: &Path,
-    uid: u32,
-    gid: u32,
+    uid: Uid,
+    gid: Gid,
     process_spawner: &impl ProcessSpawner,
 ) -> Result<(), ChangeOwnerError> {
     let mut child = process_spawner
@@ -140,7 +141,7 @@ pub(crate) async fn change_owner(
 async fn create_file_with_tree(
     fs_backend: Arc<impl FsBackend>,
     process_spawner: Arc<impl ProcessSpawner>,
-    downgrade: Option<(u32, u32)>,
+    downgrade: Option<(Uid, Gid)>,
     path: PathBuf,
 ) -> Result<(), VmmExecutorError> {
     if let Some(parent_path) = path.parent() {

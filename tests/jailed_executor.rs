@@ -9,6 +9,7 @@ use fctools::vmm::{
     },
     id::VmmId,
 };
+use nix::unistd::{getegid, geteuid};
 use rand::RngCore;
 use test_framework::{get_fake_firecracker_installation, get_fs_backend, get_process_spawner, get_tmp_path, jail_join};
 use tokio::fs::{create_dir_all, metadata, read_to_string, remove_dir_all, try_exists, write, File};
@@ -244,8 +245,7 @@ fn setup_executor(
 ) -> (JailedVmmExecutor<FlatJailRenamer>, PathBuf) {
     let jail_id = VmmId::new(rand::thread_rng().next_u32().to_string()).unwrap();
     let actual_chroot_base_dir = chroot_base_dir.clone().or(Some(PathBuf::from("/srv/jailer"))).unwrap();
-    let mut jailer_arguments =
-        JailerArguments::new(unsafe { libc::geteuid() }, unsafe { libc::getegid() }, jail_id.clone());
+    let mut jailer_arguments = JailerArguments::new(geteuid(), getegid(), jail_id.clone());
     if let Some(chroot_base_dir) = chroot_base_dir {
         jailer_arguments = jailer_arguments.chroot_base_dir(chroot_base_dir);
     }

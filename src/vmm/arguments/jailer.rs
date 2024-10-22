@@ -3,13 +3,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use nix::unistd::{Gid, Uid};
+
 use crate::vmm::id::VmmId;
 
 /// Arguments that can be passed into the "jailer" binary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JailerArguments {
-    pub(crate) uid: u32,
-    pub(crate) gid: u32,
+    pub(crate) uid: Uid,
+    pub(crate) gid: Gid,
     pub(crate) jail_id: VmmId,
 
     cgroup_values: HashMap<String, String>,
@@ -23,7 +25,7 @@ pub struct JailerArguments {
 }
 
 impl JailerArguments {
-    pub fn new(uid: u32, gid: u32, jail_id: VmmId) -> Self {
+    pub fn new(uid: Uid, gid: Gid, jail_id: VmmId) -> Self {
         Self {
             uid,
             gid,
@@ -162,12 +164,14 @@ pub enum JailerCgroupVersion {
 mod tests {
     use std::path::PathBuf;
 
+    use nix::unistd::{Gid, Uid};
+
     use crate::vmm::id::VmmId;
 
     use super::{JailerArguments, JailerCgroupVersion};
 
     fn new() -> JailerArguments {
-        JailerArguments::new(1, 1, VmmId::new("jail-id").unwrap())
+        JailerArguments::new(Uid::from_raw(1), Gid::from_raw(1), VmmId::new("jail-id").unwrap())
     }
 
     #[test]
