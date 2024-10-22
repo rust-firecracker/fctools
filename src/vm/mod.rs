@@ -18,9 +18,8 @@ use crate::{
         process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
     },
 };
-use api::VmApi;
+use api::{VmApi, VmApiError};
 use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
-use http::StatusCode;
 use models::LoadSnapshot;
 use tokio::{
     net::UnixStream,
@@ -85,33 +84,16 @@ pub enum VmError {
     ProcessError(VmmProcessError),
     #[error("An ownership change requested on the VM level failed: `{0}`")]
     ChangeOwnerError(ChangeOwnerError),
+    #[error("A filesystem backend operation failed: `{0}`")]
+    FsBackendError(FsBackendError),
     #[error("Joining on an async task failed: `{0}`")]
     TaskJoinFailed(JoinError),
-    #[error("Expected the VM to be in the `{expected}` state, but it was actually in the `{actual}` state")]
-    ExpectedState { expected: VmState, actual: VmState },
-    #[error("Expected the VM to have exited or crashed, but it was actually in the `{actual}` state")]
-    ExpectedExitedOrCrashed { actual: VmState },
-    #[error("Expected the VM to be either paused or running, but it was actually in the `{actual}` state")]
-    ExpectedPausedOrRunning { actual: VmState },
-    #[error("Serde serialization or deserialization failed: `{0}`")]
-    SerdeError(serde_json::Error),
-    #[error("The FS backend emitted an error: `{0}`")]
-    FsBackendError(FsBackendError),
-    #[error(
-        "The API socket returned an unsuccessful HTTP response with the `{status_code}` status code: `{fault_message}`"
-    )]
-    ApiRespondedWithFault {
-        status_code: StatusCode,
-        fault_message: String,
-    },
-    #[error(
-        "The API HTTP request could not be constructed, likely due to an incorrect URI or HTTP configuration: `{0}`"
-    )]
-    ApiRequestNotConstructed(http::Error),
-    #[error("The API HTTP response could not be received from the API socket: `{0}`")]
-    ApiResponseCouldNotBeReceived(hyper::Error),
-    #[error("Expected the API response to be empty, but it contained the following response body: `{0}`")]
-    ApiResponseExpectedEmpty(String),
+    #[error("A state check of the VM failed: `{0}`")]
+    StateCheckError(VmStateCheckError),
+    #[error("A request issued to the API server internally failed: `{0}`")]
+    ApiError(VmApiError),
+    #[error("Serialization of the transient JSON configuration failed: `{0}`")]
+    ConfigurationSerdeError(serde_json::Error),
     #[error("No shutdown methods were specified for a VM shutdown operation")]
     NoShutdownMethodsSpecified,
     #[error("A future timed out according to the given timeout duration")]
@@ -120,6 +102,16 @@ pub enum VmError {
     DisabledApiSocketIsUnsupported,
     #[error("A path mapping was expected to be constructed by the executor, but was not returned")]
     MissingPathMapping,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum VmStateCheckError {
+    #[error("Expected the VM to have exited or crashed, but the actual state was `{actual}`")]
+    ExitedOrCrashed { actual: VmState },
+    #[error("Expected the VM to be paused or running, but the actual state was `{actual}`")]
+    PausedOrRunning { actual: VmState },
+    #[error("Expected the VM to be in the `{expected}` state, but the actual state was `{actual}`")]
+    Other { expected: VmState, actual: VmState },
 }
 
 /// A shutdown method that can be applied to attempt to terminate both the guest operating system and the VMM.
@@ -359,7 +351,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
 
     /// Start/boot the [Vm] and perform all necessary initialization steps according to the [VmConfiguration].
     pub async fn start(&mut self, socket_wait_timeout: Duration) -> Result<(), VmError> {
-        self.ensure_state(VmState::NotStarted)?;
+        self.ensure_state(VmState::NotStarted)
+            .map_err(VmError::StateCheckError)?;
         let configuration = self
             .configuration
             .take()
@@ -388,7 +381,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 self.fs_backend
                     .write_file(
                         &self.vmm_process.inner_to_outer_path(inner_path),
-                        serde_json::to_string(data).map_err(VmError::SerdeError)?,
+                        serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
                     )
                     .await
                     .map_err(VmError::FsBackendError)?;
@@ -428,11 +421,13 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         match configuration {
             VmConfiguration::New { init_method, data } => {
                 if init_method == InitMethod::ViaApiCalls {
-                    api::init_new(self, data).await?;
+                    api::init_new(self, data).await.map_err(VmError::ApiError)?;
                 }
             }
             VmConfiguration::RestoredFromSnapshot { load_snapshot, data } => {
-                api::init_restored_from_snapshot(self, data, load_snapshot).await?;
+                api::init_restored_from_snapshot(self, data, load_snapshot)
+                    .await
+                    .map_err(VmError::ApiError)?;
             }
         }
 
@@ -442,7 +437,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
     /// Shut down the [Vm] by sequentially applying the given [Vec<ShutdownMethod>] in order with the given timeout [Duration],
     /// until one of them works without erroring or all of them have errored.
     pub async fn shutdown(&mut self, shutdown_methods: Vec<ShutdownMethod>, timeout: Duration) -> Result<(), VmError> {
-        self.ensure_paused_or_running()?;
+        self.ensure_paused_or_running().map_err(VmError::StateCheckError)?;
         let mut last_result = Ok(());
 
         for shutdown_method in shutdown_methods {
@@ -454,7 +449,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                     .map_err(VmError::ProcessError),
                 ShutdownMethod::PauseThenKill => match self.api_pause().await {
                     Ok(()) => self.vmm_process.send_sigkill().map_err(VmError::ProcessError),
-                    Err(err) => Err(err),
+                    Err(err) => Err(VmError::ApiError(err)),
                 },
                 ShutdownMethod::Kill => self.vmm_process.send_sigkill().map_err(VmError::ProcessError),
             };
@@ -494,7 +489,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             fs_backend.remove_file(&path).await.map_err(VmError::FsBackendError)
         }
 
-        self.ensure_exited_or_crashed()?;
+        self.ensure_exited_or_crashed().map_err(VmError::StateCheckError)?;
         self.vmm_process.cleanup().await.map_err(VmError::ProcessError)?;
 
         if self.executor.is_traceless() {
@@ -552,7 +547,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
 
     /// Take out the [VmmProcessPipes] of the underlying [VmmProcess].
     pub fn take_pipes(&mut self) -> Result<VmmProcessPipes, VmError> {
-        self.ensure_paused_or_running()?;
+        self.ensure_paused_or_running().map_err(VmError::StateCheckError)?;
         self.vmm_process.take_pipes().map_err(VmError::ProcessError)
     }
 
@@ -571,10 +566,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         self.accessible_paths.vsock_listener_paths.push(listener_path.into());
     }
 
-    pub(super) fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmError> {
+    pub(super) fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmStateCheckError> {
         let current_state = self.state();
         if current_state != expected_state {
-            Err(VmError::ExpectedState {
+            Err(VmStateCheckError::Other {
                 expected: expected_state,
                 actual: current_state,
             })
@@ -583,16 +578,16 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         }
     }
 
-    pub(super) fn ensure_paused_or_running(&mut self) -> Result<(), VmError> {
+    pub(super) fn ensure_paused_or_running(&mut self) -> Result<(), VmStateCheckError> {
         let current_state = self.state();
         if current_state != VmState::Running && current_state != VmState::Paused {
-            Err(VmError::ExpectedPausedOrRunning { actual: current_state })
+            Err(VmStateCheckError::PausedOrRunning { actual: current_state })
         } else {
             Ok(())
         }
     }
 
-    fn ensure_exited_or_crashed(&mut self) -> Result<(), VmError> {
+    fn ensure_exited_or_crashed(&mut self) -> Result<(), VmStateCheckError> {
         let current_state = self.state();
         if let VmState::Crashed(_) = current_state {
             return Ok(());
@@ -600,7 +595,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         if current_state == VmState::Exited {
             return Ok(());
         }
-        Err(VmError::ExpectedExitedOrCrashed { actual: current_state })
+        Err(VmStateCheckError::ExitedOrCrashed { actual: current_state })
     }
 }
 

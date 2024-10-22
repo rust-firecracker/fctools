@@ -2,9 +2,9 @@ use assert_matches::assert_matches;
 use bytes::Bytes;
 use fctools::{
     vm::{
-        api::VmApi,
+        api::{VmApi, VmApiError},
         models::{BalloonDevice, MetricsSystem, UpdateBalloonDevice, UpdateBalloonStatistics},
-        ShutdownMethod, VmError, VmState,
+        ShutdownMethod, VmState,
     },
     vmm::process::HyperResponseExt,
 };
@@ -27,7 +27,7 @@ fn vm_api_can_catch_api_errors() {
                 .unwrap_err();
             assert_matches!(
                 error,
-                VmError::ApiRespondedWithFault {
+                VmApiError::ReceivedErrorResponse {
                     status_code: StatusCode::BAD_REQUEST,
                     fault_message: _
                 }
