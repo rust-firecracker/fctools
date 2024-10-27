@@ -41,7 +41,6 @@ pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
     installation: Arc<VmmInstallation>,
     child: Option<Child>,
     state: VmmProcessState,
-    socket_path: Option<PathBuf>,
     hyper_client: OnceCell<Client<HyperUnixConnector, Full<Bytes>>>,
     outer_paths: Option<Vec<PathBuf>>,
 }
@@ -137,7 +136,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     ) -> Self {
         let executor = executor.into();
         let installation = installation.into();
-        let socket_path = executor.get_socket_path(installation.as_ref());
         Self {
             executor,
             process_spawner: process_spawner.into(),
@@ -145,7 +143,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
             fs_backend: fs_backend.into(),
             child: None,
             state: VmmProcessState::AwaitingPrepare,
-            socket_path,
             hyper_client: OnceCell::new(),
             outer_paths: Some(outer_paths),
         }
@@ -195,27 +192,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         mut request: Request<Full<Bytes>>,
     ) -> Result<Response<Incoming>, VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
-        let socket_path = self.socket_path.as_ref().ok_or(VmmProcessError::SocketWasDisabled)?;
-        let hyper_client = self
-            .hyper_client
-            .get_or_try_init(|| async {
-                if self.process_spawner.upgrades_ownership() {
-                    change_owner(
-                        &socket_path,
-                        *PROCESS_UID,
-                        *PROCESS_GID,
-                        true,
-                        self.process_spawner.as_ref(),
-                        self.fs_backend.as_ref(),
-                    )
-                    .await
-                    .map_err(VmmProcessError::ChangeOwnerError)?;
-                }
-
-                Ok(Client::builder(TokioExecutor::new()).build(HyperUnixConnector))
-            })
-            .await?;
-
+        let (hyper_client, socket_path) = self.get_hyper_client().await?;
         *request.uri_mut() = Uri::unix(socket_path, route).map_err(|_| VmmProcessError::IncorrectSocketUri)?;
         hyper_client
             .request(request)
@@ -350,6 +327,33 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         }
 
         Err(VmmProcessError::ExpectedExitedOrCrashed { actual: state })
+    }
+
+    async fn get_hyper_client(
+        &mut self,
+    ) -> Result<(&Client<HyperUnixConnector, Full<Bytes>>, PathBuf), VmmProcessError> {
+        let socket_path = self.get_socket_path().ok_or(VmmProcessError::SocketWasDisabled)?;
+        let hyper_client = self
+            .hyper_client
+            .get_or_try_init(|| async {
+                if self.process_spawner.upgrades_ownership() {
+                    change_owner(
+                        &socket_path,
+                        *PROCESS_UID,
+                        *PROCESS_GID,
+                        true,
+                        self.process_spawner.as_ref(),
+                        self.fs_backend.as_ref(),
+                    )
+                    .await
+                    .map_err(VmmProcessError::ChangeOwnerError)?;
+                }
+
+                Ok(Client::builder(TokioExecutor::new()).build(HyperUnixConnector))
+            })
+            .await?;
+
+        Ok((hyper_client, socket_path))
     }
 }
 

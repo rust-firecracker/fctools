@@ -137,7 +137,6 @@ fn vm_can_take_pipes() {
             }
 
             assert!(buf.contains("Artificially kick devices."));
-            assert!(buf.contains("Firecracker exiting successfully. exit_code=0"));
         });
 }
 

@@ -10,12 +10,11 @@ use crate::{
     fs_backend::FsBackend,
     process_spawner::ProcessSpawner,
     vmm::{
-        executor::VmmExecutor,
+        executor::{change_owner, ChangeOwnerError, VmmExecutor, PROCESS_GID, PROCESS_UID},
         process::{HyperResponseExt, VmmProcessError},
     },
 };
 
-use super::VmStateCheckError;
 use super::{
     configuration::VmConfigurationData,
     models::{
@@ -25,7 +24,7 @@ use super::{
         UpdateNetworkInterface,
     },
     snapshot::SnapshotData,
-    Vm, VmState,
+    Vm, VmState, VmStateCheckError,
 };
 
 /// An error that can be emitted by the [VmApi] Firecracker Management API bindings.
@@ -48,6 +47,8 @@ pub enum VmApiError {
     ResponseBodyContainsUnexpectedData(String),
     #[error("A state check of the VM failed: `{0}`")]
     StateCheckError(VmStateCheckError),
+    #[error("Changing the owner of the snapshot failed: `{0}`")]
+    SnapshotChangeOwnerError(ChangeOwnerError),
 }
 
 /// An extension to [Vm] providing up-to-date, exhaustive and easy-to-use bindings to the Firecracker Management API.
@@ -233,6 +234,28 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmApi for Vm<E, S, F> {
         if !self.executor.is_traceless() {
             self.snapshot_traces.push(snapshot_path.clone());
             self.snapshot_traces.push(mem_file_path.clone());
+        }
+
+        if self.process_spawner.upgrades_ownership() {
+            tokio::try_join!(
+                change_owner(
+                    &snapshot_path,
+                    *PROCESS_UID,
+                    *PROCESS_GID,
+                    true,
+                    self.process_spawner.as_ref(),
+                    self.fs_backend.as_ref()
+                ),
+                change_owner(
+                    &mem_file_path,
+                    *PROCESS_UID,
+                    *PROCESS_GID,
+                    true,
+                    self.process_spawner.as_ref(),
+                    self.fs_backend.as_ref()
+                )
+            )
+            .map_err(VmApiError::SnapshotChangeOwnerError)?;
         }
 
         Ok(SnapshotData {

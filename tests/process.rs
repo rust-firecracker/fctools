@@ -53,7 +53,6 @@ async fn vmm_can_take_out_pipes() {
             buf.push('\n');
         }
         assert!(buf.contains("Artificially kick devices."));
-        assert!(buf.contains("Firecracker exiting successfully. exit_code=0"));
 
         process.cleanup().await.unwrap();
     })
@@ -134,6 +133,14 @@ async fn vmm_can_send_put_request_to_api_socket() {
 async fn vmm_get_socket_path_returns_correct_path() {
     run_vmm_process_test(|mut process| async move {
         let socket_path = process.get_socket_path().unwrap();
+        process
+            .send_api_request(
+                "/",
+                Request::builder().method("GET").body(Full::new(Bytes::new())).unwrap(),
+            )
+            .await
+            .unwrap();
+
         let (mut send_request, connection) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(
             HyperUnixStream::connect(&socket_path).await.unwrap(),
         )

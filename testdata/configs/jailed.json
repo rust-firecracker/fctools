@@ -1,15 +1,14 @@
 {
   "boot-source": {
     "kernel_image_path": "/kernel",
-    "boot_args": "console=ttyS0 reboot=k panic=1 pci=off",
+    "boot_args": "console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda",
     "initrd_path": null
   },
   "drives": [
     {
       "drive_id": "rootfs",
       "is_root_device": true,
-      "path_on_host": "/rootfs.ext4",
-      "is_read_only": true
+      "path_on_host": "/rootfs.ext4"
     }
   ],
   "machine-config": {
