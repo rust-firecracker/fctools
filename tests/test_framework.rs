@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     future::Future,
     io::Write,
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
@@ -9,10 +10,11 @@ use std::{
 };
 
 use cidr::IpInet;
-use fcnet::{FirecrackerNetwork, FirecrackerNetworkOperation, FirecrackerNetworkType};
+use fcnet_types::{FirecrackerIpStack, FirecrackerNetwork, FirecrackerNetworkOperation, FirecrackerNetworkType};
+use fcnetd_client::FcnetdConnection;
 use fctools::{
     fs_backend::{blocking::BlockingFsBackend, FsBackend},
-    process_spawner::{DirectProcessSpawner, ProcessSpawner},
+    process_spawner::{DirectProcessSpawner, ProcessSpawner, SudoProcessSpawner},
     vm::{
         configuration::{InitMethod, VmConfiguration, VmConfigurationData},
         models::{
@@ -36,7 +38,7 @@ use fctools::{
         process::VmmProcessState,
     },
 };
-use nix::unistd::{Gid, Uid};
+use nix::unistd::{getegid, geteuid, Gid, Uid};
 use rand::{Rng, RngCore};
 use serde::Deserialize;
 use tokio::{
@@ -230,7 +232,7 @@ impl VmmExecutor for TestExecutor {
 // VMM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVmmProcess = fctools::vmm::process::VmmProcess<TestExecutor, DirectProcessSpawner, BlockingFsBackend>;
+pub type TestVmmProcess = fctools::vmm::process::VmmProcess<TestExecutor, SudoProcessSpawner, BlockingFsBackend>;
 
 #[allow(unused)]
 pub async fn run_vmm_process_test<F, Fut>(closure: F)
@@ -288,14 +290,14 @@ fn get_vmm_processes(test_options: &TestOptions) -> (TestVmmProcess, TestVmmProc
     (
         TestVmmProcess::new(
             TestExecutor::Unrestricted(unrestricted_executor),
-            DirectProcessSpawner,
+            SudoProcessSpawner::new(),
             BlockingFsBackend,
             get_real_firecracker_installation(),
             vec![],
         ),
         TestVmmProcess::new(
             TestExecutor::Jailed(jailed_executor),
-            DirectProcessSpawner,
+            SudoProcessSpawner::new(),
             BlockingFsBackend,
             get_real_firecracker_installation(),
             vec![
@@ -310,7 +312,7 @@ fn get_vmm_processes(test_options: &TestOptions) -> (TestVmmProcess, TestVmmProc
 // VM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVm = fctools::vm::Vm<TestExecutor, DirectProcessSpawner, BlockingFsBackend>;
+pub type TestVm = fctools::vm::Vm<TestExecutor, SudoProcessSpawner, BlockingFsBackend>;
 
 type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>>;
 
@@ -414,7 +416,6 @@ impl VmBuilder {
             .block_on(async { TestOptions::get().await.network_interface.clone() });
 
         let network = FirecrackerNetwork {
-            iptables_path: which::which("iptables").unwrap(),
             iface_name,
             tap_name: tap_name.clone(),
             tap_ip,
@@ -424,12 +425,14 @@ impl VmBuilder {
                 veth2_name: format!("vpeer{net_num}"),
                 veth1_ip: inet(net_num, 3),
                 veth2_ip: inet(net_num, 4),
-                guest_ip: guest_ip.address(),
                 forwarded_guest_ip: None,
             },
+            nft_path: None,
+            ip_stack: FirecrackerIpStack::V4,
+            guest_ip,
         };
         let mut boot_arg_append = String::from(" ");
-        boot_arg_append.push_str(network.guest_ip_boot_arg(&guest_ip, "eth0").as_str());
+        boot_arg_append.push_str(network.guest_ip_boot_arg("eth0").as_str());
 
         NetworkData {
             network_interface: NetworkInterface::new("eth0", tap_name),
@@ -469,7 +472,11 @@ impl VmBuilder {
                 .boot_args(get_boot_arg(self.unrestricted_network_data.as_ref())),
             MachineConfiguration::new(1, 128).track_dirty_pages(true),
         )
-        .drive(Drive::new("rootfs", true).path_on_host(get_test_path("assets/rootfs.ext4")));
+        .drive(
+            Drive::new("rootfs", true)
+                .path_on_host(get_test_path("assets/rootfs.ext4"))
+                .is_read_only(true),
+        );
         let mut unrestricted_executor =
             UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())));
         if let Some(ref network) = self.unrestricted_network_data {
@@ -481,7 +488,11 @@ impl VmBuilder {
             BootSource::new(get_test_path("assets/kernel")).boot_args(get_boot_arg(self.jailed_network_data.as_ref())),
             MachineConfiguration::new(1, 128).track_dirty_pages(true),
         )
-        .drive(Drive::new("rootfs", true).path_on_host(get_test_path("assets/rootfs.ext4")));
+        .drive(
+            Drive::new("rootfs", true)
+                .path_on_host(get_test_path("assets/rootfs.ext4"))
+                .is_read_only(true),
+        );
 
         let test_options = TestOptions::get_blocking();
         let mut jailer_arguments = JailerArguments::new(
@@ -579,13 +590,12 @@ impl VmBuilder {
         F: Fn(TestVm, bool) -> Fut + Send,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        let fcnet_path = get_test_path("toolchain/fcnet");
+        let (mut fcnetd_conn, mut fcnetd_child) = start_fcnetd().await;
 
         if let Some(ref network_data) = network_data {
             let lock = get_network_lock().await;
-            network_data
-                .network
-                .run(FirecrackerNetworkOperation::Add)
+            fcnetd_conn
+                .run(&network_data.network, FirecrackerNetworkOperation::Add)
                 .await
                 .unwrap();
             drop(lock);
@@ -596,9 +606,9 @@ impl VmBuilder {
             TestExecutor::Unrestricted(_) => false,
         };
 
-        let mut vm: fctools::vm::Vm<TestExecutor, DirectProcessSpawner, BlockingFsBackend> = TestVm::prepare(
+        let mut vm: fctools::vm::Vm<TestExecutor, SudoProcessSpawner, BlockingFsBackend> = TestVm::prepare(
             executor,
-            DirectProcessSpawner,
+            SudoProcessSpawner::new(),
             BlockingFsBackend,
             get_real_firecracker_installation(),
             configuration,
@@ -618,13 +628,14 @@ impl VmBuilder {
 
         if let Some(network_data) = network_data {
             let lock = get_network_lock().await;
-            network_data
-                .network
-                .run(FirecrackerNetworkOperation::Delete)
+            fcnetd_conn
+                .run(&network_data.network, FirecrackerNetworkOperation::Delete)
                 .await
                 .unwrap();
             drop(lock);
         }
+
+        fcnetd_child.kill().await.unwrap();
     }
 }
 
@@ -645,6 +656,36 @@ static NETWORK_LOCKING_MUTEX: Mutex<()> = Mutex::const_new(());
 struct NetworkLock<'a> {
     mutex_guard: MutexGuard<'a, ()>,
     file_lock: file_lock::FileLock,
+}
+
+async fn start_fcnetd() -> (FcnetdConnection, Child) {
+    let socket_path = get_tmp_path();
+
+    let child = SudoProcessSpawner::new()
+        .spawn(
+            &get_test_path("toolchain/fcnetd"),
+            vec![
+                "--uid".to_string(),
+                geteuid().to_string(),
+                "--gid".to_string(),
+                getegid().to_string(),
+                socket_path.to_string_lossy().into_owned(),
+            ],
+            true,
+        )
+        .await
+        .unwrap();
+
+    loop {
+        if let Ok(metadata) = tokio::fs::metadata(&socket_path).await {
+            if metadata.uid() == geteuid().as_raw() && metadata.gid() == getegid().as_raw() {
+                break;
+            }
+        }
+    }
+
+    let connection = FcnetdConnection::connect(&socket_path).await.unwrap();
+    (connection, child)
 }
 
 async fn get_network_lock<'a>() -> NetworkLock<'a> {

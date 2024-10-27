@@ -83,12 +83,12 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
         match &self.vmm_arguments.api_socket {
             VmmApiSocket::Disabled => None,
-            VmmApiSocket::Enabled(socket_path) => Some(self.get_jail_path(installation).jail_join(&socket_path)),
+            VmmApiSocket::Enabled(socket_path) => Some(self.get_paths(installation).1.jail_join(&socket_path)),
         }
     }
 
     fn inner_to_outer_path(&self, installation: &VmmInstallation, inner_path: &Path) -> PathBuf {
-        self.get_jail_path(installation).jail_join(inner_path)
+        self.get_paths(installation).1.jail_join(inner_path)
     }
 
     fn is_traceless(&self) -> bool {
@@ -107,10 +107,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         outer_paths: Vec<PathBuf>,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
         // Create jail and delete previous one if necessary
-        let jail_path = Arc::new(self.get_jail_path(installation));
-        let chroot_base_dir = jail_path
-            .parent()
-            .ok_or(VmmExecutorError::ExpectedDirectoryParentMissing)?;
+        let (chroot_base_dir, jail_path) = self.get_paths(installation);
         if process_spawner.upgrades_ownership() {
             change_owner(
                 &chroot_base_dir,
@@ -299,7 +296,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         process_spawner: Arc<impl ProcessSpawner>,
         fs_backend: Arc<impl FsBackend>,
     ) -> Result<(), VmmExecutorError> {
-        let jail_path = self.get_jail_path(installation);
+        let (_, jail_path) = self.get_paths(installation);
 
         if process_spawner.upgrades_ownership() {
             change_owner(
@@ -325,14 +322,14 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
 }
 
 impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
-    fn get_jail_path(&self, installation: &VmmInstallation) -> PathBuf {
+    fn get_paths(&self, installation: &VmmInstallation) -> (PathBuf, PathBuf) {
         let chroot_base_dir = match self.jailer_arguments.chroot_base_dir {
             Some(ref path) => path.clone(),
             None => PathBuf::from("/srv/jailer"),
         };
 
         // example: /srv/jailer/firecracker/1/root
-        chroot_base_dir
+        let jail_path = chroot_base_dir
             .join(
                 match installation.firecracker_path.file_name().map(|f| f.to_str()).flatten() {
                     Some(filename) => filename,
@@ -340,7 +337,9 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
                 },
             )
             .join(self.jailer_arguments.jail_id.as_ref())
-            .join("root")
+            .join("root");
+
+        (chroot_base_dir, jail_path)
     }
 }
 

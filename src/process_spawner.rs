@@ -179,10 +179,6 @@ impl ProcessSpawner for SudoProcessSpawner {
 
         if let Some(ref password) = self.password {
             stdin_ref.write_all(format!("{password}\n").as_bytes()).await?;
-        } else {
-            return Err(std::io::Error::other(
-                "Sudo requested a password but it wasn't provided in the shell instance",
-            ));
         }
 
         if pipes_to_null {

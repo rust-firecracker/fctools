@@ -10,5 +10,5 @@
     },
     "network_interface": "wlp7s0",
     "jailer_uid": 1000,
-    "jailer_gid": 1000
+    "jailer_gid": 100
 }
