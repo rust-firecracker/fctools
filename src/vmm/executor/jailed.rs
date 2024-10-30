@@ -174,7 +174,6 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             let jail_move_method = self.jail_move_method;
             let fs_backend = fs_backend.clone();
             let process_spawner = process_spawner.clone();
-            let ownership_model = ownership_model;
 
             join_set.spawn(async move {
                 upgrade_owner(

@@ -104,15 +104,6 @@ async fn create_file_with_tree(
     path: PathBuf,
 ) -> Result<(), VmmExecutorError> {
     if let Some(parent_path) = path.parent() {
-        upgrade_owner(
-            &parent_path,
-            ownership_model,
-            process_spawner.as_ref(),
-            fs_backend.as_ref(),
-        )
-        .await
-        .map_err(VmmExecutorError::ChangeOwnerError)?;
-
         fs_backend
             .create_dir_all(parent_path)
             .await
