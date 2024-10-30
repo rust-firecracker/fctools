@@ -69,6 +69,13 @@ pub enum ChangeOwnerError {
     FsBackendError(FsBackendError),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VmmOwnershipModel {
+    Shared,
+    UpgradedPermanently,
+    UpgradedTemporarily,
+}
+
 /// A [VmmExecutor] manages the environment of a VMM, correctly invoking its process, while
 /// setting up and subsequently cleaning its environment. This allows modularity between different modes of VMM execution.
 pub trait VmmExecutor: Send + Sync {
@@ -81,9 +88,6 @@ pub trait VmmExecutor: Send + Sync {
     // Returns a boolean determining whether this executor leaves any traces on the host filesystem after cleanup.
     fn is_traceless(&self) -> bool;
 
-    // Returns the UID and GID of the user to downgrade ownership to, if one was configured.
-    fn get_ownership_downgrade(&self) -> Option<(Uid, Gid)>;
-
     /// Prepare all transient resources for the VMM invocation.
     fn prepare(
         &self,
@@ -91,6 +95,7 @@ pub trait VmmExecutor: Send + Sync {
         process_spawner: Arc<impl ProcessSpawner>,
         fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
+        ownership_model: VmmOwnershipModel,
     ) -> impl Future<Output = Result<HashMap<PathBuf, PathBuf>, VmmExecutorError>> + Send;
 
     /// Invoke the VMM on the given [VmmInstallation] and return the spawned async [Child] process.
@@ -107,27 +112,27 @@ pub trait VmmExecutor: Send + Sync {
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         fs_backend: Arc<impl FsBackend>,
+        ownership_model: VmmOwnershipModel,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
 pub(crate) async fn change_owner(
     path: &Path,
-    uid: Uid,
-    gid: Gid,
-    upgrade: bool,
+    forced: bool,
     process_spawner: &impl ProcessSpawner,
     fs_backend: &impl FsBackend,
 ) -> Result<(), ChangeOwnerError> {
-    // use "chown" process spawning for upgrades since they require privilege acquiry that can't be done on the control process
-    // for downgrades or other types of ownership changes, use an in-process async implementation from the FS backend
-    if upgrade {
+    // use "chown" process spawning for forced chowns since they require privilege acquiry that can't be done on the
+    // control process
+    // otherwise, use an in-process async implementation from the FS backend
+    if forced {
         let mut child = process_spawner
             .spawn(
                 &PathBuf::from("chown"),
                 vec![
                     "-f".to_string(),
                     "-R".to_string(),
-                    format!("{uid}:{gid}"),
+                    format!("{}:{}", *PROCESS_UID, *PROCESS_GID),
                     path.to_string_lossy().into_owned(),
                 ],
                 false,
@@ -143,7 +148,7 @@ pub(crate) async fn change_owner(
         }
     } else {
         fs_backend
-            .chownr(path, uid, gid)
+            .chownr(path, *PROCESS_UID, *PROCESS_GID)
             .await
             .map_err(ChangeOwnerError::FsBackendError)?;
     }
@@ -154,21 +159,14 @@ pub(crate) async fn change_owner(
 async fn create_file_with_tree(
     fs_backend: Arc<impl FsBackend>,
     process_spawner: Arc<impl ProcessSpawner>,
-    downgrade: Option<(Uid, Gid)>,
+    ownership_model: VmmOwnershipModel,
     path: PathBuf,
 ) -> Result<(), VmmExecutorError> {
     if let Some(parent_path) = path.parent() {
-        if process_spawner.upgrades_ownership() {
-            change_owner(
-                &parent_path,
-                *PROCESS_UID,
-                *PROCESS_GID,
-                true,
-                process_spawner.as_ref(),
-                fs_backend.as_ref(),
-            )
-            .await
-            .map_err(VmmExecutorError::ChangeOwnerError)?;
+        if ownership_model != VmmOwnershipModel::Shared {
+            change_owner(&parent_path, true, process_spawner.as_ref(), fs_backend.as_ref())
+                .await
+                .map_err(VmmExecutorError::ChangeOwnerError)?;
         }
 
         fs_backend
@@ -182,8 +180,8 @@ async fn create_file_with_tree(
         .await
         .map_err(VmmExecutorError::FsBackendError)?;
 
-    if let Some((uid, gid)) = downgrade {
-        change_owner(&path, uid, gid, false, process_spawner.as_ref(), fs_backend.as_ref())
+    if ownership_model == VmmOwnershipModel::UpgradedTemporarily {
+        change_owner(&path, false, process_spawner.as_ref(), fs_backend.as_ref())
             .await
             .map_err(VmmExecutorError::ChangeOwnerError)?;
     }

@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use assert_matches::assert_matches;
 use fctools::vmm::{
     arguments::{VmmApiSocket, VmmArguments, VmmConfigurationOverride},
-    executor::{unrestricted::UnrestrictedVmmExecutor, VmmExecutor, VmmExecutorError},
+    executor::{unrestricted::UnrestrictedVmmExecutor, VmmExecutor, VmmExecutorError, VmmOwnershipModel},
 };
 use test_framework::{
     get_fake_firecracker_installation, get_fs_backend, get_process_spawner, get_tmp_path, FailingRunner,
@@ -42,7 +42,8 @@ async fn unrestricted_executor_prepare_runs_with_existing_resources() {
                 &get_fake_firecracker_installation(),
                 get_process_spawner(),
                 get_fs_backend(),
-                vec![existing_path.clone()]
+                vec![existing_path.clone()],
+                VmmOwnershipModel::Shared
             )
             .await
             .unwrap(),
@@ -62,7 +63,8 @@ async fn unrestricted_executor_prepare_fails_with_missing_resources() {
                 &get_fake_firecracker_installation(),
                 get_process_spawner(),
                 get_fs_backend(),
-                vec![path.clone()]
+                vec![path.clone()],
+                VmmOwnershipModel::Shared
             )
             .await,
         Err(VmmExecutorError::ExpectedResourceMissing(_))
@@ -80,6 +82,7 @@ async fn unrestricted_executor_prepare_removes_pre_existing_api_socket() {
             get_process_spawner(),
             get_fs_backend(),
             vec![],
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();
@@ -96,6 +99,7 @@ async fn unrestricted_executor_prepare_creates_log_file() {
             get_process_spawner(),
             get_fs_backend(),
             vec![],
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();
@@ -113,6 +117,7 @@ async fn unrestricted_executor_prepare_creates_metrics_file() {
             get_process_spawner(),
             get_fs_backend(),
             vec![],
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();
@@ -161,6 +166,7 @@ async fn unrestricted_executor_cleanup_removes_api_socket() {
             &get_fake_firecracker_installation(),
             get_process_spawner(),
             get_fs_backend(),
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();
@@ -186,6 +192,7 @@ async fn unrestricted_executor_cleanup_removes_log_and_metrics_file() {
             &get_fake_firecracker_installation(),
             get_process_spawner(),
             get_fs_backend(),
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();
@@ -210,6 +217,7 @@ async fn unrestricted_executor_cleanup_does_not_remove_log_and_metrics_files() {
             &get_fake_firecracker_installation(),
             get_process_spawner(),
             get_fs_backend(),
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();

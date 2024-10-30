@@ -32,7 +32,7 @@ use fctools::{
         executor::{
             jailed::{FlatJailRenamer, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
-            VmmExecutor, VmmExecutorError,
+            VmmExecutor, VmmExecutorError, VmmOwnershipModel,
         },
         installation::VmmInstallation,
         process::VmmProcessState,
@@ -142,10 +142,6 @@ pub fn get_fs_backend() -> Arc<impl FsBackend> {
 pub struct FailingRunner;
 
 impl ProcessSpawner for FailingRunner {
-    fn upgrades_ownership(&self) -> bool {
-        false
-    }
-
     async fn spawn(
         &self,
         _path: &Path,
@@ -184,23 +180,23 @@ impl VmmExecutor for TestExecutor {
         }
     }
 
-    fn get_ownership_downgrade(&self) -> Option<(Uid, Gid)> {
-        match self {
-            TestExecutor::Unrestricted(e) => e.get_ownership_downgrade(),
-            TestExecutor::Jailed(e) => e.get_ownership_downgrade(),
-        }
-    }
-
     async fn prepare(
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
+        ownership_model: VmmOwnershipModel,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
         match self {
-            TestExecutor::Unrestricted(e) => e.prepare(installation, process_spawner, fs_backend, outer_paths).await,
-            TestExecutor::Jailed(e) => e.prepare(installation, process_spawner, fs_backend, outer_paths).await,
+            TestExecutor::Unrestricted(e) => {
+                e.prepare(installation, process_spawner, fs_backend, outer_paths, ownership_model)
+                    .await
+            }
+            TestExecutor::Jailed(e) => {
+                e.prepare(installation, process_spawner, fs_backend, outer_paths, ownership_model)
+                    .await
+            }
         }
     }
 
@@ -221,10 +217,17 @@ impl VmmExecutor for TestExecutor {
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         fs_backend: Arc<impl FsBackend>,
+        ownership_model: VmmOwnershipModel,
     ) -> Result<(), VmmExecutorError> {
         match self {
-            TestExecutor::Unrestricted(e) => e.cleanup(installation, process_spawner, fs_backend).await,
-            TestExecutor::Jailed(e) => e.cleanup(installation, process_spawner, fs_backend).await,
+            TestExecutor::Unrestricted(e) => {
+                e.cleanup(installation, process_spawner, fs_backend, ownership_model)
+                    .await
+            }
+            TestExecutor::Jailed(e) => {
+                e.cleanup(installation, process_spawner, fs_backend, ownership_model)
+                    .await
+            }
         }
     }
 }
@@ -290,6 +293,7 @@ fn get_vmm_processes(test_options: &TestOptions) -> (TestVmmProcess, TestVmmProc
     (
         TestVmmProcess::new(
             TestExecutor::Unrestricted(unrestricted_executor),
+            VmmOwnershipModel::UpgradedTemporarily,
             SudoProcessSpawner::new(),
             BlockingFsBackend,
             get_real_firecracker_installation(),
@@ -297,6 +301,7 @@ fn get_vmm_processes(test_options: &TestOptions) -> (TestVmmProcess, TestVmmProc
         ),
         TestVmmProcess::new(
             TestExecutor::Jailed(jailed_executor),
+            VmmOwnershipModel::UpgradedTemporarily,
             SudoProcessSpawner::new(),
             BlockingFsBackend,
             get_real_firecracker_installation(),
@@ -608,6 +613,7 @@ impl VmBuilder {
 
         let mut vm: fctools::vm::Vm<TestExecutor, SudoProcessSpawner, BlockingFsBackend> = TestVm::prepare(
             executor,
+            VmmOwnershipModel::UpgradedTemporarily,
             SudoProcessSpawner::new(),
             BlockingFsBackend,
             get_real_firecracker_installation(),

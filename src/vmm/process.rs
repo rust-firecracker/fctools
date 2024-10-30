@@ -28,7 +28,7 @@ use crate::{
 
 use super::{
     arguments::VmmConfigurationOverride,
-    executor::{change_owner, ChangeOwnerError, PROCESS_GID, PROCESS_UID},
+    executor::{change_owner, ChangeOwnerError, VmmOwnershipModel},
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
@@ -36,6 +36,7 @@ use super::{
 #[derive(Debug)]
 pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
     executor: Arc<E>,
+    ownership_model: VmmOwnershipModel,
     process_spawner: Arc<S>,
     fs_backend: Arc<F>,
     installation: Arc<VmmInstallation>,
@@ -129,6 +130,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     /// sharing of [VmmProcess] components between multiple [VmmProcess]-es.
     pub fn new(
         executor: impl Into<Arc<E>>,
+        ownership_model: VmmOwnershipModel,
         process_spawner: impl Into<Arc<S>>,
         fs_backend: impl Into<Arc<F>>,
         installation: impl Into<Arc<VmmInstallation>>,
@@ -138,6 +140,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         let installation = installation.into();
         Self {
             executor,
+            ownership_model,
             process_spawner: process_spawner.into(),
             installation,
             fs_backend: fs_backend.into(),
@@ -160,6 +163,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
                 self.outer_paths
                     .take()
                     .expect("Outer paths cannot ever be none, unreachable"),
+                self.ownership_model,
             )
             .await
             .map_err(VmmProcessError::ExecutorError)?;
@@ -300,6 +304,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
                 self.installation.as_ref(),
                 self.process_spawner.clone(),
                 self.fs_backend.clone(),
+                self.ownership_model,
             )
             .await
             .map_err(VmmProcessError::ExecutorError)?;
@@ -336,11 +341,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         let hyper_client = self
             .hyper_client
             .get_or_try_init(|| async {
-                if self.process_spawner.upgrades_ownership() {
+                if self.ownership_model != VmmOwnershipModel::Shared {
                     change_owner(
                         &socket_path,
-                        *PROCESS_UID,
-                        *PROCESS_GID,
                         true,
                         self.process_spawner.as_ref(),
                         self.fs_backend.as_ref(),

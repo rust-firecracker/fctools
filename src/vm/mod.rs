@@ -13,7 +13,7 @@ use crate::{
     process_spawner::ProcessSpawner,
     vmm::{
         arguments::VmmConfigurationOverride,
-        executor::{change_owner, ChangeOwnerError, VmmExecutor, PROCESS_GID, PROCESS_UID},
+        executor::{change_owner, ChangeOwnerError, VmmExecutor, VmmOwnershipModel},
         installation::VmmInstallation,
         process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
     },
@@ -21,7 +21,6 @@ use crate::{
 use api::{VmApi, VmApiError};
 use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
 use models::LoadSnapshot;
-use nix::unistd::{Gid, Uid};
 use tokio::task::{JoinError, JoinSet};
 
 pub mod api;
@@ -41,6 +40,7 @@ pub struct Vm<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
     fs_backend: Arc<F>,
     process_spawner: Arc<S>,
     executor: Arc<E>,
+    ownership_model: VmmOwnershipModel,
     is_paused: bool,
     original_configuration_data: VmConfigurationData,
     configuration: Option<VmConfiguration>,
@@ -146,6 +146,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
     /// can be either owned or [Arc]-ed; in the former case they will be put into an [Arc].
     pub async fn prepare(
         executor: impl Into<Arc<E>>,
+        ownership_model: VmmOwnershipModel,
         process_spawner: impl Into<Arc<S>>,
         fs_backend: impl Into<Arc<F>>,
         installation: impl Into<Arc<VmmInstallation>>,
@@ -192,6 +193,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         // prepare
         let mut vmm_process = VmmProcess::new(
             executor.clone(),
+            ownership_model,
             process_spawner.clone(),
             fs_backend.clone(),
             installation,
@@ -256,7 +258,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                     fs_backend.clone(),
                     process_spawner.clone(),
                     new_log_path.clone(),
-                    executor.get_ownership_downgrade(),
+                    ownership_model,
                     false,
                 ));
                 accessible_paths.log_path = Some(new_log_path);
@@ -269,7 +271,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 fs_backend.clone(),
                 process_spawner.clone(),
                 new_metrics_path.clone(),
-                executor.get_ownership_downgrade(),
+                ownership_model,
                 false,
             ));
             accessible_paths.metrics_path = Some(new_metrics_path);
@@ -281,7 +283,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 fs_backend.clone(),
                 process_spawner.clone(),
                 new_uds_path.clone(),
-                executor.get_ownership_downgrade(),
+                ownership_model,
                 true,
             ));
             accessible_paths.vsock_multiplexer_path = Some(new_uds_path);
@@ -294,7 +296,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                     fs_backend.clone(),
                     process_spawner.clone(),
                     new_log_path.clone(),
-                    executor.get_ownership_downgrade(),
+                    ownership_model,
                     false,
                 ));
                 accessible_paths.log_path = Some(new_log_path);
@@ -307,7 +309,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 fs_backend.clone(),
                 process_spawner.clone(),
                 new_metrics_path.clone(),
-                executor.get_ownership_downgrade(),
+                ownership_model,
                 false,
             ));
             accessible_paths.metrics_path = Some(new_metrics_path);
@@ -327,6 +329,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             fs_backend,
             process_spawner,
             executor,
+            ownership_model,
             is_paused: false,
             original_configuration_data,
             configuration: Some(configuration),
@@ -374,7 +377,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                     self.fs_backend.clone(),
                     self.process_spawner.clone(),
                     outer_path.clone(),
-                    self.executor.get_ownership_downgrade(),
+                    self.ownership_model,
                     true,
                 )
                 .await?;
@@ -469,18 +472,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             process_spawner: Arc<impl ProcessSpawner>,
             fs_backend: Arc<impl FsBackend>,
             path: PathBuf,
+            ownership_model: VmmOwnershipModel,
         ) -> Result<(), VmError> {
-            if process_spawner.upgrades_ownership() {
-                change_owner(
-                    &path,
-                    *PROCESS_UID,
-                    *PROCESS_GID,
-                    true,
-                    process_spawner.as_ref(),
-                    fs_backend.as_ref(),
-                )
-                .await
-                .map_err(VmError::ChangeOwnerError)?;
+            if ownership_model != VmmOwnershipModel::Shared {
+                change_owner(&path, true, process_spawner.as_ref(), fs_backend.as_ref())
+                    .await
+                    .map_err(VmError::ChangeOwnerError)?;
             }
 
             fs_backend.remove_file(&path).await.map_err(VmError::FsBackendError)
@@ -500,6 +497,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 self.process_spawner.clone(),
                 self.fs_backend.clone(),
                 log_path,
+                self.ownership_model,
             ));
         }
 
@@ -508,6 +506,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 self.process_spawner.clone(),
                 self.fs_backend.clone(),
                 metrics_path,
+                self.ownership_model,
             ));
         }
 
@@ -516,6 +515,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 self.process_spawner.clone(),
                 self.fs_backend.clone(),
                 multiplexer_path,
+                self.ownership_model,
             ));
 
             for listener_path in self.accessible_paths.vsock_listener_paths.clone() {
@@ -523,6 +523,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                     self.process_spawner.clone(),
                     self.fs_backend.clone(),
                     listener_path,
+                    self.ownership_model,
                 ));
             }
         }
@@ -532,6 +533,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 self.process_spawner.clone(),
                 self.fs_backend.clone(),
                 snapshot_trace_path,
+                self.ownership_model,
             ));
         }
 
@@ -600,7 +602,7 @@ async fn prepare_file(
     fs_backend: Arc<impl FsBackend>,
     process_spawner: Arc<impl ProcessSpawner>,
     path: PathBuf,
-    downgrade: Option<(Uid, Gid)>,
+    ownership_model: VmmOwnershipModel,
     only_tree: bool,
 ) -> Result<(), VmError> {
     if let Some(parent_path) = path.parent() {
@@ -615,17 +617,10 @@ async fn prepare_file(
     }
 
     if let Some(parent_path) = path.parent() {
-        if let Some((uid, gid)) = downgrade {
-            change_owner(
-                &parent_path,
-                uid,
-                gid,
-                false,
-                process_spawner.as_ref(),
-                fs_backend.as_ref(),
-            )
-            .await
-            .map_err(VmError::ChangeOwnerError)?;
+        if ownership_model == VmmOwnershipModel::UpgradedTemporarily {
+            change_owner(&parent_path, true, process_spawner.as_ref(), fs_backend.as_ref())
+                .await
+                .map_err(VmError::ChangeOwnerError)?;
         }
     }
 

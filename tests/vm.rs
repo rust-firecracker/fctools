@@ -15,6 +15,7 @@ use fctools::{
         executor::{
             jailed::{FlatJailRenamer, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
+            VmmOwnershipModel,
         },
     },
 };
@@ -229,6 +230,7 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
 
     let mut vm = TestVm::prepare(
         executor,
+        VmmOwnershipModel::UpgradedTemporarily,
         SudoProcessSpawner::new(),
         BlockingFsBackend,
         get_real_firecracker_installation(),

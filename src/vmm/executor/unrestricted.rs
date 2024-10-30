@@ -17,9 +17,7 @@ use crate::{
     },
 };
 
-use super::{
-    change_owner, create_file_with_tree, join_on_set, VmmExecutor, VmmExecutorError, PROCESS_GID, PROCESS_UID,
-};
+use super::{change_owner, create_file_with_tree, join_on_set, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
 
 /// A [VmmExecutor] that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
 /// This [VmmExecutor] allows rootless execution, given that the user has been granted access to /dev/kvm, but using
@@ -100,16 +98,13 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         false
     }
 
-    fn get_ownership_downgrade(&self) -> Option<(Uid, Gid)> {
-        self.ownership_downgrade
-    }
-
     async fn prepare(
         &self,
         _installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
+        ownership_model: VmmOwnershipModel,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
         let mut join_set = JoinSet::new();
 
@@ -118,17 +113,10 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let process_spawner = process_spawner.clone();
 
             join_set.spawn(async move {
-                if process_spawner.upgrades_ownership() {
-                    change_owner(
-                        &path,
-                        *PROCESS_UID,
-                        *PROCESS_GID,
-                        true,
-                        process_spawner.as_ref(),
-                        fs_backend.as_ref(),
-                    )
-                    .await
-                    .map_err(VmmExecutorError::ChangeOwnerError)?;
+                if ownership_model != VmmOwnershipModel::Shared {
+                    change_owner(&path, true, process_spawner.as_ref(), fs_backend.as_ref())
+                        .await
+                        .map_err(VmmExecutorError::ChangeOwnerError)?;
                 }
 
                 if !fs_backend
@@ -148,17 +136,10 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let process_spawner = process_spawner.clone();
 
             join_set.spawn(async move {
-                if process_spawner.upgrades_ownership() {
-                    change_owner(
-                        &socket_path,
-                        *PROCESS_UID,
-                        *PROCESS_GID,
-                        true,
-                        process_spawner.as_ref(),
-                        fs_backend.as_ref(),
-                    )
-                    .await
-                    .map_err(VmmExecutorError::ChangeOwnerError)?;
+                if ownership_model != VmmOwnershipModel::Shared {
+                    change_owner(&socket_path, true, process_spawner.as_ref(), fs_backend.as_ref())
+                        .await
+                        .map_err(VmmExecutorError::ChangeOwnerError)?;
                 }
 
                 if fs_backend
@@ -181,7 +162,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             join_set.spawn(create_file_with_tree(
                 fs_backend.clone(),
                 process_spawner.clone(),
-                self.ownership_downgrade,
+                ownership_model,
                 log_path,
             ));
         }
@@ -190,7 +171,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             join_set.spawn(create_file_with_tree(
                 fs_backend.clone(),
                 process_spawner.clone(),
-                self.ownership_downgrade,
+                ownership_model,
                 metrics_path,
             ));
         }
@@ -229,6 +210,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         _installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         fs_backend: Arc<impl FsBackend>,
+        ownership_model: VmmOwnershipModel,
     ) -> Result<(), VmmExecutorError> {
         let mut join_set: JoinSet<Result<(), VmmExecutorError>> = JoinSet::new();
 
@@ -237,17 +219,10 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let fs_backend = fs_backend.clone();
 
             join_set.spawn(async move {
-                if process_spawner.upgrades_ownership() {
-                    change_owner(
-                        &socket_path,
-                        *PROCESS_UID,
-                        *PROCESS_GID,
-                        true,
-                        process_spawner.as_ref(),
-                        fs_backend.as_ref(),
-                    )
-                    .await
-                    .map_err(VmmExecutorError::ChangeOwnerError)?;
+                if ownership_model != VmmOwnershipModel::Shared {
+                    change_owner(&socket_path, true, process_spawner.as_ref(), fs_backend.as_ref())
+                        .await
+                        .map_err(VmmExecutorError::ChangeOwnerError)?;
                 }
 
                 if fs_backend
@@ -271,17 +246,10 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                 let process_spawner = process_spawner.clone();
 
                 join_set.spawn(async move {
-                    if process_spawner.upgrades_ownership() {
-                        change_owner(
-                            &log_path,
-                            *PROCESS_UID,
-                            *PROCESS_GID,
-                            true,
-                            process_spawner.as_ref(),
-                            fs_backend.as_ref(),
-                        )
-                        .await
-                        .map_err(VmmExecutorError::ChangeOwnerError)?;
+                    if ownership_model != VmmOwnershipModel::Shared {
+                        change_owner(&log_path, true, process_spawner.as_ref(), fs_backend.as_ref())
+                            .await
+                            .map_err(VmmExecutorError::ChangeOwnerError)?;
                     }
 
                     fs_backend
@@ -297,17 +265,10 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                 let fs_backend = fs_backend.clone();
 
                 join_set.spawn(async move {
-                    if process_spawner.upgrades_ownership() {
-                        change_owner(
-                            &metrics_path,
-                            *PROCESS_UID,
-                            *PROCESS_GID,
-                            true,
-                            process_spawner.as_ref(),
-                            fs_backend.as_ref(),
-                        )
-                        .await
-                        .map_err(VmmExecutorError::ChangeOwnerError)?;
+                    if ownership_model != VmmOwnershipModel::Shared {
+                        change_owner(&metrics_path, true, process_spawner.as_ref(), fs_backend.as_ref())
+                            .await
+                            .map_err(VmmExecutorError::ChangeOwnerError)?;
                     }
 
                     fs_backend

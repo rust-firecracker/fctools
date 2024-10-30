@@ -5,7 +5,7 @@ use fctools::vmm::{
     arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
     executor::{
         jailed::{FlatJailRenamer, JailMoveMethod, JailRenamer, JailedVmmExecutor},
-        VmmExecutor, VmmExecutorError,
+        VmmExecutor, VmmExecutorError, VmmOwnershipModel,
     },
     id::VmmId,
 };
@@ -54,6 +54,7 @@ async fn jailed_executor_prepare_creates_chroot_base_dir() {
             get_process_spawner(),
             get_fs_backend(),
             vec![],
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();
@@ -70,6 +71,7 @@ async fn jailed_executor_prepare_defaults_to_srv_jailer() {
             get_process_spawner(),
             get_fs_backend(),
             vec![],
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();
@@ -90,6 +92,7 @@ async fn jailed_executor_prepare_deletes_existing_jail() {
             get_process_spawner(),
             get_fs_backend(),
             vec![],
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();
@@ -107,6 +110,7 @@ async fn jailed_executor_prepare_creates_socket_parent_directory() {
             get_process_spawner(),
             get_fs_backend(),
             vec![],
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();
@@ -123,6 +127,7 @@ async fn jailed_executor_prepare_creates_log_file() {
             get_process_spawner(),
             get_fs_backend(),
             vec![],
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();
@@ -139,6 +144,7 @@ async fn jailed_executor_prepare_creates_metrics_file() {
             get_process_spawner(),
             get_fs_backend(),
             vec![],
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();
@@ -156,7 +162,8 @@ async fn jailed_executor_prepare_checks_for_missing_resources() {
                 &get_fake_firecracker_installation(),
                 get_process_spawner(),
                 get_fs_backend(),
-                vec![resource_path.clone()]
+                vec![resource_path.clone()],
+                VmmOwnershipModel::Shared,
             )
             .await,
         Err(VmmExecutorError::ExpectedResourceMissing(_))
@@ -188,6 +195,7 @@ async fn jailed_executor_cleanup_recursively_removes_entire_jail() {
             get_process_spawner(),
             get_fs_backend(),
             vec![],
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();
@@ -197,6 +205,7 @@ async fn jailed_executor_cleanup_recursively_removes_entire_jail() {
             &get_fake_firecracker_installation(),
             get_process_spawner(),
             get_fs_backend(),
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();
@@ -219,7 +228,8 @@ async fn move_test_imp(jail_move_method: JailMoveMethod, try_cross_device: bool)
                 &get_fake_firecracker_installation(),
                 get_process_spawner(),
                 get_fs_backend(),
-                vec![resource_path.clone()]
+                vec![resource_path.clone()],
+                VmmOwnershipModel::Shared,
             )
             .await
             .unwrap()

@@ -10,7 +10,7 @@ use crate::{
     fs_backend::FsBackend,
     process_spawner::ProcessSpawner,
     vmm::{
-        executor::{change_owner, ChangeOwnerError, VmmExecutor, PROCESS_GID, PROCESS_UID},
+        executor::{change_owner, ChangeOwnerError, VmmExecutor, VmmOwnershipModel},
         process::{HyperResponseExt, VmmProcessError},
     },
 };
@@ -236,20 +236,16 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmApi for Vm<E, S, F> {
             self.snapshot_traces.push(mem_file_path.clone());
         }
 
-        if self.process_spawner.upgrades_ownership() {
+        if self.ownership_model != VmmOwnershipModel::Shared {
             tokio::try_join!(
                 change_owner(
                     &snapshot_path,
-                    *PROCESS_UID,
-                    *PROCESS_GID,
                     true,
                     self.process_spawner.as_ref(),
                     self.fs_backend.as_ref()
                 ),
                 change_owner(
                     &mem_file_path,
-                    *PROCESS_UID,
-                    *PROCESS_GID,
                     true,
                     self.process_spawner.as_ref(),
                     self.fs_backend.as_ref()

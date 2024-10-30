@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use nix::unistd::{Gid, Uid};
 use tokio::{process::Child, task::JoinSet};
 
 use crate::{
@@ -19,7 +18,7 @@ use crate::{
     },
 };
 
-use super::{change_owner, create_file_with_tree, VmmExecutor, VmmExecutorError, PROCESS_GID, PROCESS_UID};
+use super::{change_owner, create_file_with_tree, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
@@ -30,23 +29,16 @@ pub struct JailedVmmExecutor<R: JailRenamer + 'static> {
     jailer_arguments: JailerArguments,
     jail_move_method: JailMoveMethod,
     jail_renamer: R,
-    ownership_downgrade: Option<(Uid, Gid)>,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
 }
 
 impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
     pub fn new(vmm_arguments: VmmArguments, jailer_arguments: JailerArguments, jail_renamer: R) -> Self {
-        let mut ownership_downgrade = None;
-        if jailer_arguments.uid != *PROCESS_UID || jailer_arguments.gid != *PROCESS_GID {
-            ownership_downgrade = Some((jailer_arguments.uid, jailer_arguments.gid));
-        }
-
         Self {
             vmm_arguments,
             jailer_arguments,
             jail_move_method: JailMoveMethod::Copy,
             jail_renamer,
-            ownership_downgrade,
             command_modifier_chain: Vec::new(),
         }
     }
@@ -95,30 +87,20 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         true
     }
 
-    fn get_ownership_downgrade(&self) -> Option<(Uid, Gid)> {
-        self.ownership_downgrade
-    }
-
     async fn prepare(
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
+        ownership_model: VmmOwnershipModel,
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
         // Create jail and delete previous one if necessary
         let (chroot_base_dir, jail_path) = self.get_paths(installation);
-        if process_spawner.upgrades_ownership() {
-            change_owner(
-                &chroot_base_dir,
-                *PROCESS_UID,
-                *PROCESS_GID,
-                true,
-                process_spawner.as_ref(),
-                fs_backend.as_ref(),
-            )
-            .await
-            .map_err(VmmExecutorError::ChangeOwnerError)?;
+        if ownership_model != VmmOwnershipModel::Shared {
+            change_owner(&chroot_base_dir, true, process_spawner.as_ref(), fs_backend.as_ref())
+                .await
+                .map_err(VmmExecutorError::ChangeOwnerError)?;
         }
 
         if fs_backend
@@ -159,7 +141,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             join_set.spawn(create_file_with_tree(
                 fs_backend.clone(),
                 process_spawner.clone(),
-                self.ownership_downgrade,
+                ownership_model,
                 jail_path.jail_join(log_path),
             ));
         }
@@ -168,7 +150,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             join_set.spawn(create_file_with_tree(
                 fs_backend.clone(),
                 process_spawner.clone(),
-                self.ownership_downgrade,
+                ownership_model,
                 jail_path.jail_join(metrics_path),
             ));
         }
@@ -191,19 +173,13 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             let jail_move_method = self.jail_move_method;
             let fs_backend = fs_backend.clone();
             let process_spawner = process_spawner.clone();
+            let ownership_model = ownership_model;
 
             join_set.spawn(async move {
-                if process_spawner.upgrades_ownership() {
-                    change_owner(
-                        &outer_path,
-                        *PROCESS_UID,
-                        *PROCESS_GID,
-                        true,
-                        process_spawner.as_ref(),
-                        fs_backend.as_ref(),
-                    )
-                    .await
-                    .map_err(VmmExecutorError::ChangeOwnerError)?;
+                if ownership_model != VmmOwnershipModel::Shared {
+                    change_owner(&outer_path, true, process_spawner.as_ref(), fs_backend.as_ref())
+                        .await
+                        .map_err(VmmExecutorError::ChangeOwnerError)?;
                 }
 
                 if !fs_backend
@@ -252,17 +228,10 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             result.map_err(VmmExecutorError::TaskJoinFailed)??;
         }
 
-        if let Some((uid, gid)) = self.ownership_downgrade {
-            change_owner(
-                &jail_path,
-                uid,
-                gid,
-                false,
-                process_spawner.as_ref(),
-                fs_backend.as_ref(),
-            )
-            .await
-            .map_err(VmmExecutorError::ChangeOwnerError)?;
+        if ownership_model == VmmOwnershipModel::UpgradedTemporarily {
+            change_owner(&jail_path, false, process_spawner.as_ref(), fs_backend.as_ref())
+                .await
+                .map_err(VmmExecutorError::ChangeOwnerError)?;
         }
 
         Ok(path_mappings)
@@ -295,20 +264,14 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         fs_backend: Arc<impl FsBackend>,
+        ownership_model: VmmOwnershipModel,
     ) -> Result<(), VmmExecutorError> {
         let (_, jail_path) = self.get_paths(installation);
 
-        if process_spawner.upgrades_ownership() {
-            change_owner(
-                &jail_path,
-                *PROCESS_UID,
-                *PROCESS_GID,
-                true,
-                process_spawner.as_ref(),
-                fs_backend.as_ref(),
-            )
-            .await
-            .map_err(VmmExecutorError::ChangeOwnerError)?;
+        if ownership_model != VmmOwnershipModel::Shared {
+            change_owner(&jail_path, true, process_spawner.as_ref(), fs_backend.as_ref())
+                .await
+                .map_err(VmmExecutorError::ChangeOwnerError)?;
         }
 
         let jail_parent_path = jail_path
