@@ -20,16 +20,16 @@ use tokio::{
 
 pub struct ProcessHandle(ProcessHandleInner);
 
-pub struct RawPipes {
+pub struct ProcessHandlePipes {
     pub stdout: ChildStdout,
     pub stderr: ChildStderr,
     pub stdin: ChildStdin,
 }
 
-pub enum RawPipesError {
+pub enum ProcessHandlePipesError {
     ProcessIsDetached,
     PipesWereDropped,
-    PipeWasMissing,
+    PipesWereAlreadyTaken,
 }
 
 enum ProcessHandleInner {
@@ -118,22 +118,31 @@ impl ProcessHandle {
         }
     }
 
-    pub fn get_pipes(&mut self) -> Result<RawPipes, RawPipesError> {
+    pub fn get_pipes(&mut self) -> Result<ProcessHandlePipes, ProcessHandlePipesError> {
         match self.0 {
-            ProcessHandleInner::Detached { pid: _, pidfd: _ } => Err(RawPipesError::ProcessIsDetached),
+            ProcessHandleInner::Detached { pid: _, pidfd: _ } => Err(ProcessHandlePipesError::ProcessIsDetached),
             ProcessHandleInner::Attached {
                 ref mut child,
                 pipes_dropped,
             } => {
                 if pipes_dropped {
-                    return Err(RawPipesError::PipesWereDropped);
+                    return Err(ProcessHandlePipesError::PipesWereDropped);
                 }
 
-                let stdout = child.stdout.take().ok_or(RawPipesError::PipeWasMissing)?;
-                let stderr = child.stderr.take().ok_or(RawPipesError::PipeWasMissing)?;
-                let stdin = child.stdin.take().ok_or(RawPipesError::PipeWasMissing)?;
+                let stdout = child
+                    .stdout
+                    .take()
+                    .ok_or(ProcessHandlePipesError::PipesWereAlreadyTaken)?;
+                let stderr = child
+                    .stderr
+                    .take()
+                    .ok_or(ProcessHandlePipesError::PipesWereAlreadyTaken)?;
+                let stdin = child
+                    .stdin
+                    .take()
+                    .ok_or(ProcessHandlePipesError::PipesWereAlreadyTaken)?;
 
-                Ok(RawPipes { stdout, stderr, stdin })
+                Ok(ProcessHandlePipes { stdout, stderr, stdin })
             }
         }
     }
