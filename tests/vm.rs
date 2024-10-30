@@ -13,6 +13,7 @@ use fctools::{
     vmm::{
         arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
         executor::{
+            either::EitherVmmExecutor,
             jailed::{FlatJailRenamer, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
         },
@@ -21,7 +22,7 @@ use fctools::{
 };
 use rand::RngCore;
 use test_framework::{
-    get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, TestExecutor, TestOptions, TestVm, VmBuilder,
+    get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, TestOptions, TestVm, VmBuilder,
 };
 use tokio::{
     fs::{metadata, try_exists},
@@ -213,14 +214,14 @@ fn vm_can_boot_with_net_iface() {
 
 async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
     let executor = match is_jailed {
-        true => TestExecutor::Jailed(JailedVmmExecutor::new(
+        true => EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
             JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap()),
             FlatJailRenamer::default(),
         )),
-        false => TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(
-            get_tmp_path(),
-        )))),
+        false => EitherVmmExecutor::Unrestricted(UnrestrictedVmmExecutor::new(VmmArguments::new(
+            VmmApiSocket::Enabled(get_tmp_path()),
+        ))),
     };
 
     let mut vm = TestVm::prepare(

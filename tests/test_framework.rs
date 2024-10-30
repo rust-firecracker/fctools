@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     future::Future,
     io::Write,
     os::unix::fs::MetadataExt,
@@ -30,9 +29,9 @@ use fctools::{
             VmmApiSocket, VmmArguments,
         },
         executor::{
+            either::EitherVmmExecutor,
             jailed::{FlatJailRenamer, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
-            VmmExecutor, VmmExecutorError,
         },
         installation::VmmInstallation,
         ownership::VmmOwnershipModel,
@@ -153,97 +152,11 @@ impl ProcessSpawner for FailingRunner {
     }
 }
 
-#[allow(unused)]
-pub enum TestExecutor {
-    Unrestricted(UnrestrictedVmmExecutor),
-    Jailed(JailedVmmExecutor<FlatJailRenamer>),
-}
-
-impl VmmExecutor for TestExecutor {
-    fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
-        match self {
-            TestExecutor::Unrestricted(e) => e.get_socket_path(installation),
-            TestExecutor::Jailed(e) => e.get_socket_path(installation),
-        }
-    }
-
-    fn inner_to_outer_path(&self, installation: &VmmInstallation, inner_path: &Path) -> PathBuf {
-        match self {
-            TestExecutor::Unrestricted(e) => e.inner_to_outer_path(installation, inner_path),
-            TestExecutor::Jailed(e) => e.inner_to_outer_path(installation, inner_path),
-        }
-    }
-
-    fn is_traceless(&self) -> bool {
-        match self {
-            TestExecutor::Unrestricted(e) => e.is_traceless(),
-            TestExecutor::Jailed(e) => e.is_traceless(),
-        }
-    }
-
-    async fn prepare(
-        &self,
-        installation: &VmmInstallation,
-        process_spawner: Arc<impl ProcessSpawner>,
-        fs_backend: Arc<impl FsBackend>,
-        outer_paths: Vec<PathBuf>,
-        ownership_model: VmmOwnershipModel,
-    ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
-        match self {
-            TestExecutor::Unrestricted(e) => {
-                e.prepare(installation, process_spawner, fs_backend, outer_paths, ownership_model)
-                    .await
-            }
-            TestExecutor::Jailed(e) => {
-                e.prepare(installation, process_spawner, fs_backend, outer_paths, ownership_model)
-                    .await
-            }
-        }
-    }
-
-    async fn invoke(
-        &self,
-        installation: &VmmInstallation,
-        process_spawner: Arc<impl ProcessSpawner>,
-        config_path: Option<PathBuf>,
-        ownership_model: VmmOwnershipModel,
-    ) -> Result<Child, VmmExecutorError> {
-        match self {
-            TestExecutor::Unrestricted(e) => {
-                e.invoke(installation, process_spawner, config_path, ownership_model)
-                    .await
-            }
-            TestExecutor::Jailed(e) => {
-                e.invoke(installation, process_spawner, config_path, ownership_model)
-                    .await
-            }
-        }
-    }
-
-    async fn cleanup(
-        &self,
-        installation: &VmmInstallation,
-        process_spawner: Arc<impl ProcessSpawner>,
-        fs_backend: Arc<impl FsBackend>,
-        ownership_model: VmmOwnershipModel,
-    ) -> Result<(), VmmExecutorError> {
-        match self {
-            TestExecutor::Unrestricted(e) => {
-                e.cleanup(installation, process_spawner, fs_backend, ownership_model)
-                    .await
-            }
-            TestExecutor::Jailed(e) => {
-                e.cleanup(installation, process_spawner, fs_backend, ownership_model)
-                    .await
-            }
-        }
-    }
-}
-
 // VMM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVmmProcess = fctools::vmm::process::VmmProcess<TestExecutor, SudoProcessSpawner, BlockingFsBackend>;
+pub type TestVmmProcess =
+    fctools::vmm::process::VmmProcess<EitherVmmExecutor<FlatJailRenamer>, SudoProcessSpawner, BlockingFsBackend>;
 
 #[allow(unused)]
 pub async fn run_vmm_process_test<F, Fut>(closure: F)
@@ -289,7 +202,7 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
 
     (
         TestVmmProcess::new(
-            TestExecutor::Unrestricted(unrestricted_executor),
+            EitherVmmExecutor::Unrestricted(unrestricted_executor),
             VmmOwnershipModel::UpgradedTemporarily,
             SudoProcessSpawner::new(),
             BlockingFsBackend,
@@ -297,7 +210,7 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
             vec![],
         ),
         TestVmmProcess::new(
-            TestExecutor::Jailed(jailed_executor),
+            EitherVmmExecutor::Jailed(jailed_executor),
             VmmOwnershipModel::UpgradedTemporarily,
             SudoProcessSpawner::new(),
             BlockingFsBackend,
@@ -314,7 +227,7 @@ fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
 // VM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVm = fctools::vm::Vm<TestExecutor, SudoProcessSpawner, BlockingFsBackend>;
+pub type TestVm = fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, SudoProcessSpawner, BlockingFsBackend>;
 
 type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>>;
 
@@ -504,7 +417,7 @@ impl VmBuilder {
                 jailer_arguments.network_namespace_path(format!("/var/run/netns/{}", network.netns_name));
         }
 
-        let jailed_executor = TestExecutor::Jailed(JailedVmmExecutor::new(
+        let jailed_executor = EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(socket_path)),
             jailer_arguments,
             FlatJailRenamer::default(),
@@ -560,7 +473,7 @@ impl VmBuilder {
                             init_method: self.init_method.clone(),
                             data: unrestricted_data
                         },
-                        TestExecutor::Unrestricted(unrestricted_executor),
+                        EitherVmmExecutor::Unrestricted(unrestricted_executor),
                         pre_start_hook1,
                         function.clone(),
                     ),
@@ -581,7 +494,7 @@ impl VmBuilder {
     async fn test_worker<F, Fut>(
         network_data: Option<NetworkData>,
         configuration: VmConfiguration,
-        executor: TestExecutor,
+        executor: EitherVmmExecutor<FlatJailRenamer>,
         pre_start_hook: Option<PreStartHook>,
         function: F,
     ) where
@@ -600,20 +513,21 @@ impl VmBuilder {
         }
 
         let is_jailed = match executor {
-            TestExecutor::Jailed(_) => true,
-            TestExecutor::Unrestricted(_) => false,
+            EitherVmmExecutor::Jailed(_) => true,
+            EitherVmmExecutor::Unrestricted(_) => false,
         };
 
-        let mut vm: fctools::vm::Vm<TestExecutor, SudoProcessSpawner, BlockingFsBackend> = TestVm::prepare(
-            executor,
-            VmmOwnershipModel::UpgradedTemporarily,
-            SudoProcessSpawner::new(),
-            BlockingFsBackend,
-            get_real_firecracker_installation(),
-            configuration,
-        )
-        .await
-        .unwrap();
+        let mut vm: fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, SudoProcessSpawner, BlockingFsBackend> =
+            TestVm::prepare(
+                executor,
+                VmmOwnershipModel::UpgradedTemporarily,
+                SudoProcessSpawner::new(),
+                BlockingFsBackend,
+                get_real_firecracker_installation(),
+                configuration,
+            )
+            .await
+            .unwrap();
         if let Some(pre_start_hook) = pre_start_hook {
             pre_start_hook(&mut vm).await;
         }

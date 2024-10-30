@@ -21,6 +21,9 @@ use super::{
     ownership::{downgrade_owner, upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
 };
 
+#[cfg(feature = "either-vmm-executor")]
+#[cfg_attr(docsrs, doc(cfg(feature = "either-vmm-executor")))]
+pub mod either;
 #[cfg(feature = "jailed-vmm-executor")]
 #[cfg_attr(docsrs, doc(cfg(feature = "jailed-vmm-executor")))]
 pub mod jailed;

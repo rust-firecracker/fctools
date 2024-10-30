@@ -83,6 +83,7 @@ full = [
     "elevation-process-spawners",
     "unrestricted-vmm-executor",
     "jailed-vmm-executor",
+    "either-vmm-executor",
     "metrics-extension",
     "http-vsock-extension",
     "grpc-vsock-extension",
@@ -113,6 +114,7 @@ vmm-executor = [
 ]
 jailed-vmm-executor = ["vmm-executor"]
 unrestricted-vmm-executor = ["vmm-executor"]
+either-vmm-executor = ["unrestricted-vmm-executor", "jailed-vmm-executor"]
 vmm-process = [
     "vmm-executor",
     "dep:hyper",
