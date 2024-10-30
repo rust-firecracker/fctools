@@ -14,7 +14,7 @@ use crate::{
     vmm::{
         executor::VmmExecutor,
         installation::VmmInstallation,
-        ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
+        ownership::{downgrade_owner, upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
         process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
     },
 };
@@ -612,17 +612,9 @@ async fn prepare_file(
 
     if !only_tree {
         fs_backend.create_file(&path).await.map_err(VmError::FsBackendError)?;
-    }
-
-    if let Some(parent_path) = path.parent() {
-        upgrade_owner(
-            &parent_path,
-            ownership_model,
-            process_spawner.as_ref(),
-            fs_backend.as_ref(),
-        )
-        .await
-        .map_err(VmError::ChangeOwnerError)?;
+        downgrade_owner(&path, ownership_model, process_spawner.as_ref(), fs_backend.as_ref())
+            .await
+            .map_err(VmError::ChangeOwnerError)?;
     }
 
     Ok(())

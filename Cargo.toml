@@ -48,14 +48,14 @@ hyper = { version = "1.5.0", features = ["client"], optional = true }
 bytes = { version = "1.8.0", optional = true }
 http-body-util = { version = "0.1.2", optional = true }
 hyper-client-sockets = { version = "0.2.0", optional = true }
-hyper-util = { version = "0.1.9", features = [
+hyper-util = { version = "0.1.10", features = [
     "client-legacy",
     "client",
     "http1",
 ], optional = true }
 http = { version = "1.1.0", optional = true }
 # vm
-serde = { version = "1.0.212", features = ["derive"], optional = true }
+serde = { version = "1.0.214", features = ["derive"], optional = true }
 serde_json = { version = "1.0.132", optional = true }
 # extensions
 cidr = { version = "0.3.0", optional = true }
