@@ -12,10 +12,9 @@ use crate::{
     fs_backend::{FsBackend, FsBackendError},
     process_spawner::ProcessSpawner,
     vmm::{
-        arguments::VmmConfigurationOverride,
         executor::VmmExecutor,
         installation::VmmInstallation,
-        ownership::{change_owner, ChangeOwnerError, VmmOwnershipModel},
+        ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
         process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
     },
 };
@@ -365,7 +364,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             .get_socket_path()
             .ok_or(VmError::DisabledApiSocketIsUnsupported)?;
 
-        let mut configuration_override = VmmConfigurationOverride::NoOverride;
+        let mut config_path = None;
         if let VmConfiguration::New {
             ref init_method,
             ref data,
@@ -373,7 +372,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         {
             if let InitMethod::ViaJsonConfiguration(inner_path) = init_method {
                 let outer_path = self.vmm_process.inner_to_outer_path(inner_path);
-                configuration_override = VmmConfigurationOverride::Enable(inner_path.clone());
+                config_path = Some(inner_path.clone());
                 prepare_file(
                     self.fs_backend.clone(),
                     self.process_spawner.clone(),
@@ -393,7 +392,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         }
 
         self.vmm_process
-            .invoke(configuration_override)
+            .invoke(config_path)
             .await
             .map_err(VmError::ProcessError)?;
 
@@ -475,11 +474,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             path: PathBuf,
             ownership_model: VmmOwnershipModel,
         ) -> Result<(), VmError> {
-            if ownership_model != VmmOwnershipModel::Shared {
-                change_owner(&path, true, process_spawner.as_ref(), fs_backend.as_ref())
-                    .await
-                    .map_err(VmError::ChangeOwnerError)?;
-            }
+            upgrade_owner(&path, ownership_model, process_spawner.as_ref(), fs_backend.as_ref())
+                .await
+                .map_err(VmError::ChangeOwnerError)?;
 
             fs_backend.remove_file(&path).await.map_err(VmError::FsBackendError)
         }
@@ -618,11 +615,14 @@ async fn prepare_file(
     }
 
     if let Some(parent_path) = path.parent() {
-        if ownership_model == VmmOwnershipModel::UpgradedTemporarily {
-            change_owner(&parent_path, true, process_spawner.as_ref(), fs_backend.as_ref())
-                .await
-                .map_err(VmError::ChangeOwnerError)?;
-        }
+        upgrade_owner(
+            &parent_path,
+            ownership_model,
+            process_spawner.as_ref(),
+            fs_backend.as_ref(),
+        )
+        .await
+        .map_err(VmError::ChangeOwnerError)?;
     }
 
     Ok(())

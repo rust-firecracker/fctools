@@ -27,7 +27,7 @@ use fctools::{
         arguments::{
             command_modifier::NetnsCommandModifier,
             jailer::{JailerArguments, JailerCgroupVersion},
-            VmmApiSocket, VmmArguments, VmmConfigurationOverride,
+            VmmApiSocket, VmmArguments,
         },
         executor::{
             jailed::{FlatJailRenamer, JailedVmmExecutor},
@@ -39,7 +39,7 @@ use fctools::{
         process::VmmProcessState,
     },
 };
-use nix::unistd::{getegid, geteuid, Gid, Uid};
+use nix::unistd::{getegid, geteuid};
 use rand::{Rng, RngCore};
 use serde::Deserialize;
 use tokio::{
@@ -205,11 +205,18 @@ impl VmmExecutor for TestExecutor {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        config_override: VmmConfigurationOverride,
+        config_path: Option<PathBuf>,
+        ownership_model: VmmOwnershipModel,
     ) -> Result<Child, VmmExecutorError> {
         match self {
-            TestExecutor::Unrestricted(e) => e.invoke(installation, process_spawner, config_override).await,
-            TestExecutor::Jailed(e) => e.invoke(installation, process_spawner, config_override).await,
+            TestExecutor::Unrestricted(e) => {
+                e.invoke(installation, process_spawner, config_path, ownership_model)
+                    .await
+            }
+            TestExecutor::Jailed(e) => {
+                e.invoke(installation, process_spawner, config_path, ownership_model)
+                    .await
+            }
         }
     }
 
@@ -245,7 +252,7 @@ where
     F: 'static,
     Fut: Future<Output = ()>,
 {
-    async fn init_process(process: &mut TestVmmProcess) {
+    async fn init_process(process: &mut TestVmmProcess, config_path: impl Into<PathBuf>) {
         process.wait_for_exit().await.unwrap_err();
         process.send_ctrl_alt_del().await.unwrap_err();
         process.send_sigkill().unwrap_err();
@@ -255,14 +262,14 @@ where
         assert_eq!(process.state(), VmmProcessState::AwaitingPrepare);
         process.prepare().await.unwrap();
         assert_eq!(process.state(), VmmProcessState::AwaitingStart);
-        process.invoke(VmmConfigurationOverride::NoOverride).await.unwrap();
+        process.invoke(Some(config_path.into())).await.unwrap();
         assert_eq!(process.state(), VmmProcessState::Started);
     }
 
-    let (mut unrestricted_process, mut jailed_process) = get_vmm_processes(TestOptions::get().await);
+    let (mut unrestricted_process, mut jailed_process) = get_vmm_processes();
 
-    init_process(&mut jailed_process).await;
-    init_process(&mut unrestricted_process).await;
+    init_process(&mut jailed_process, "/jailed.json").await;
+    init_process(&mut unrestricted_process, get_test_path("configs/unrestricted.json")).await;
     tokio::time::sleep(Duration::from_millis(TestOptions::get().await.waits.boot_wait_ms)).await;
     closure(unrestricted_process).await;
     println!("Succeeded with unrestricted VM");
@@ -270,26 +277,15 @@ where
     println!("Succeeded with jailed VM");
 }
 
-fn get_vmm_processes(test_options: &TestOptions) -> (TestVmmProcess, TestVmmProcess) {
+fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
     let socket_path = get_tmp_path();
 
-    let unrestricted_firecracker_arguments = VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()))
-        .config_path(get_test_path("configs/unrestricted.json"));
-    let jailer_firecracker_arguments =
-        VmmArguments::new(VmmApiSocket::Enabled(socket_path)).config_path("/jailed.json");
+    let vmm_arguments = VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()));
 
-    let jailer_arguments = JailerArguments::new(
-        Uid::from_raw(test_options.jailer_uid),
-        Gid::from_raw(test_options.jailer_gid),
-        rand::thread_rng().next_u32().to_string().try_into().unwrap(),
-    )
-    .cgroup_version(JailerCgroupVersion::V2);
-    let unrestricted_executor = UnrestrictedVmmExecutor::new(unrestricted_firecracker_arguments);
-    let jailed_executor = JailedVmmExecutor::new(
-        jailer_firecracker_arguments,
-        jailer_arguments,
-        FlatJailRenamer::default(),
-    );
+    let jailer_arguments = JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap())
+        .cgroup_version(JailerCgroupVersion::V2);
+    let unrestricted_executor = UnrestrictedVmmExecutor::new(vmm_arguments.clone());
+    let jailed_executor = JailedVmmExecutor::new(vmm_arguments, jailer_arguments, FlatJailRenamer::default());
 
     (
         TestVmmProcess::new(
@@ -501,12 +497,8 @@ impl VmBuilder {
         );
 
         let test_options = TestOptions::get_blocking();
-        let mut jailer_arguments = JailerArguments::new(
-            Uid::from_raw(test_options.jailer_uid),
-            Gid::from_raw(test_options.jailer_gid),
-            rand::thread_rng().next_u32().to_string().try_into().unwrap(),
-        )
-        .cgroup_version(JailerCgroupVersion::V2);
+        let mut jailer_arguments = JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap())
+            .cgroup_version(JailerCgroupVersion::V2);
         if let Some(ref network) = self.jailed_network_data {
             jailer_arguments =
                 jailer_arguments.network_namespace_path(format!("/var/run/netns/{}", network.netns_name));

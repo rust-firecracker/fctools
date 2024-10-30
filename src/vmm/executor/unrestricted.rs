@@ -11,13 +11,13 @@ use crate::{
     fs_backend::FsBackend,
     process_spawner::ProcessSpawner,
     vmm::{
-        arguments::{command_modifier::CommandModifier, VmmApiSocket, VmmArguments, VmmConfigurationOverride},
+        arguments::{command_modifier::CommandModifier, VmmApiSocket, VmmArguments},
         id::VmmId,
         installation::VmmInstallation,
     },
 };
 
-use super::{change_owner, create_file_with_tree, join_on_set, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
+use super::{create_file_with_tree, join_on_set, upgrade_owner, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
 
 /// A [VmmExecutor] that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
 /// This [VmmExecutor] allows rootless execution, given that the user has been granted access to /dev/kvm, but using
@@ -113,11 +113,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let process_spawner = process_spawner.clone();
 
             join_set.spawn(async move {
-                if ownership_model != VmmOwnershipModel::Shared {
-                    change_owner(&path, true, process_spawner.as_ref(), fs_backend.as_ref())
-                        .await
-                        .map_err(VmmExecutorError::ChangeOwnerError)?;
-                }
+                upgrade_owner(&path, ownership_model, process_spawner.as_ref(), fs_backend.as_ref())
+                    .await
+                    .map_err(VmmExecutorError::ChangeOwnerError)?;
 
                 if !fs_backend
                     .check_exists(&path)
@@ -136,11 +134,14 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let process_spawner = process_spawner.clone();
 
             join_set.spawn(async move {
-                if ownership_model != VmmOwnershipModel::Shared {
-                    change_owner(&socket_path, true, process_spawner.as_ref(), fs_backend.as_ref())
-                        .await
-                        .map_err(VmmExecutorError::ChangeOwnerError)?;
-                }
+                upgrade_owner(
+                    &socket_path,
+                    ownership_model,
+                    process_spawner.as_ref(),
+                    fs_backend.as_ref(),
+                )
+                .await
+                .map_err(VmmExecutorError::ChangeOwnerError)?;
 
                 if fs_backend
                     .check_exists(&socket_path)
@@ -184,9 +185,10 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        configuration_override: VmmConfigurationOverride,
+        config_path: Option<PathBuf>,
+        _ownership_model: VmmOwnershipModel,
     ) -> Result<Child, VmmExecutorError> {
-        let mut arguments = self.vmm_arguments.join(configuration_override);
+        let mut arguments = self.vmm_arguments.join(config_path);
         let mut binary_path = installation.firecracker_path.clone();
 
         for command_modifier in &self.command_modifier_chain {
@@ -219,11 +221,14 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let fs_backend = fs_backend.clone();
 
             join_set.spawn(async move {
-                if ownership_model != VmmOwnershipModel::Shared {
-                    change_owner(&socket_path, true, process_spawner.as_ref(), fs_backend.as_ref())
-                        .await
-                        .map_err(VmmExecutorError::ChangeOwnerError)?;
-                }
+                upgrade_owner(
+                    &socket_path,
+                    ownership_model,
+                    process_spawner.as_ref(),
+                    fs_backend.as_ref(),
+                )
+                .await
+                .map_err(VmmExecutorError::ChangeOwnerError)?;
 
                 if fs_backend
                     .check_exists(&socket_path)
@@ -246,11 +251,14 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                 let process_spawner = process_spawner.clone();
 
                 join_set.spawn(async move {
-                    if ownership_model != VmmOwnershipModel::Shared {
-                        change_owner(&log_path, true, process_spawner.as_ref(), fs_backend.as_ref())
-                            .await
-                            .map_err(VmmExecutorError::ChangeOwnerError)?;
-                    }
+                    upgrade_owner(
+                        &log_path,
+                        ownership_model,
+                        process_spawner.as_ref(),
+                        fs_backend.as_ref(),
+                    )
+                    .await
+                    .map_err(VmmExecutorError::ChangeOwnerError)?;
 
                     fs_backend
                         .remove_file(&log_path)
@@ -265,11 +273,14 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                 let fs_backend = fs_backend.clone();
 
                 join_set.spawn(async move {
-                    if ownership_model != VmmOwnershipModel::Shared {
-                        change_owner(&metrics_path, true, process_spawner.as_ref(), fs_backend.as_ref())
-                            .await
-                            .map_err(VmmExecutorError::ChangeOwnerError)?;
-                    }
+                    upgrade_owner(
+                        &metrics_path,
+                        ownership_model,
+                        process_spawner.as_ref(),
+                        fs_backend.as_ref(),
+                    )
+                    .await
+                    .map_err(VmmExecutorError::ChangeOwnerError)?;
 
                     fs_backend
                         .remove_file(&metrics_path)

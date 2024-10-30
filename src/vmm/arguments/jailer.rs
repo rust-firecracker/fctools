@@ -10,8 +10,6 @@ use crate::vmm::id::VmmId;
 /// Arguments that can be passed into the "jailer" binary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JailerArguments {
-    pub(crate) uid: Uid,
-    pub(crate) gid: Gid,
     pub(crate) jail_id: VmmId,
 
     cgroup_values: HashMap<String, String>,
@@ -25,10 +23,8 @@ pub struct JailerArguments {
 }
 
 impl JailerArguments {
-    pub fn new(uid: Uid, gid: Gid, jail_id: VmmId) -> Self {
+    pub fn new(jail_id: VmmId) -> Self {
         Self {
-            uid,
-            gid,
             jail_id,
             cgroup_values: HashMap::new(),
             cgroup_version: None,
@@ -91,14 +87,16 @@ impl JailerArguments {
         self
     }
 
-    pub fn join(&self, firecracker_binary_path: &Path) -> Vec<String> {
+    /// Join these arguments into a [Vec] of process arguments, using the given jailer target UID and GID as
+    /// well as a [Path] to the "firecracker" binary.
+    pub fn join(&self, uid: Uid, gid: Gid, firecracker_binary_path: &Path) -> Vec<String> {
         let mut args = Vec::with_capacity(8);
         args.push("--exec-file".to_string());
         args.push(firecracker_binary_path.to_string_lossy().into_owned());
         args.push("--uid".to_string());
-        args.push(self.uid.to_string());
+        args.push(uid.to_string());
         args.push("--gid".to_string());
-        args.push(self.gid.to_string());
+        args.push(gid.to_string());
         args.push("--id".to_string());
         args.push(self.jail_id.as_ref().to_owned());
 
@@ -171,7 +169,7 @@ mod tests {
     use super::{JailerArguments, JailerCgroupVersion};
 
     fn new() -> JailerArguments {
-        JailerArguments::new(Uid::from_raw(1), Gid::from_raw(1), VmmId::new("jail-id").unwrap())
+        JailerArguments::new(VmmId::new("jail-id").unwrap())
     }
 
     #[test]
@@ -231,7 +229,7 @@ mod tests {
     }
 
     fn check<const AMOUNT: usize>(args: JailerArguments, matchers: [&str; AMOUNT]) {
-        let joined_args = args.join(&PathBuf::from("/tmp/firecracker"));
+        let joined_args = args.join(Uid::from_raw(1), Gid::from_raw(1), &PathBuf::from("/tmp/firecracker"));
         assert!(joined_args.contains(&String::from("--exec-file")));
         assert!(joined_args.contains(&String::from("/tmp/firecracker")));
 

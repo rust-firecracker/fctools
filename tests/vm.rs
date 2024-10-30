@@ -19,7 +19,6 @@ use fctools::{
         ownership::VmmOwnershipModel,
     },
 };
-use nix::unistd::{getegid, geteuid};
 use rand::RngCore;
 use test_framework::{
     get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, TestExecutor, TestOptions, TestVm, VmBuilder,
@@ -216,11 +215,7 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
     let executor = match is_jailed {
         true => TestExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
-            JailerArguments::new(
-                geteuid(),
-                getegid(),
-                rand::thread_rng().next_u32().to_string().try_into().unwrap(),
-            ),
+            JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap()),
             FlatJailRenamer::default(),
         )),
         false => TestExecutor::Unrestricted(UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(

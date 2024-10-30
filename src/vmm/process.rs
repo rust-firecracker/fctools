@@ -26,10 +26,7 @@ use crate::{
     },
 };
 
-use super::{
-    arguments::VmmConfigurationOverride,
-    ownership::{change_owner, ChangeOwnerError, VmmOwnershipModel},
-};
+use super::ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel};
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
 /// tied to the given [VmmExecutor] E, [ProcessSpawner] S and [FsBackend] F.
@@ -171,15 +168,17 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         Ok(path_mappings)
     }
 
-    /// Invoke the [VmmProcess]. Allowed in [VmmProcessState::AwaitingStart], will result in [VmmProcessState::Started].
-    pub async fn invoke(&mut self, configuration_override: VmmConfigurationOverride) -> Result<(), VmmProcessError> {
+    /// Invoke the [VmmProcess] with the given configuration [PathBuf] for the VMM. Allowed in [VmmProcessState::AwaitingStart],
+    /// will result in [VmmProcessState::Started].
+    pub async fn invoke(&mut self, config_path: Option<PathBuf>) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.child = Some(
             self.executor
                 .invoke(
                     self.installation.as_ref(),
                     self.process_spawner.clone(),
-                    configuration_override,
+                    config_path,
+                    self.ownership_model,
                 )
                 .await
                 .map_err(VmmProcessError::ExecutorError)?,
@@ -341,16 +340,14 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         let hyper_client = self
             .hyper_client
             .get_or_try_init(|| async {
-                if self.ownership_model != VmmOwnershipModel::Shared {
-                    change_owner(
-                        &socket_path,
-                        true,
-                        self.process_spawner.as_ref(),
-                        self.fs_backend.as_ref(),
-                    )
-                    .await
-                    .map_err(VmmProcessError::ChangeOwnerError)?;
-                }
+                upgrade_owner(
+                    &socket_path,
+                    self.ownership_model,
+                    self.process_spawner.as_ref(),
+                    self.fs_backend.as_ref(),
+                )
+                .await
+                .map_err(VmmProcessError::ChangeOwnerError)?;
 
                 Ok(Client::builder(TokioExecutor::new()).build(HyperUnixConnector))
             })

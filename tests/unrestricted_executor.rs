@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use assert_matches::assert_matches;
 use fctools::vmm::{
-    arguments::{VmmApiSocket, VmmArguments, VmmConfigurationOverride},
+    arguments::{VmmApiSocket, VmmArguments},
     executor::{unrestricted::UnrestrictedVmmExecutor, VmmExecutor, VmmExecutorError},
     ownership::VmmOwnershipModel,
 };
@@ -134,7 +134,8 @@ async fn unrestricted_executor_invoke_reports_process_spawner_error() {
             .invoke(
                 &get_fake_firecracker_installation(),
                 Arc::new(FailingRunner),
-                VmmConfigurationOverride::NoOverride,
+                None,
+                VmmOwnershipModel::Shared,
             )
             .await,
         Err(VmmExecutorError::ProcessSpawnFailed(_))
@@ -148,7 +149,8 @@ async fn unrestricted_executor_invoke_nulls_pipes() {
         .invoke(
             &get_fake_firecracker_installation(),
             get_process_spawner(),
-            VmmConfigurationOverride::NoOverride,
+            None,
+            VmmOwnershipModel::Shared,
         )
         .await
         .unwrap();

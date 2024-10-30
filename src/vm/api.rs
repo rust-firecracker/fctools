@@ -9,10 +9,10 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::{
     fs_backend::FsBackend,
     process_spawner::ProcessSpawner,
-    vm::change_owner,
+    vm::upgrade_owner,
     vmm::{
         executor::VmmExecutor,
-        ownership::{ChangeOwnerError, VmmOwnershipModel},
+        ownership::ChangeOwnerError,
         process::{HyperResponseExt, VmmProcessError},
     },
 };
@@ -238,23 +238,21 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmApi for Vm<E, S, F> {
             self.snapshot_traces.push(mem_file_path.clone());
         }
 
-        if self.ownership_model != VmmOwnershipModel::Shared {
-            tokio::try_join!(
-                change_owner(
-                    &snapshot_path,
-                    true,
-                    self.process_spawner.as_ref(),
-                    self.fs_backend.as_ref()
-                ),
-                change_owner(
-                    &mem_file_path,
-                    true,
-                    self.process_spawner.as_ref(),
-                    self.fs_backend.as_ref()
-                )
+        tokio::try_join!(
+            upgrade_owner(
+                &snapshot_path,
+                self.ownership_model,
+                self.process_spawner.as_ref(),
+                self.fs_backend.as_ref()
+            ),
+            upgrade_owner(
+                &mem_file_path,
+                self.ownership_model,
+                self.process_spawner.as_ref(),
+                self.fs_backend.as_ref()
             )
-            .map_err(VmApiError::SnapshotChangeOwnerError)?;
-        }
+        )
+        .map_err(VmApiError::SnapshotChangeOwnerError)?;
 
         Ok(SnapshotData {
             snapshot_path,

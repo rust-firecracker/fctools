@@ -17,9 +17,8 @@ use crate::{
 };
 
 use super::{
-    arguments::VmmConfigurationOverride,
     installation::VmmInstallation,
-    ownership::{change_owner, ChangeOwnerError, VmmOwnershipModel},
+    ownership::{downgrade_owner, upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
 };
 
 #[cfg(feature = "jailed-vmm-executor")]
@@ -81,7 +80,8 @@ pub trait VmmExecutor: Send + Sync {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        configuration_override: VmmConfigurationOverride,
+        config_path: Option<PathBuf>,
+        ownership_model: VmmOwnershipModel,
     ) -> impl Future<Output = Result<Child, VmmExecutorError>> + Send;
 
     /// Clean up all transient resources of the VMM invocation.
@@ -101,11 +101,14 @@ async fn create_file_with_tree(
     path: PathBuf,
 ) -> Result<(), VmmExecutorError> {
     if let Some(parent_path) = path.parent() {
-        if ownership_model != VmmOwnershipModel::Shared {
-            change_owner(&parent_path, true, process_spawner.as_ref(), fs_backend.as_ref())
-                .await
-                .map_err(VmmExecutorError::ChangeOwnerError)?;
-        }
+        upgrade_owner(
+            &parent_path,
+            ownership_model,
+            process_spawner.as_ref(),
+            fs_backend.as_ref(),
+        )
+        .await
+        .map_err(VmmExecutorError::ChangeOwnerError)?;
 
         fs_backend
             .create_dir_all(parent_path)
@@ -118,11 +121,9 @@ async fn create_file_with_tree(
         .await
         .map_err(VmmExecutorError::FsBackendError)?;
 
-    if ownership_model == VmmOwnershipModel::UpgradedTemporarily {
-        change_owner(&path, false, process_spawner.as_ref(), fs_backend.as_ref())
-            .await
-            .map_err(VmmExecutorError::ChangeOwnerError)?;
-    }
+    downgrade_owner(&path, ownership_model, process_spawner.as_ref(), fs_backend.as_ref())
+        .await
+        .map_err(VmmExecutorError::ChangeOwnerError)?;
 
     Ok(())
 }

@@ -8,7 +8,6 @@ pub mod jailer;
 pub struct VmmArguments {
     // main
     pub(crate) api_socket: VmmApiSocket,
-    config_path: Option<PathBuf>,
     // logging
     log_level: Option<VmmLogLevel>,
     pub(crate) log_path: Option<PathBuf>,
@@ -25,20 +24,10 @@ pub struct VmmArguments {
     seccomp_path: Option<PathBuf>,
 }
 
-/// An override that can be applied to the configuration file passed down to Firecracker. This
-/// exists in order to allow upstream overrides to work, which are necessary on the VM layer that
-/// would create and enforce a configuration file with an init method.
-pub enum VmmConfigurationOverride {
-    NoOverride,
-    Disable,
-    Enable(PathBuf),
-}
-
 impl VmmArguments {
     pub fn new(api_socket: VmmApiSocket) -> Self {
         Self {
             api_socket,
-            config_path: None,
             log_level: None,
             log_path: None,
             show_log_origin: false,
@@ -52,11 +41,6 @@ impl VmmArguments {
             disable_seccomp: false,
             seccomp_path: None,
         }
-    }
-
-    pub fn config_path(mut self, config_path: impl Into<PathBuf>) -> Self {
-        self.config_path = Some(config_path.into());
-        self
     }
 
     pub fn log_level(mut self, log_level: VmmLogLevel) -> Self {
@@ -119,7 +103,8 @@ impl VmmArguments {
         self
     }
 
-    pub fn join(&self, config_override: VmmConfigurationOverride) -> Vec<String> {
+    /// Join
+    pub fn join(&self, config_path: Option<PathBuf>) -> Vec<String> {
         let mut args = Vec::with_capacity(1);
 
         match self.api_socket {
@@ -132,18 +117,9 @@ impl VmmArguments {
             }
         }
 
-        match config_override {
-            VmmConfigurationOverride::NoOverride => {
-                if let Some(ref config_path) = self.config_path {
-                    args.push("--config-file".to_string());
-                    args.push(config_path.to_string_lossy().into_owned());
-                }
-            }
-            VmmConfigurationOverride::Disable => {}
-            VmmConfigurationOverride::Enable(path) => {
-                args.push("--config-file".to_string());
-                args.push(path.to_string_lossy().into_owned());
-            }
+        if let Some(config_path) = config_path {
+            args.push("--config-file".to_string());
+            args.push(config_path.to_string_lossy().into_owned());
         }
 
         if let Some(log_level) = self.log_level {
@@ -245,7 +221,7 @@ impl ToString for VmmLogLevel {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{VmmApiSocket, VmmArguments, VmmConfigurationOverride, VmmLogLevel};
+    use super::{VmmApiSocket, VmmArguments, VmmLogLevel};
 
     fn new() -> VmmArguments {
         VmmArguments::new(VmmApiSocket::Enabled(PathBuf::from("/tmp/api.sock")))
@@ -253,22 +229,22 @@ mod tests {
 
     #[test]
     fn api_sock_can_be_disabled() {
-        check_without_override(VmmArguments::new(VmmApiSocket::Disabled), ["--no-api"]);
+        check_without_config(VmmArguments::new(VmmApiSocket::Disabled), ["--no-api"]);
     }
 
     #[test]
     fn api_sock_can_be_enabled() {
-        check_without_override(new(), ["--api-sock", "/tmp/api.sock"]);
+        check_without_config(new(), ["--api-sock", "/tmp/api.sock"]);
     }
 
     #[test]
     fn log_level_can_be_set() {
-        check_without_override(new().log_level(VmmLogLevel::Error), ["--level", "Error"]);
+        check_without_config(new().log_level(VmmLogLevel::Error), ["--level", "Error"]);
     }
 
     #[test]
     fn log_path_can_be_set() {
-        check_without_override(
+        check_without_config(
             new().log_path("/tmp/some_logs.txt"),
             ["--log-path", "/tmp/some_logs.txt"],
         );
@@ -276,27 +252,27 @@ mod tests {
 
     #[test]
     fn show_log_origin_can_be_enabled() {
-        check_without_override(new().show_log_origin(), ["--show-log-origin"]);
+        check_without_config(new().show_log_origin(), ["--show-log-origin"]);
     }
 
     #[test]
     fn module_can_be_set() {
-        check_without_override(new().log_module("some_module"), ["--module", "some_module"]);
+        check_without_config(new().log_module("some_module"), ["--module", "some_module"]);
     }
 
     #[test]
     fn show_log_level_can_be_enabled() {
-        check_without_override(new().show_log_level(), ["--show-level"]);
+        check_without_config(new().show_log_level(), ["--show-level"]);
     }
 
     #[test]
     fn boot_timer_can_be_enabled() {
-        check_without_override(new().enable_boot_timer(), ["--boot-timer"]);
+        check_without_config(new().enable_boot_timer(), ["--boot-timer"]);
     }
 
     #[test]
     fn max_payload_can_be_set() {
-        check_without_override(
+        check_without_config(
             new().api_max_payload_bytes(1000),
             ["--http-api-max-payload-size", "1000"],
         );
@@ -304,7 +280,7 @@ mod tests {
 
     #[test]
     fn metadata_path_can_be_set() {
-        check_without_override(
+        check_without_config(
             new().metadata_path("/tmp/metadata.txt"),
             ["--metadata", "/tmp/metadata.txt"],
         );
@@ -312,7 +288,7 @@ mod tests {
 
     #[test]
     fn metrics_path_can_be_set() {
-        check_without_override(
+        check_without_config(
             new().metrics_path("/tmp/metrics.txt"),
             ["--metrics-path", "/tmp/metrics.txt"],
         );
@@ -320,60 +296,45 @@ mod tests {
 
     #[test]
     fn mmds_size_limit_can_be_set() {
-        check_without_override(new().mmds_size_limit(1000), ["--mmds-size-limit", "1000"]);
+        check_without_config(new().mmds_size_limit(1000), ["--mmds-size-limit", "1000"]);
     }
 
     #[test]
     fn seccomp_can_be_disabled() {
-        check_without_override(new().disable_seccomp(), ["--no-seccomp"]);
+        check_without_config(new().disable_seccomp(), ["--no-seccomp"]);
     }
 
     #[test]
     fn seccomp_path_can_be_set() {
-        check_without_override(new().seccomp_path("/tmp/seccomp"), ["--seccomp-filter", "/tmp/seccomp"]);
+        check_without_config(new().seccomp_path("/tmp/seccomp"), ["--seccomp-filter", "/tmp/seccomp"]);
     }
 
     #[test]
-    fn config_path_persists_without_override() {
-        check_with_override(
-            new().config_path("/tmp/config.json"),
-            VmmConfigurationOverride::NoOverride,
-            ["--config-file", "/tmp/config.json"],
+    fn config_path_gets_added() {
+        check_with_config(
+            new(),
+            Some("/tmp/override_config.json".into()),
+            ["--config-file", "/tmp/override_config.json"],
         );
     }
 
     #[test]
-    fn config_path_gets_added_with_enable_override() {
-        for args in [new(), new().config_path("/tmp/config.json")] {
-            check_with_override(
-                args,
-                VmmConfigurationOverride::Enable(PathBuf::from("/tmp/override_config.json")),
-                ["--config-file", "/tmp/override_config.json"],
-            );
-        }
-    }
-
-    #[test]
-    fn config_path_gets_removed_with_disable_override() {
-        check_with_override(
-            new().config_path("/tmp/config.json"),
-            VmmConfigurationOverride::Disable,
-            ["!--config-file", "!/tmp/config.json"],
-        );
+    fn config_path_does_not_get_added() {
+        check_with_config(new(), None, ["!--config-file", "!/tmp/config.json"]);
     }
 
     #[inline]
-    fn check_without_override<const AMOUNT: usize>(args: VmmArguments, matchers: [&str; AMOUNT]) {
-        check_with_override(args, VmmConfigurationOverride::NoOverride, matchers);
+    fn check_without_config<const AMOUNT: usize>(args: VmmArguments, matchers: [&str; AMOUNT]) {
+        check_with_config(args, None, matchers);
     }
 
     #[inline]
-    fn check_with_override<const AMOUNT: usize>(
+    fn check_with_config<const AMOUNT: usize>(
         args: VmmArguments,
-        config_override: VmmConfigurationOverride,
+        config_path: Option<PathBuf>,
         matchers: [&str; AMOUNT],
     ) {
-        let joined_args = args.join(config_override);
+        let joined_args = args.join(config_path);
 
         for matcher in matchers {
             if let Some(matcher) = matcher.strip_prefix("!") {
