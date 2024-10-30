@@ -19,7 +19,8 @@ pub struct JailerArguments {
     network_namespace_path: Option<PathBuf>,
     exec_in_new_pid_ns: bool,
     parent_cgroup: Option<String>,
-    resource_limits: HashMap<String, String>,
+    max_file_size_limit: Option<u64>,
+    max_fd_limit: Option<u64>,
 }
 
 impl JailerArguments {
@@ -33,7 +34,8 @@ impl JailerArguments {
             network_namespace_path: None,
             exec_in_new_pid_ns: false,
             parent_cgroup: None,
-            resource_limits: HashMap::new(),
+            max_file_size_limit: None,
+            max_fd_limit: None,
         }
     }
 
@@ -77,13 +79,13 @@ impl JailerArguments {
         self
     }
 
-    pub fn resource_limit(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.resource_limits.insert(key.into(), value.into());
+    pub fn max_file_size_limit(mut self, max_file_size_limit: u64) -> Self {
+        self.max_file_size_limit = Some(max_file_size_limit);
         self
     }
 
-    pub fn resource_limits(mut self, resource_limits: impl IntoIterator<Item = (String, String)>) -> Self {
-        self.resource_limits.extend(resource_limits);
+    pub fn max_fd_limit(mut self, max_fd_limit: u64) -> Self {
+        self.max_fd_limit = Some(max_fd_limit);
         self
     }
 
@@ -138,11 +140,14 @@ impl JailerArguments {
             args.push(parent_cgroup);
         }
 
-        if !self.resource_limits.is_empty() {
-            for (key, value) in &self.resource_limits {
-                args.push("--resource-limit".to_string());
-                args.push(format!("{key}={value}"));
-            }
+        if let Some(max_file_size_limit) = self.max_file_size_limit {
+            args.push("--resource-limit".to_string());
+            args.push(format!("fsize={max_file_size_limit}"));
+        }
+
+        if let Some(max_fd_limit) = self.max_fd_limit {
+            args.push("--resource-limit".to_string());
+            args.push(format!("no-file={max_fd_limit}"));
         }
 
         args
@@ -224,8 +229,13 @@ mod tests {
     }
 
     #[test]
-    fn resource_limits_can_be_set() {
-        check(new().resource_limit("key", "value"), ["--resource-limit", "key=value"]);
+    fn max_file_size_limit_can_be_set() {
+        check(new().max_file_size_limit(250), ["--resource-limit", "fsize=250"]);
+    }
+
+    #[test]
+    fn max_fd_limit_can_be_set() {
+        check(new().max_fd_limit(100), ["--resource-limit", "no-file=100"]);
     }
 
     fn check<const AMOUNT: usize>(args: JailerArguments, matchers: [&str; AMOUNT]) {
