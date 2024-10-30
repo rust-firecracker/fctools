@@ -31,8 +31,6 @@ pub mod jailed;
 #[cfg_attr(docsrs, doc(cfg(feature = "unrestricted-vmm-executor")))]
 pub mod unrestricted;
 
-pub mod handle;
-
 /// An error emitted by a [VmmExecutor].
 #[derive(Debug, thiserror::Error)]
 pub enum VmmExecutorError {

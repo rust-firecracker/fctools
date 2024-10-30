@@ -13,9 +13,24 @@ use nix::{
     },
     unistd::Pid,
 };
-use tokio::{io::unix::AsyncFd, process::Child};
+use tokio::{
+    io::unix::AsyncFd,
+    process::{Child, ChildStderr, ChildStdin, ChildStdout},
+};
 
 pub struct ProcessHandle(ProcessHandleInner);
+
+pub struct RawPipes {
+    pub stdout: ChildStdout,
+    pub stderr: ChildStderr,
+    pub stdin: ChildStdin,
+}
+
+pub enum RawPipesError {
+    ProcessIsDetached,
+    PipesWereDropped,
+    PipeWasMissing,
+}
 
 enum ProcessHandleInner {
     Attached { child: Child, pipes_dropped: bool },
@@ -74,6 +89,51 @@ impl ProcessHandle {
                 }?;
 
                 Ok(ExitStatus::from_raw(result))
+            }
+        }
+    }
+
+    pub fn try_wait(&mut self) -> Result<Option<ExitStatus>, std::io::Error> {
+        match self.0 {
+            ProcessHandleInner::Attached {
+                ref mut child,
+                pipes_dropped: _,
+            } => child.try_wait(),
+            ProcessHandleInner::Detached { pid: _, ref pidfd } => {
+                let result =
+                    match nix::sys::wait::waitid(Id::PIDFd(pidfd.as_fd()), WaitPidFlag::WNOHANG | WaitPidFlag::WEXITED)
+                    {
+                        Ok(wait_status) => match wait_status {
+                            WaitStatus::Exited(_, exit_status) => Ok(Some(exit_status)),
+                            WaitStatus::StillAlive => Ok(None),
+                            _ => Err(std::io::Error::other(
+                                "waitid on WNOHANG and WEXITED returned something unexpected",
+                            )),
+                        },
+                        Err(_) => Err(std::io::Error::last_os_error()),
+                    }?;
+
+                Ok(result.map(ExitStatus::from_raw))
+            }
+        }
+    }
+
+    pub fn get_pipes(&mut self) -> Result<RawPipes, RawPipesError> {
+        match self.0 {
+            ProcessHandleInner::Detached { pid: _, pidfd: _ } => Err(RawPipesError::ProcessIsDetached),
+            ProcessHandleInner::Attached {
+                ref mut child,
+                pipes_dropped,
+            } => {
+                if pipes_dropped {
+                    return Err(RawPipesError::PipesWereDropped);
+                }
+
+                let stdout = child.stdout.take().ok_or(RawPipesError::PipeWasMissing)?;
+                let stderr = child.stderr.take().ok_or(RawPipesError::PipeWasMissing)?;
+                let stdin = child.stdin.take().ok_or(RawPipesError::PipeWasMissing)?;
+
+                Ok(RawPipes { stdout, stderr, stdin })
             }
         }
     }

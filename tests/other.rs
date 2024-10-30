@@ -4,8 +4,8 @@ use fctools::{
     fs_backend::blocking::BlockingFsBackend,
     process_spawner::{DirectProcessSpawner, ProcessSpawner},
     vmm::{
-        executor::handle::ProcessHandle,
         installation::{VmmInstallation, VmmInstallationError},
+        process_handle::ProcessHandle,
     },
 };
 use nix::unistd::{geteuid, Pid};
