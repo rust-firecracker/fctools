@@ -3,9 +3,12 @@ use std::path::PathBuf;
 use fctools::{
     fs_backend::blocking::BlockingFsBackend,
     process_spawner::{DirectProcessSpawner, ProcessSpawner},
-    vmm::installation::{VmmInstallation, VmmInstallationError},
+    vmm::{
+        executor::handle::ProcessHandle,
+        installation::{VmmInstallation, VmmInstallationError},
+    },
 };
-use nix::unistd::geteuid;
+use nix::unistd::{geteuid, Pid};
 use test_framework::{get_test_path, TestOptions};
 use uuid::Uuid;
 
@@ -136,4 +139,15 @@ async fn direct_process_spawner_can_null_pipes() {
     assert!(child.stdout.is_none());
     assert!(child.stderr.is_none());
     assert!(child.stdin.is_none());
+}
+
+#[tokio::test]
+async fn handle_bknd() {
+    let child = std::process::Command::new("bash")
+        .arg("-c")
+        .arg("sleep 1 ; exit")
+        .spawn()
+        .unwrap();
+    let mut handle = ProcessHandle::detached(Pid::from_raw(child.id() as i32)).unwrap();
+    dbg!(handle.wait().await.unwrap());
 }
