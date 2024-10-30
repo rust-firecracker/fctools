@@ -61,9 +61,8 @@ impl ProcessHandle {
                 pipes_dropped: _,
             } => child.wait().await,
             ProcessHandleInner::Detached { pid: _, ref pidfd } => {
-                pidfd.readable().await?.clear_ready();
+                pidfd.readable().await?.retain_ready();
 
-                println!("gud");
                 let result = match nix::sys::wait::waitid(Id::PIDFd(pidfd.as_fd()), WaitPidFlag::WEXITED) {
                     Ok(wait_status) => match wait_status {
                         WaitStatus::Exited(_, exit_status) => Ok(exit_status),
