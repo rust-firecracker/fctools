@@ -15,8 +15,8 @@ use fctools::{
         executor::{
             jailed::{FlatJailRenamer, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
-            VmmOwnershipModel,
         },
+        ownership::VmmOwnershipModel,
     },
 };
 use nix::unistd::{getegid, geteuid};

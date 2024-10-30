@@ -9,8 +9,10 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::{
     fs_backend::FsBackend,
     process_spawner::ProcessSpawner,
+    vm::change_owner,
     vmm::{
-        executor::{change_owner, ChangeOwnerError, VmmExecutor, VmmOwnershipModel},
+        executor::VmmExecutor,
+        ownership::{ChangeOwnerError, VmmOwnershipModel},
         process::{HyperResponseExt, VmmProcessError},
     },
 };

@@ -15,6 +15,10 @@ pub mod id;
 #[cfg_attr(docsrs, doc(cfg(feature = "vmm-executor")))]
 pub mod executor;
 
+#[cfg(feature = "vmm-executor")]
+#[cfg_attr(docsrs, doc(cfg(feature = "vmm-executor")))]
+pub mod ownership;
+
 #[cfg(feature = "vmm-installation")]
 #[cfg_attr(docsrs, doc(cfg(feature = "vmm-installation")))]
 pub mod installation;

@@ -3,7 +3,8 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use assert_matches::assert_matches;
 use fctools::vmm::{
     arguments::{VmmApiSocket, VmmArguments, VmmConfigurationOverride},
-    executor::{unrestricted::UnrestrictedVmmExecutor, VmmExecutor, VmmExecutorError, VmmOwnershipModel},
+    executor::{unrestricted::UnrestrictedVmmExecutor, VmmExecutor, VmmExecutorError},
+    ownership::VmmOwnershipModel,
 };
 use test_framework::{
     get_fake_firecracker_installation, get_fs_backend, get_process_spawner, get_tmp_path, FailingRunner,

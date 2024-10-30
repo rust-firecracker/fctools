@@ -13,8 +13,9 @@ use crate::{
     process_spawner::ProcessSpawner,
     vmm::{
         arguments::VmmConfigurationOverride,
-        executor::{change_owner, ChangeOwnerError, VmmExecutor, VmmOwnershipModel},
+        executor::VmmExecutor,
         installation::VmmInstallation,
+        ownership::{change_owner, ChangeOwnerError, VmmOwnershipModel},
         process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
     },
 };

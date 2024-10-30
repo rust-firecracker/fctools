@@ -28,7 +28,7 @@ use crate::{
 
 use super::{
     arguments::VmmConfigurationOverride,
-    executor::{change_owner, ChangeOwnerError, VmmOwnershipModel},
+    ownership::{change_owner, ChangeOwnerError, VmmOwnershipModel},
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is

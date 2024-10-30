@@ -5,9 +5,10 @@ use fctools::vmm::{
     arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
     executor::{
         jailed::{FlatJailRenamer, JailMoveMethod, JailRenamer, JailedVmmExecutor},
-        VmmExecutor, VmmExecutorError, VmmOwnershipModel,
+        VmmExecutor, VmmExecutorError,
     },
     id::VmmId,
+    ownership::VmmOwnershipModel,
 };
 use nix::unistd::{getegid, geteuid};
 use rand::RngCore;

@@ -32,9 +32,10 @@ use fctools::{
         executor::{
             jailed::{FlatJailRenamer, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
-            VmmExecutor, VmmExecutorError, VmmOwnershipModel,
+            VmmExecutor, VmmExecutorError,
         },
         installation::VmmInstallation,
+        ownership::VmmOwnershipModel,
         process::VmmProcessState,
     },
 };
