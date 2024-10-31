@@ -1,7 +1,9 @@
 use std::{
     collections::HashMap,
     future::Future,
+    num::ParseIntError,
     path::{Path, PathBuf},
+    process::ExitStatus,
     sync::Arc,
 };
 
@@ -37,25 +39,29 @@ pub mod process_handle;
 /// An error emitted by a [VmmExecutor].
 #[derive(Debug, thiserror::Error)]
 pub enum VmmExecutorError {
-    #[error("A non-FS I/O error occurred: `{0}")]
+    #[error("A non-FS I/O error occurred: {0}")]
     IoError(std::io::Error),
-    #[error("An I/O error emitted by an FS backend occurred: `{0}`")]
+    #[error("An I/O error emitted by an FS backend occurred: {0}")]
     FsBackendError(FsBackendError),
-    #[error("An ownership change as part of an ownership upgrade or downgrade failed: `{0}")]
+    #[error("An ownership change as part of an ownership upgrade or downgrade failed: {0}")]
     ChangeOwnerError(ChangeOwnerError),
-    #[error("Joining on a spawned async task failed: `{0}`")]
+    #[error("Joining on a spawned async task failed: {0}")]
     TaskJoinFailed(JoinError),
-    #[error("Spawning an auxiliary or primary process via the process spawner failed: `{0}`")]
+    #[error("Spawning an auxiliary or primary process via the process spawner failed: {0}")]
     ProcessSpawnFailed(std::io::Error),
-    #[error("A passed-in resource at the path `{0}` was expected but doesn't exist or isn't accessible")]
+    #[error("A passed-in resource at the path {0} was expected but doesn't exist or isn't accessible")]
     ExpectedResourceMissing(PathBuf),
     #[error("A directory that is supposed to have a parent in the filesystem has none")]
     ExpectedDirectoryParentMissing,
     #[cfg(feature = "jailed-vmm-executor")]
     #[cfg_attr(docsrs, doc(cfg(feature = "jailed-vmm-executor")))]
-    #[error("Invoking the jail renamer to produce an inner path failed: `{0}`")]
+    #[error("Invoking the jail renamer to produce an inner path failed: {0}")]
     JailRenamerFailed(JailRenamerError),
-    #[error("Another error occurred: `{0}`")]
+    #[error("The watched process exited prematurely with exit status: {0}")]
+    PrematureExiting(ExitStatus),
+    #[error("Parsing an integer from a string failed: {0}")]
+    ParseIntError(ParseIntError),
+    #[error("Another error occurred: {0}")]
     Other(Box<dyn std::error::Error + Send>),
 }
 
@@ -86,6 +92,7 @@ pub trait VmmExecutor: Send + Sync {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
+        fs_backend: Arc<impl FsBackend>,
         config_path: Option<PathBuf>,
         ownership_model: VmmOwnershipModel,
     ) -> impl Future<Output = Result<ProcessHandle, VmmExecutorError>> + Send;

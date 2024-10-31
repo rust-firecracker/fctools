@@ -134,6 +134,7 @@ async fn unrestricted_executor_invoke_reports_process_spawner_error() {
             .invoke(
                 &get_fake_firecracker_installation(),
                 Arc::new(FailingRunner),
+                get_fs_backend(),
                 None,
                 VmmOwnershipModel::Shared,
             )
@@ -149,6 +150,7 @@ async fn unrestricted_executor_invoke_nulls_pipes() {
         .invoke(
             &get_fake_firecracker_installation(),
             get_process_spawner(),
+            get_fs_backend(),
             None,
             VmmOwnershipModel::Shared,
         )

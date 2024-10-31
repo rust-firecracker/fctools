@@ -188,6 +188,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
+        _fs_backend: Arc<impl FsBackend>,
         config_path: Option<PathBuf>,
         _ownership_model: VmmOwnershipModel,
     ) -> Result<ProcessHandle, VmmExecutorError> {

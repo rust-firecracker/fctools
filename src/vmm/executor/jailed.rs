@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use nix::unistd::Pid;
 use tokio::task::JoinSet;
 
 use crate::{
@@ -247,6 +248,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
+        fs_backend: Arc<impl FsBackend>,
         config_path: Option<PathBuf>,
         ownership_model: VmmOwnershipModel,
     ) -> Result<ProcessHandle, VmmExecutorError> {
@@ -265,12 +267,55 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         }
 
         // nulling the pipes is redundant since jailer can do this itself via daemonization
-        let child = process_spawner
+        let mut child = process_spawner
             .spawn(&binary_path, arguments, false)
             .await
             .map_err(VmmExecutorError::ProcessSpawnFailed)?;
 
-        Ok(ProcessHandle::attached(child, self.jailer_arguments.daemonize))
+        if self.jailer_arguments.daemonize || self.jailer_arguments.exec_in_new_pid_ns {
+            let (_, jail_path) = dbg!(self.get_paths(installation));
+
+            let pid_file_path = jail_path.join(format!(
+                "{}.pid",
+                installation
+                    .firecracker_path
+                    .file_name()
+                    .map(|f| f.to_str())
+                    .flatten()
+                    .unwrap_or("firecracker")
+            ));
+
+            let pid: i32;
+
+            child.wait().await.unwrap();
+
+            loop {
+                if tokio::fs::try_exists(&pid_file_path)
+                    .await
+                    .map_err(VmmExecutorError::IoError)?
+                {
+                    upgrade_owner(
+                        &pid_file_path,
+                        ownership_model,
+                        process_spawner.as_ref(),
+                        fs_backend.as_ref(),
+                    )
+                    .await
+                    .map_err(VmmExecutorError::ChangeOwnerError)?;
+
+                    let pid_string = tokio::fs::read_to_string(&pid_file_path)
+                        .await
+                        .map_err(VmmExecutorError::IoError)?;
+
+                    pid = dbg!(pid_string.trim_end().parse().map_err(VmmExecutorError::ParseIntError)?);
+                    break;
+                }
+            }
+
+            Ok(ProcessHandle::detached(Pid::from_raw(pid)).map_err(VmmExecutorError::IoError)?)
+        } else {
+            Ok(ProcessHandle::attached(child, false))
+        }
     }
 
     async fn cleanup(

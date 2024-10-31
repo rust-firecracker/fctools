@@ -86,18 +86,19 @@ impl<R: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<R> {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
+        fs_backend: Arc<impl FsBackend>,
         config_path: Option<PathBuf>,
         ownership_model: VmmOwnershipModel,
     ) -> Result<ProcessHandle, VmmExecutorError> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => {
                 executor
-                    .invoke(installation, process_spawner, config_path, ownership_model)
+                    .invoke(installation, process_spawner, fs_backend, config_path, ownership_model)
                     .await
             }
             EitherVmmExecutor::Jailed(executor) => {
                 executor
-                    .invoke(installation, process_spawner, config_path, ownership_model)
+                    .invoke(installation, process_spawner, fs_backend, config_path, ownership_model)
                     .await
             }
         }

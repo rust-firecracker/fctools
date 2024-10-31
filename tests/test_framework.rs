@@ -411,7 +411,9 @@ impl VmBuilder {
 
         let test_options = TestOptions::get_blocking();
         let mut jailer_arguments = JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap())
-            .cgroup_version(JailerCgroupVersion::V2);
+            .cgroup_version(JailerCgroupVersion::V2)
+            .daemonize()
+            .exec_in_new_pid_ns();
         if let Some(ref network) = self.jailed_network_data {
             jailer_arguments =
                 jailer_arguments.network_namespace_path(format!("/var/run/netns/{}", network.netns_name));
@@ -467,16 +469,16 @@ impl VmBuilder {
             .unwrap()
             .block_on(async {
                 tokio::join!(
-                    Self::test_worker(
-                        self.unrestricted_network_data,
-                        VmConfiguration::New {
-                            init_method: self.init_method.clone(),
-                            data: unrestricted_data
-                        },
-                        EitherVmmExecutor::Unrestricted(unrestricted_executor),
-                        pre_start_hook1,
-                        function.clone(),
-                    ),
+                    // Self::test_worker(
+                    //     self.unrestricted_network_data,
+                    //     VmConfiguration::New {
+                    //         init_method: self.init_method.clone(),
+                    //         data: unrestricted_data
+                    //     },
+                    //     EitherVmmExecutor::Unrestricted(unrestricted_executor),
+                    //     pre_start_hook1,
+                    //     function.clone(),
+                    // ),
                     Self::test_worker(
                         self.jailed_network_data,
                         VmConfiguration::New {

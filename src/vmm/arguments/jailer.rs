@@ -17,7 +17,7 @@ pub struct JailerArguments {
     pub(crate) chroot_base_dir: Option<PathBuf>,
     pub(crate) daemonize: bool,
     network_namespace_path: Option<PathBuf>,
-    exec_in_new_pid_ns: bool,
+    pub(crate) exec_in_new_pid_ns: bool,
     parent_cgroup: Option<String>,
     max_file_size_limit: Option<u64>,
     max_fd_limit: Option<u64>,

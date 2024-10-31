@@ -36,7 +36,7 @@ fn vm_can_boot_via_api_calls() {
     VmBuilder::new()
         .init_method(InitMethod::ViaApiCalls)
         .run(|mut vm| async move {
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm, ShutdownMethod::Kill).await;
         });
 }
 
