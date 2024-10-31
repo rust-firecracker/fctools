@@ -4,8 +4,8 @@ use fctools::{
     fs_backend::blocking::BlockingFsBackend,
     process_spawner::{DirectProcessSpawner, ProcessSpawner},
     vmm::{
+        executor::process_handle::ProcessHandle,
         installation::{VmmInstallation, VmmInstallationError},
-        process_handle::ProcessHandle,
     },
 };
 use nix::unistd::{geteuid, Pid};
@@ -143,11 +143,8 @@ async fn direct_process_spawner_can_null_pipes() {
 
 #[tokio::test]
 async fn handle_bknd() {
-    let child = std::process::Command::new("bash")
-        .arg("-c")
-        .arg("sleep 1 ; exit")
-        .spawn()
-        .unwrap();
-    let mut handle = ProcessHandle::detached(Pid::from_raw(child.id() as i32)).unwrap();
+    let child = tokio::process::Command::new("bash").spawn().unwrap();
+    let mut handle = ProcessHandle::attached(child, false);
+    handle.kill().unwrap();
     dbg!(handle.wait().await.unwrap());
 }
