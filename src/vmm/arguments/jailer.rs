@@ -15,7 +15,7 @@ pub struct JailerArguments {
     cgroup_values: HashMap<String, String>,
     cgroup_version: Option<JailerCgroupVersion>,
     pub(crate) chroot_base_dir: Option<PathBuf>,
-    daemonize: bool,
+    pub(crate) daemonize: bool,
     network_namespace_path: Option<PathBuf>,
     exec_in_new_pid_ns: bool,
     parent_cgroup: Option<String>,

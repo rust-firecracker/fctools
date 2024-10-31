@@ -12,10 +12,10 @@ use crate::{
     fs_backend::{FsBackend, FsBackendError},
     process_spawner::ProcessSpawner,
     vmm::{
-        executor::VmmExecutor,
+        executor::{process_handle::ProcessHandlePipes, VmmExecutor},
         installation::VmmInstallation,
         ownership::{downgrade_owner, upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
-        process::{VmmProcess, VmmProcessError, VmmProcessPipes, VmmProcessState},
+        process::{VmmProcess, VmmProcessError, VmmProcessState},
     },
 };
 use api::{VmApi, VmApiError};
@@ -542,8 +542,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         Ok(())
     }
 
-    /// Take out the [VmmProcessPipes] of the underlying [VmmProcess].
-    pub fn take_pipes(&mut self) -> Result<VmmProcessPipes, VmError> {
+    /// Take out the [ProcessHandlePipes] of the underlying process handle if possible.
+    pub fn take_pipes(&mut self) -> Result<ProcessHandlePipes, VmError> {
         self.ensure_paused_or_running().map_err(VmError::StateCheckError)?;
         self.vmm_process.take_pipes().map_err(VmError::ProcessError)
     }

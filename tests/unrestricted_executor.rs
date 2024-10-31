@@ -145,7 +145,7 @@ async fn unrestricted_executor_invoke_reports_process_spawner_error() {
 #[tokio::test]
 async fn unrestricted_executor_invoke_nulls_pipes() {
     let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled)).pipes_to_null();
-    let child = executor
+    let mut child = executor
         .invoke(
             &get_fake_firecracker_installation(),
             get_process_spawner(),
@@ -154,9 +154,7 @@ async fn unrestricted_executor_invoke_nulls_pipes() {
         )
         .await
         .unwrap();
-    assert!(child.stdout.is_none());
-    assert!(child.stderr.is_none());
-    assert!(child.stdin.is_none());
+    child.get_pipes().unwrap_err();
 }
 
 #[tokio::test]

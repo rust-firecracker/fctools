@@ -5,7 +5,7 @@ use std::{
 };
 
 use nix::unistd::{Gid, Uid};
-use tokio::{process::Child, task::JoinSet};
+use tokio::task::JoinSet;
 
 use crate::{
     fs_backend::FsBackend,
@@ -17,7 +17,10 @@ use crate::{
     },
 };
 
-use super::{create_file_with_tree, join_on_set, upgrade_owner, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
+use super::{
+    create_file_with_tree, join_on_set, process_handle::ProcessHandle, upgrade_owner, VmmExecutor, VmmExecutorError,
+    VmmOwnershipModel,
+};
 
 /// A [VmmExecutor] that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
 /// This [VmmExecutor] allows rootless execution, given that the user has been granted access to /dev/kvm, but using
@@ -187,7 +190,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         process_spawner: Arc<impl ProcessSpawner>,
         config_path: Option<PathBuf>,
         _ownership_model: VmmOwnershipModel,
-    ) -> Result<Child, VmmExecutorError> {
+    ) -> Result<ProcessHandle, VmmExecutorError> {
         let mut arguments = self.vmm_arguments.join(config_path);
         let mut binary_path = installation.firecracker_path.clone();
 
@@ -204,7 +207,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             .spawn(&binary_path, arguments, self.pipes_to_null)
             .await
             .map_err(VmmExecutorError::ProcessSpawnFailed)?;
-        Ok(child)
+        Ok(ProcessHandle::attached(child, self.pipes_to_null))
     }
 
     async fn cleanup(

@@ -141,10 +141,9 @@ async fn direct_process_spawner_can_null_pipes() {
     assert!(child.stdin.is_none());
 }
 
-#[tokio::test]
-async fn handle_bknd() {
-    let child = tokio::process::Command::new("bash").spawn().unwrap();
-    let mut handle = ProcessHandle::attached(child, false);
-    handle.kill().unwrap();
-    dbg!(handle.wait().await.unwrap());
-}
+// #[tokio::test]
+// async fn handle_bknd() {
+//     let pid = std::process::Command::new("bash").spawn().unwrap().id();
+//     let mut handle = ProcessHandle::detached(Pid::from_raw(30175)).unwrap();
+//     handle.send_sigkill().unwrap();
+// }

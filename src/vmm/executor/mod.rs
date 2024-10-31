@@ -7,9 +7,10 @@ use std::{
 
 #[cfg(feature = "jailed-vmm-executor")]
 use jailed::JailRenamerError;
+use process_handle::ProcessHandle;
+use tokio::task::JoinError;
 #[cfg(feature = "unrestricted-vmm-executor")]
 use tokio::task::JoinSet;
-use tokio::{process::Child, task::JoinError};
 
 use crate::{
     fs_backend::{FsBackend, FsBackendError},
@@ -87,7 +88,7 @@ pub trait VmmExecutor: Send + Sync {
         process_spawner: Arc<impl ProcessSpawner>,
         config_path: Option<PathBuf>,
         ownership_model: VmmOwnershipModel,
-    ) -> impl Future<Output = Result<Child, VmmExecutorError>> + Send;
+    ) -> impl Future<Output = Result<ProcessHandle, VmmExecutorError>> + Send;
 
     /// Clean up all transient resources of the VMM invocation.
     fn cleanup(

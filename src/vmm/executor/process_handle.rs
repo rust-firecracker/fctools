@@ -15,20 +15,32 @@ use tokio::{
     process::{Child, ChildStderr, ChildStdin, ChildStdout},
 };
 
+/// A process handle is a thin abstraction over either an "attached" child process that is a Tokio [Child],
+/// or a "detached" certain process that isn't a child and is controlled via a pidfd.
+#[derive(Debug)]
 pub struct ProcessHandle(ProcessHandleInner);
 
+/// The pipes that are extracted from a [ProcessHandle]. These can only be extracted from attached
+/// [ProcessHandle]s that haven't had their pipes dropped to /dev/null.
+#[derive(Debug)]
 pub struct ProcessHandlePipes {
     pub stdout: ChildStdout,
     pub stderr: ChildStderr,
     pub stdin: ChildStdin,
 }
 
+/// An error that didn't allow the extraction of [ProcessHandlePipes] from a [ProcessHandle].
+#[derive(Debug, thiserror::Error)]
 pub enum ProcessHandlePipesError {
+    #[error("The handle points to a detached process outside the PID namespace of the current one")]
     ProcessIsDetached,
+    #[error("The pipes of the process were dropped")]
     PipesWereDropped,
+    #[error("The pipes were already taken (given ownership of)")]
     PipesWereAlreadyTaken,
 }
 
+#[derive(Debug)]
 enum ProcessHandleInner {
     Attached {
         child: Child,
@@ -41,10 +53,12 @@ enum ProcessHandleInner {
 }
 
 impl ProcessHandle {
+    /// Create a [ProcessHandle] from a Tokio [Child] that is attached.
     pub fn attached(child: Child, pipes_dropped: bool) -> Self {
         Self(ProcessHandleInner::Attached { child, pipes_dropped })
     }
 
+    /// Try to create a [ProcessHandle] from an arbitrary detached PID.
     pub fn detached(pid: Pid) -> Result<Self, std::io::Error> {
         let ret = unsafe { nix::libc::syscall(nix::libc::SYS_pidfd_open, pid, 0) };
 
@@ -59,7 +73,7 @@ impl ProcessHandle {
         }))
     }
 
-    pub fn kill(&mut self) -> Result<(), std::io::Error> {
+    pub fn send_sigkill(&mut self) -> Result<(), std::io::Error> {
         match self.0 {
             ProcessHandleInner::Attached {
                 ref mut child,
@@ -67,7 +81,7 @@ impl ProcessHandle {
             } => child.start_kill(),
             ProcessHandleInner::Detached {
                 ref pidfd,
-                ref reaped_exit_status,
+                ref mut reaped_exit_status,
             } => {
                 if reaped_exit_status.is_some() {
                     return Err(std::io::Error::other("Tried to kill process which already exited"));
@@ -82,9 +96,11 @@ impl ProcessHandle {
                         0,
                     )
                 };
+
                 if ret == -1 {
                     return Err(std::io::Error::last_os_error());
                 }
+
                 Ok(())
             }
         }

@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use tokio::{process::Child, task::JoinSet};
+use tokio::task::JoinSet;
 
 use crate::{
     fs_backend::FsBackend,
@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-use super::{create_file_with_tree, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
+use super::{create_file_with_tree, process_handle::ProcessHandle, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
@@ -249,7 +249,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         process_spawner: Arc<impl ProcessSpawner>,
         config_path: Option<PathBuf>,
         ownership_model: VmmOwnershipModel,
-    ) -> Result<Child, VmmExecutorError> {
+    ) -> Result<ProcessHandle, VmmExecutorError> {
         let (uid, gid) = match ownership_model.as_downgrade() {
             Some(values) => values,
             None => (*PROCESS_UID, *PROCESS_GID),
@@ -265,10 +265,12 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         }
 
         // nulling the pipes is redundant since jailer can do this itself via daemonization
-        process_spawner
+        let child = process_spawner
             .spawn(&binary_path, arguments, false)
             .await
-            .map_err(VmmExecutorError::ProcessSpawnFailed)
+            .map_err(VmmExecutorError::ProcessSpawnFailed)?;
+
+        Ok(ProcessHandle::attached(child, self.jailer_arguments.daemonize))
     }
 
     async fn cleanup(

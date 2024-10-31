@@ -12,10 +12,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::body::{Body, Incoming};
 use hyper_client_sockets::{HyperUnixConnector, UnixUriExt};
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};
-use tokio::{
-    process::{Child, ChildStderr, ChildStdin, ChildStdout},
-    sync::OnceCell,
-};
+use tokio::sync::OnceCell;
 
 use crate::{
     fs_backend::FsBackend,
@@ -26,7 +23,10 @@ use crate::{
     },
 };
 
-use super::ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel};
+use super::{
+    executor::process_handle::{ProcessHandle, ProcessHandlePipes, ProcessHandlePipesError},
+    ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
+};
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
 /// tied to the given [VmmExecutor] E, [ProcessSpawner] S and [FsBackend] F.
@@ -37,22 +37,10 @@ pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
     process_spawner: Arc<S>,
     fs_backend: Arc<F>,
     installation: Arc<VmmInstallation>,
-    child: Option<Child>,
+    process_handle: Option<ProcessHandle>,
     state: VmmProcessState,
     hyper_client: OnceCell<Client<HyperUnixConnector, Full<Bytes>>>,
     outer_paths: Option<Vec<PathBuf>>,
-}
-
-/// Raw Tokio pipes of a [VmmProcess]: stdin, stdout and stderr. All must always be redirected
-/// by the respective [ProcessSpawner] implementation.
-#[derive(Debug)]
-pub struct VmmProcessPipes {
-    /// The standard input pipe.
-    pub stdin: ChildStdin,
-    /// The standard output pipe.
-    pub stdout: ChildStdout,
-    /// The standard error pipe.
-    pub stderr: ChildStderr,
 }
 
 /// The state of a [VmmProcess].
@@ -113,10 +101,8 @@ pub enum VmmProcessError {
     IncorrectSocketUri,
     #[error("The underlying VMM executor returned an error: `{0}`")]
     ExecutorError(VmmExecutorError),
-    #[error(
-        "Attempted to take out the process' pipes when they had already been taken or were redirected to /dev/null"
-    )]
-    PipesNulledOrAlreadyTaken,
+    #[error("Getting the pipes from the process handle failed: `{0}`")]
+    ProcessHandlePipesError(ProcessHandlePipesError),
     #[error("An I/O error occurred: `{0}`")]
     IoError(std::io::Error),
 }
@@ -141,7 +127,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
             process_spawner: process_spawner.into(),
             installation,
             fs_backend: fs_backend.into(),
-            child: None,
+            process_handle: None,
             state: VmmProcessState::AwaitingPrepare,
             hyper_client: OnceCell::new(),
             outer_paths: Some(outer_paths),
@@ -172,7 +158,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     /// will result in [VmmProcessState::Started].
     pub async fn invoke(&mut self, config_path: Option<PathBuf>) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
-        self.child = Some(
+        self.process_handle = Some(
             self.executor
                 .invoke(
                     self.installation.as_ref(),
@@ -206,22 +192,13 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     /// Take out the stdout, stdin, stderr pipes of the underlying process. This can be only done once,
     /// if some code takes out the pipes, it now owns them for the remaining lifespan of the process.
     /// Allowed in [VmmProcessState::Started].
-    pub fn take_pipes(&mut self) -> Result<VmmProcessPipes, VmmProcessError> {
+    pub fn take_pipes(&mut self) -> Result<ProcessHandlePipes, VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
-        let child_ref = self.child.as_mut().expect("No child while running");
-        let stdin = child_ref
-            .stdin
-            .take()
-            .ok_or(VmmProcessError::PipesNulledOrAlreadyTaken)?;
-        let stdout = child_ref
-            .stdout
-            .take()
-            .ok_or(VmmProcessError::PipesNulledOrAlreadyTaken)?;
-        let stderr = child_ref
-            .stderr
-            .take()
-            .ok_or(VmmProcessError::PipesNulledOrAlreadyTaken)?;
-        Ok(VmmProcessPipes { stdin, stdout, stderr })
+        self.process_handle
+            .as_mut()
+            .expect("No process handle after having started cannot happen")
+            .get_pipes()
+            .map_err(VmmProcessError::ProcessHandlePipesError)
     }
 
     /// Gets the outer path to the API server socket, if one has been configured, via the executor.
@@ -259,10 +236,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     /// Allowed in [VmmProcessState::Started] state, will result in [VmmProcessState::Crashed] state.
     pub fn send_sigkill(&mut self) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
-        self.child
+        self.process_handle
             .as_mut()
             .expect("No child while running")
-            .start_kill()
+            .send_sigkill()
             .map_err(VmmProcessError::SigkillFailed)
     }
 
@@ -270,7 +247,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     /// in either [VmmProcessState::Started] or [VmmProcessState::Crashed], returning the [ExitStatus] of the process.
     pub async fn wait_for_exit(&mut self) -> Result<ExitStatus, VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
-        self.child
+        self.process_handle
             .as_mut()
             .expect("No child while running")
             .wait()
@@ -281,7 +258,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     /// Returns the current [VmmProcessState] of the [VmmProcess]. Needs mutable access (as well as most other
     /// [VmmProcess] methods relying on it) in order to query the process Allowed in any [VmmProcessState].
     pub fn state(&mut self) -> VmmProcessState {
-        if let Some(ref mut child) = self.child {
+        if let Some(ref mut child) = self.process_handle {
             if let Ok(Some(exit_status)) = child.try_wait() {
                 if exit_status.success() {
                     self.state = VmmProcessState::Exited;

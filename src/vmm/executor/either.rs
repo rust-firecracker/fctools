@@ -4,8 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use tokio::process::Child;
-
 use crate::{
     fs_backend::FsBackend,
     process_spawner::ProcessSpawner,
@@ -14,6 +12,7 @@ use crate::{
 
 use super::{
     jailed::{JailRenamer, JailedVmmExecutor},
+    process_handle::ProcessHandle,
     unrestricted::UnrestrictedVmmExecutor,
     VmmExecutor, VmmExecutorError,
 };
@@ -89,7 +88,7 @@ impl<R: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<R> {
         process_spawner: Arc<impl ProcessSpawner>,
         config_path: Option<PathBuf>,
         ownership_model: VmmOwnershipModel,
-    ) -> Result<Child, VmmExecutorError> {
+    ) -> Result<ProcessHandle, VmmExecutorError> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => {
                 executor
