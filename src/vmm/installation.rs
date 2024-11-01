@@ -74,7 +74,11 @@ async fn verify_imp(
     }
 
     let mut command = Command::new(path);
-    command.arg("--version").stdout(Stdio::piped());
+    command
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .stdin(Stdio::null());
     let output = command
         .output()
         .await
