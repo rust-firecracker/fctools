@@ -159,7 +159,7 @@ pub type TestVmmProcess =
     fctools::vmm::process::VmmProcess<EitherVmmExecutor<FlatJailRenamer>, SudoProcessSpawner, BlockingFsBackend>;
 
 #[allow(unused)]
-pub async fn run_vmm_process_test<F, Fut>(closure: F)
+pub async fn run_vmm_process_test<F, Fut>(no_new_pid_ns: bool, closure: F)
 where
     F: Fn(TestVmmProcess) -> Fut,
     F: 'static,
@@ -179,7 +179,7 @@ where
         assert_eq!(process.state(), VmmProcessState::Started);
     }
 
-    let (mut unrestricted_process, mut jailed_process) = get_vmm_processes();
+    let (mut unrestricted_process, mut jailed_process) = get_vmm_processes(no_new_pid_ns);
 
     init_process(&mut jailed_process, "/jailed.json").await;
     init_process(&mut unrestricted_process, get_test_path("configs/unrestricted.json")).await;
@@ -190,13 +190,18 @@ where
     println!("Succeeded with jailed VM");
 }
 
-fn get_vmm_processes() -> (TestVmmProcess, TestVmmProcess) {
+fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProcess) {
     let socket_path = get_tmp_path();
 
     let vmm_arguments = VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()));
 
-    let jailer_arguments = JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap())
+    let mut jailer_arguments = JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap())
         .cgroup_version(JailerCgroupVersion::V2);
+
+    if !no_new_pid_ns {
+        jailer_arguments = jailer_arguments.daemonize().exec_in_new_pid_ns();
+    }
+
     let unrestricted_executor = UnrestrictedVmmExecutor::new(vmm_arguments.clone());
     let jailed_executor = JailedVmmExecutor::new(vmm_arguments, jailer_arguments, FlatJailRenamer::default());
 
@@ -250,6 +255,7 @@ pub struct VmBuilder {
     jailed_network_data: Option<NetworkData>,
     boot_arg_append: String,
     mmds: bool,
+    new_pid_ns: bool,
 }
 
 #[allow(unused)]
@@ -266,6 +272,7 @@ impl VmBuilder {
             jailed_network_data: None,
             boot_arg_append: String::new(),
             mmds: false,
+            new_pid_ns: true,
         }
     }
 
@@ -310,6 +317,11 @@ impl VmBuilder {
 
     pub fn mmds(mut self) -> Self {
         self.mmds = true;
+        self
+    }
+
+    pub fn no_new_pid_ns(mut self) -> Self {
+        self.new_pid_ns = false;
         self
     }
 
@@ -403,20 +415,19 @@ impl VmBuilder {
             BootSource::new(get_test_path("assets/kernel")).boot_args(get_boot_arg(self.jailed_network_data.as_ref())),
             MachineConfiguration::new(1, 128).track_dirty_pages(true),
         )
-        .drive(
-            Drive::new("rootfs", true)
-                .path_on_host(get_test_path("assets/rootfs.ext4"))
-                .is_read_only(true),
-        );
+        .drive(Drive::new("rootfs", true).path_on_host(get_test_path("assets/rootfs.ext4")));
 
         let test_options = TestOptions::get_blocking();
         let mut jailer_arguments = JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap())
-            .cgroup_version(JailerCgroupVersion::V2)
-            .daemonize()
-            .exec_in_new_pid_ns();
+            .cgroup_version(JailerCgroupVersion::V2);
+
         if let Some(ref network) = self.jailed_network_data {
             jailer_arguments =
                 jailer_arguments.network_namespace_path(format!("/var/run/netns/{}", network.netns_name));
+        }
+
+        if self.new_pid_ns {
+            jailer_arguments = jailer_arguments.daemonize().exec_in_new_pid_ns();
         }
 
         let jailed_executor = EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
@@ -469,16 +480,16 @@ impl VmBuilder {
             .unwrap()
             .block_on(async {
                 tokio::join!(
-                    // Self::test_worker(
-                    //     self.unrestricted_network_data,
-                    //     VmConfiguration::New {
-                    //         init_method: self.init_method.clone(),
-                    //         data: unrestricted_data
-                    //     },
-                    //     EitherVmmExecutor::Unrestricted(unrestricted_executor),
-                    //     pre_start_hook1,
-                    //     function.clone(),
-                    // ),
+                    Self::test_worker(
+                        self.unrestricted_network_data,
+                        VmConfiguration::New {
+                            init_method: self.init_method.clone(),
+                            data: unrestricted_data
+                        },
+                        EitherVmmExecutor::Unrestricted(unrestricted_executor),
+                        pre_start_hook1,
+                        function.clone(),
+                    ),
                     Self::test_worker(
                         self.jailed_network_data,
                         VmConfiguration::New {

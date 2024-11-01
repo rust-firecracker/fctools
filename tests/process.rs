@@ -13,7 +13,7 @@ mod test_framework;
 
 #[tokio::test]
 async fn vmm_can_recv_ctrl_alt_del() {
-    run_vmm_process_test(|mut process| async move {
+    run_vmm_process_test(false, |mut process| async move {
         shutdown(&mut process).await;
     })
     .await;
@@ -21,7 +21,7 @@ async fn vmm_can_recv_ctrl_alt_del() {
 
 #[tokio::test]
 async fn vmm_can_recv_sigkill() {
-    run_vmm_process_test(|mut process| async move {
+    run_vmm_process_test(true, |mut process| async move {
         process.send_sigkill().unwrap();
         process.wait_for_exit().await.unwrap();
         if let VmmProcessState::Crashed(exit_status) = process.state() {
@@ -37,7 +37,7 @@ async fn vmm_can_recv_sigkill() {
 
 #[tokio::test]
 async fn vmm_can_take_out_pipes() {
-    run_vmm_process_test(|mut process| async move {
+    run_vmm_process_test(true, |mut process| async move {
         let pipes = process.take_pipes().unwrap();
         process.take_pipes().unwrap_err(); // cannot take out pipes twice
         process.send_ctrl_alt_del().await.unwrap();
@@ -58,7 +58,7 @@ async fn vmm_can_take_out_pipes() {
 
 #[tokio::test]
 async fn vmm_operations_are_rejected_in_incorrect_states() {
-    run_vmm_process_test(|mut process| async move {
+    run_vmm_process_test(false, |mut process| async move {
         process.prepare().await.unwrap_err();
         process.invoke(None).await.unwrap_err();
         process.cleanup().await.unwrap_err();
@@ -76,7 +76,7 @@ async fn vmm_operations_are_rejected_in_incorrect_states() {
 
 #[tokio::test]
 async fn vmm_can_send_get_request_to_api_socket() {
-    run_vmm_process_test(|mut process| async move {
+    run_vmm_process_test(false, |mut process| async move {
         let request = Request::builder().method("GET").body(Full::new(Bytes::new())).unwrap();
         let mut response = process.send_api_request("/", request).await.unwrap();
         assert!(response.status().is_success());
@@ -102,7 +102,7 @@ async fn vmm_can_send_patch_request_to_api_socket() {
         assert!(response.recv_to_string().await.unwrap().is_empty());
     }
 
-    run_vmm_process_test(|mut process| async move {
+    run_vmm_process_test(false, |mut process| async move {
         send_state_request("Paused", &mut process).await;
         send_state_request("Resumed", &mut process).await;
         shutdown(&mut process).await;
@@ -112,7 +112,7 @@ async fn vmm_can_send_patch_request_to_api_socket() {
 
 #[tokio::test]
 async fn vmm_can_send_put_request_to_api_socket() {
-    run_vmm_process_test(|mut process| async move {
+    run_vmm_process_test(false, |mut process| async move {
         let request = Request::builder()
             .method("PUT")
             .header("Content-Type", "application/json")
@@ -128,7 +128,7 @@ async fn vmm_can_send_put_request_to_api_socket() {
 
 #[tokio::test]
 async fn vmm_get_socket_path_returns_correct_path() {
-    run_vmm_process_test(|mut process| async move {
+    run_vmm_process_test(false, |mut process| async move {
         let socket_path = process.get_socket_path().unwrap();
         process
             .send_api_request(
@@ -163,7 +163,7 @@ async fn vmm_get_socket_path_returns_correct_path() {
 
 #[tokio::test]
 async fn vmm_inner_to_outer_path_performs_transformation() {
-    run_vmm_process_test(|mut process| async move {
+    run_vmm_process_test(false, |mut process| async move {
         let outer_path = process.inner_to_outer_path("/dev/kvm");
 
         if outer_path.to_str().unwrap() != "/dev/kvm"

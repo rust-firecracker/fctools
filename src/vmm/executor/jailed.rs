@@ -273,8 +273,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             .map_err(VmmExecutorError::ProcessSpawnFailed)?;
 
         if self.jailer_arguments.daemonize || self.jailer_arguments.exec_in_new_pid_ns {
-            let (_, jail_path) = dbg!(self.get_paths(installation));
-
+            let (_, jail_path) = self.get_paths(installation);
             let pid_file_path = jail_path.join(format!(
                 "{}.pid",
                 installation
@@ -345,10 +344,12 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
         // example: /srv/jailer/firecracker/1/root
         let jail_path = chroot_base_dir
             .join(
-                match installation.firecracker_path.file_name().map(|f| f.to_str()).flatten() {
-                    Some(filename) => filename,
-                    None => "firecracker",
-                },
+                installation
+                    .firecracker_path
+                    .file_name()
+                    .map(|f| f.to_str())
+                    .flatten()
+                    .unwrap_or("firecracker"),
             )
             .join(self.jailer_arguments.jail_id.as_ref())
             .join("root");

@@ -126,6 +126,7 @@ fn vm_can_take_pipes() {
                 vm.take_pipes().unwrap_err(); // cannot take out pipes before start
             })
         })
+        .no_new_pid_ns()
         .run(|mut vm| async move {
             let pipes = vm.take_pipes().unwrap();
             vm.take_pipes().unwrap_err(); // cannot take out pipes twice
@@ -139,6 +140,19 @@ fn vm_can_take_pipes() {
 
             assert!(buf.contains("Artificially kick devices."));
         });
+}
+
+#[test]
+fn vm_can_not_take_pipes_when_new_pid_ns() {
+    VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
+        if is_jailed {
+            vm.take_pipes().unwrap_err();
+        } else {
+            vm.take_pipes().unwrap();
+        }
+
+        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+    });
 }
 
 #[test]

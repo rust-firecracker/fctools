@@ -248,14 +248,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     /// in either [VmmProcessState::Started] or [VmmProcessState::Crashed], returning the [ExitStatus] of the process.
     pub async fn wait_for_exit(&mut self) -> Result<ExitStatus, VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
-        dbg!(
-            self.process_handle
-                .as_mut()
-                .expect("No child while running")
-                .wait()
-                .await
-        )
-        .map_err(VmmProcessError::WaitFailed)
+        self.process_handle
+            .as_mut()
+            .expect("No child while running")
+            .wait()
+            .await
+            .map_err(VmmProcessError::WaitFailed)
     }
 
     /// Returns the current [VmmProcessState] of the [VmmProcess]. Needs mutable access (as well as most other

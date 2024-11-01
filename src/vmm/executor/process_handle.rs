@@ -79,6 +79,7 @@ impl ProcessHandle {
         }))
     }
 
+    /// Send a SIGKILL signal to the process.
     pub fn send_sigkill(&mut self) -> Result<(), std::io::Error> {
         match self.0 {
             ProcessHandleInner::Attached {
@@ -107,6 +108,7 @@ impl ProcessHandle {
         }
     }
 
+    /// Wait for the process to have exited.
     pub async fn wait(&mut self) -> Result<ExitStatus, std::io::Error> {
         match self.0 {
             ProcessHandleInner::Attached {
@@ -130,6 +132,7 @@ impl ProcessHandle {
         }
     }
 
+    /// Check if the process has exited, returning the [ExitStatus] if so or [None] otherwise.
     pub fn try_wait(&mut self) -> Result<Option<ExitStatus>, std::io::Error> {
         match self.0 {
             ProcessHandleInner::Attached {
@@ -156,6 +159,8 @@ impl ProcessHandle {
         }
     }
 
+    /// Try to get the [ProcessHandlePipes] for this process. Only possible for attached (child)
+    /// processes that haven't had their pipes dropped when creating.
     pub fn get_pipes(&mut self) -> Result<ProcessHandlePipes, ProcessHandlePipesError> {
         match self.0 {
             ProcessHandleInner::Detached {
