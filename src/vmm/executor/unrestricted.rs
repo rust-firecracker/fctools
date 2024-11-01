@@ -18,7 +18,7 @@ use crate::{
 };
 
 use super::{
-    create_file_with_tree, join_on_set, process_handle::ProcessHandle, upgrade_owner, VmmExecutor, VmmExecutorError,
+    create_file_or_fifo, join_on_set, process_handle::ProcessHandle, upgrade_owner, VmmExecutor, VmmExecutorError,
     VmmOwnershipModel,
 };
 
@@ -163,7 +163,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
         // Ensure argument paths exist
         if let Some(log_path) = self.vmm_arguments.log_path.clone() {
-            join_set.spawn(create_file_with_tree(
+            join_set.spawn(create_file_or_fifo(
                 fs_backend.clone(),
                 process_spawner.clone(),
                 ownership_model,
@@ -172,7 +172,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         if let Some(metrics_path) = self.vmm_arguments.metrics_path.clone() {
-            join_set.spawn(create_file_with_tree(
+            join_set.spawn(create_file_or_fifo(
                 fs_backend.clone(),
                 process_spawner.clone(),
                 ownership_model,

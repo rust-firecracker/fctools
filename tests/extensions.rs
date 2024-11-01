@@ -8,7 +8,10 @@ use fctools::{
         ShutdownMethod,
     },
 };
-use test_framework::{get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, TestOptions, VmBuilder};
+use test_framework::{
+    get_real_firecracker_installation, get_tmp_fifo_path, get_tmp_path, shutdown_test_vm, TestOptions, TestVm,
+    VmBuilder,
+};
 
 mod test_framework;
 
@@ -100,15 +103,24 @@ fn snapshot_editor_can_get_snapshot_vm_state() {
 }
 
 #[test]
-fn metrics_task_can_receive_data() {
+fn metrics_task_can_receive_data_from_plaintext() {
     VmBuilder::new()
         .metrics_system(MetricsSystem::new(get_tmp_path()))
-        .run(|mut vm| async move {
-            let mut metrics_task = spawn_metrics_task(vm.get_accessible_paths().metrics_path.clone().unwrap(), 100);
-            let metrics = metrics_task.receiver.recv().await.unwrap();
-            assert!(metrics.put_api_requests.actions_count > 0);
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
-        });
+        .run(|vm| test_metrics_recv(vm));
+}
+
+#[test]
+fn metrics_task_can_receive_data_from_fifo() {
+    VmBuilder::new()
+        .metrics_system(MetricsSystem::new(get_tmp_fifo_path()))
+        .run(|vm| test_metrics_recv(vm));
+}
+
+async fn test_metrics_recv(mut vm: TestVm) {
+    let mut metrics_task = spawn_metrics_task(vm.get_accessible_paths().metrics_path.clone().unwrap(), 100);
+    let metrics = metrics_task.receiver.recv().await.unwrap();
+    assert!(metrics.put_api_requests.actions_count > 0);
+    shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
 }
 
 #[test]

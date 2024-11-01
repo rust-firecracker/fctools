@@ -17,7 +17,7 @@ use crate::{
     },
 };
 
-use super::{create_file_with_tree, process_handle::ProcessHandle, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
+use super::{create_file_or_fifo, process_handle::ProcessHandle, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
@@ -140,7 +140,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
 
         // Ensure argument paths exist
         if let Some(ref log_path) = self.vmm_arguments.log_path.clone() {
-            join_set.spawn(create_file_with_tree(
+            join_set.spawn(create_file_or_fifo(
                 fs_backend.clone(),
                 process_spawner.clone(),
                 ownership_model,
@@ -149,7 +149,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         }
 
         if let Some(ref metrics_path) = self.vmm_arguments.metrics_path.clone() {
-            join_set.spawn(create_file_with_tree(
+            join_set.spawn(create_file_or_fifo(
                 fs_backend.clone(),
                 process_spawner.clone(),
                 ownership_model,
@@ -284,7 +284,10 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                     .unwrap_or("firecracker")
             ));
 
-            child.wait().await.map_err(VmmExecutorError::IoError)?;
+            let exit_status = child.wait().await.map_err(VmmExecutorError::IoError)?;
+            if !exit_status.success() {
+                return Err(VmmExecutorError::ProcessExitedWithIncorrectStatus(exit_status));
+            }
 
             upgrade_owner(
                 &pid_file_path,
@@ -336,10 +339,11 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
 
 impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
     fn get_paths(&self, installation: &VmmInstallation) -> (PathBuf, PathBuf) {
-        let chroot_base_dir = match self.jailer_arguments.chroot_base_dir {
-            Some(ref path) => path.clone(),
-            None => PathBuf::from("/srv/jailer"),
-        };
+        let chroot_base_dir = self
+            .jailer_arguments
+            .chroot_base_dir
+            .clone()
+            .unwrap_or(PathBuf::from("/srv/jailer"));
 
         // example: /srv/jailer/firecracker/1/root
         let jail_path = chroot_base_dir

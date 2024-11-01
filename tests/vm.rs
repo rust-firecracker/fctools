@@ -22,7 +22,8 @@ use fctools::{
 };
 use rand::RngCore;
 use test_framework::{
-    get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, TestOptions, TestVm, VmBuilder,
+    get_real_firecracker_installation, get_tmp_fifo_path, get_tmp_path, shutdown_test_vm, TestOptions, TestVm,
+    VmBuilder,
 };
 use tokio::{
     fs::{metadata, try_exists},
@@ -64,12 +65,27 @@ fn vm_can_be_shut_down_via_pause_then_kill() {
 }
 
 #[test]
-fn vm_processes_logger_path() {
+fn vm_processes_logger_path_as_fifo() {
+    VmBuilder::new()
+        .logger_system(LoggerSystem::new().log_path(get_tmp_fifo_path()))
+        .run(|mut vm| async move {
+            let log_path = vm.get_accessible_paths().log_path.clone().unwrap();
+            assert!(metadata(&log_path).await.unwrap().file_type().is_fifo());
+            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            assert!(!try_exists(log_path).await.unwrap());
+        });
+}
+
+#[test]
+fn vm_processes_logger_path_as_plaintext() {
     VmBuilder::new()
         .logger_system(LoggerSystem::new().log_path(get_tmp_path()))
         .run(|mut vm| async move {
             let log_path = vm.get_accessible_paths().log_path.clone().unwrap();
-            assert!(metadata(&log_path).await.unwrap().is_file());
+            let file_type = metadata(&log_path).await.unwrap().file_type();
+            assert!(file_type.is_file());
+            assert!(!file_type.is_fifo());
+
             shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
             assert!(!try_exists(log_path).await.unwrap());
         });

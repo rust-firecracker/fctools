@@ -122,6 +122,11 @@ pub fn get_tmp_path() -> PathBuf {
 }
 
 #[allow(unused)]
+pub fn get_tmp_fifo_path() -> PathBuf {
+    PathBuf::from(format!("/tmp/{}.fifo", Uuid::new_v4()))
+}
+
+#[allow(unused)]
 pub fn jail_join(path1: impl AsRef<Path>, path2: impl Into<PathBuf>) -> PathBuf {
     path1
         .as_ref()

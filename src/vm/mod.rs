@@ -21,6 +21,7 @@ use crate::{
 use api::{VmApi, VmApiError};
 use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
 use models::LoadSnapshot;
+use nix::sys::stat::Mode;
 use tokio::task::{JoinError, JoinSet};
 
 pub mod api;
@@ -87,6 +88,8 @@ pub enum VmError {
     FsBackendError(FsBackendError),
     #[error("Joining on an async task failed: `{0}`")]
     TaskJoinFailed(JoinError),
+    #[error("Making a FIFO named pipe failed: {0}")]
+    MkfifoError(std::io::Error),
     #[error("A state check of the VM failed: `{0}`")]
     StateCheckError(VmStateCheckError),
     #[error("A request issued to the API server internally failed: `{0}`")]
@@ -287,32 +290,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 true,
             ));
             accessible_paths.vsock_multiplexer_path = Some(new_uds_path);
-        }
-
-        if let Some(ref logger) = configuration.data().logger_system {
-            if let Some(ref log_path) = logger.log_path {
-                let new_log_path = vmm_process.inner_to_outer_path(log_path);
-                prepare_join_set.spawn(prepare_file(
-                    fs_backend.clone(),
-                    process_spawner.clone(),
-                    new_log_path.clone(),
-                    ownership_model,
-                    false,
-                ));
-                accessible_paths.log_path = Some(new_log_path);
-            }
-        }
-
-        if let Some(ref metrics) = configuration.data().metrics_system {
-            let new_metrics_path = vmm_process.inner_to_outer_path(&metrics.metrics_path);
-            prepare_join_set.spawn(prepare_file(
-                fs_backend.clone(),
-                process_spawner.clone(),
-                new_metrics_path.clone(),
-                ownership_model,
-                false,
-            ));
-            accessible_paths.metrics_path = Some(new_metrics_path);
         }
 
         while let Some(result) = prepare_join_set.join_next().await {
@@ -611,7 +588,14 @@ async fn prepare_file(
     }
 
     if !only_tree {
-        fs_backend.create_file(&path).await.map_err(VmError::FsBackendError)?;
+        if path.extension().map(|ext| ext.to_str()).flatten() == Some("fifo") {
+            if nix::unistd::mkfifo(&path, Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR).is_err() {
+                return Err(VmError::MkfifoError(std::io::Error::last_os_error()));
+            }
+        } else {
+            fs_backend.create_file(&path).await.map_err(VmError::FsBackendError)?;
+        }
+
         downgrade_owner(&path, ownership_model, process_spawner.as_ref(), fs_backend.as_ref())
             .await
             .map_err(VmError::ChangeOwnerError)?;

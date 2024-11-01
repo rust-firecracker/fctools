@@ -9,6 +9,7 @@ use std::{
 
 #[cfg(feature = "jailed-vmm-executor")]
 use jailed::JailRenamerError;
+use nix::sys::stat::Mode;
 use process_handle::ProcessHandle;
 use tokio::task::JoinError;
 #[cfg(feature = "unrestricted-vmm-executor")]
@@ -57,8 +58,8 @@ pub enum VmmExecutorError {
     #[cfg_attr(docsrs, doc(cfg(feature = "jailed-vmm-executor")))]
     #[error("Invoking the jail renamer to produce an inner path failed: {0}")]
     JailRenamerFailed(JailRenamerError),
-    #[error("The watched process exited prematurely with exit status: {0}")]
-    PrematureExiting(ExitStatus),
+    #[error("The watched process exited with an unsuccessful exit status: {0}")]
+    ProcessExitedWithIncorrectStatus(ExitStatus),
     #[error("Parsing an integer from a string failed: {0}")]
     ParseIntError(ParseIntError),
     #[error("Another error occurred: {0}")]
@@ -107,7 +108,7 @@ pub trait VmmExecutor: Send + Sync {
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
-async fn create_file_with_tree(
+async fn create_file_or_fifo(
     fs_backend: Arc<impl FsBackend>,
     process_spawner: Arc<impl ProcessSpawner>,
     ownership_model: VmmOwnershipModel,
@@ -120,10 +121,16 @@ async fn create_file_with_tree(
             .map_err(VmmExecutorError::FsBackendError)?;
     }
 
-    fs_backend
-        .create_file(&path)
-        .await
-        .map_err(VmmExecutorError::FsBackendError)?;
+    if path.extension().map(|ext| ext.to_str()).flatten() == Some("fifo") {
+        if nix::unistd::mkfifo(&path, Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR).is_err() {
+            return Err(VmmExecutorError::IoError(std::io::Error::last_os_error()));
+        }
+    } else {
+        fs_backend
+            .create_file(&path)
+            .await
+            .map_err(VmmExecutorError::FsBackendError)?;
+    }
 
     downgrade_owner(&path, ownership_model, process_spawner.as_ref(), fs_backend.as_ref())
         .await
