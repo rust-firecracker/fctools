@@ -31,11 +31,11 @@ pub struct SnapshotEditor<'p> {
 /// An error that can be emitted by a "snapshot-editor" invocation.
 #[derive(Debug, thiserror::Error)]
 pub enum SnapshotEditorError {
-    #[error("Forking the snapshot-editor process failed: `{0}`")]
+    #[error("Forking the snapshot-editor process failed: {0}")]
     ProcessSpawnFailed(tokio::io::Error),
-    #[error("Waiting on the exit of the snapshot-editor process failed: `{0}`")]
+    #[error("Waiting on the exit of the snapshot-editor process failed: {0}")]
     ProcessWaitFailed(tokio::io::Error),
-    #[error("The snapshot-editor exited with a non-zero exit status: `{0}`")]
+    #[error("The snapshot-editor exited with a non-zero exit status: {0}")]
     ExitedWithNonZeroStatus(ExitStatus),
     #[error("A given path was not in UTF-8. Non-UTF-8 paths are unsupported.")]
     NonUTF8Path,

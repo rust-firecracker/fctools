@@ -76,34 +76,34 @@ impl std::fmt::Display for VmmProcessState {
 /// Error caused during a [VmmProcess] operation.
 #[derive(Debug, thiserror::Error)]
 pub enum VmmProcessError {
-    #[error("Expected the VMM process to have the `{expected}` state, but it actually had the `{actual}` state")]
+    #[error("Expected the VMM process to have the {expected} state, but it actually had the {actual} state")]
     ExpectedState {
         expected: VmmProcessState,
         actual: VmmProcessState,
     },
-    #[error("Expected the VMM process to either have exited or crashed, but it actually had the `{actual}` state")]
+    #[error("Expected the VMM process to either have exited or crashed, but it actually had the {actual} state")]
     ExpectedExitedOrCrashed { actual: VmmProcessState },
     #[error("The VMM process's API socket had been disabled yet a request to the socket was attempted")]
     SocketWasDisabled,
-    #[error("An ownership upgrade requested on VMM process level failed: `{0}`")]
+    #[error("An ownership upgrade requested on VMM process level failed: {0}")]
     ChangeOwnerError(ChangeOwnerError),
-    #[error("An error occurred in the internal hyper-util HTTP connection pool: `{0}`")]
+    #[error("An error occurred in the internal hyper-util HTTP connection pool: {0}")]
     HyperClientFailed(hyper_util::client::legacy::Error),
-    #[error("Transmitting SIGKILL to the process failed: `{0}`")]
+    #[error("Transmitting SIGKILL to the process failed: {0}")]
     SigkillFailed(std::io::Error),
-    #[error("Building the Ctrl+Alt+Del HTTP request failed: `{0}`")]
+    #[error("Building the Ctrl+Alt+Del HTTP request failed: {0}")]
     CtrlAltDelRequestNotBuilt(hyper::http::Error),
-    #[error("The Ctrl+Alt+Del HTTP request returned an unsuccessful status code: `{0}`")]
+    #[error("The Ctrl+Alt+Del HTTP request returned an unsuccessful status code: {0}")]
     CtrlAltDelRequestFailed(StatusCode),
-    #[error("Awaiting the process' exit failed: `{0}`")]
+    #[error("Awaiting the process' exit failed: {0}")]
     WaitFailed(std::io::Error),
     #[error("The given route to the API socket could not be transformed to a Unix socket URI")]
     IncorrectSocketUri,
-    #[error("The underlying VMM executor returned an error: `{0}`")]
+    #[error("The underlying VMM executor returned an error: {0}")]
     ExecutorError(VmmExecutorError),
-    #[error("Getting the pipes from the process handle failed: `{0}`")]
+    #[error("Getting the pipes from the process handle failed: {0}")]
     ProcessHandlePipesError(ProcessHandlePipesError),
-    #[error("An I/O error occurred: `{0}`")]
+    #[error("An I/O error occurred: {0}")]
     IoError(std::io::Error),
 }
 

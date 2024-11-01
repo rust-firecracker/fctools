@@ -11,9 +11,9 @@ use crate::{fs_backend::FsBackend, process_spawner::ProcessSpawner, vm::Vm, vmm:
 pub enum VsockGrpcError {
     #[error("A vsock device was not configured for this VM")]
     VsockNotConfigured,
-    #[error("The provided address was rejected as an Endpoint by tonic: `{0}`")]
+    #[error("The provided address was rejected as an Endpoint by tonic: {0}")]
     ProvidedAddressRejected(tonic::transport::Error),
-    #[error("The connection process failed: `{0}`")]
+    #[error("The connection process failed: {0}")]
     ConnectionFailed(tonic::transport::Error),
 }
 

@@ -66,13 +66,13 @@ impl VmmOwnershipModel {
 /// than the shared model.
 #[derive(Debug, thiserror::Error)]
 pub enum ChangeOwnerError {
-    #[error("Spawning a \"chown\" process failed: `{0}`")]
+    #[error("Spawning a \"chown\" process failed: {0}")]
     ProcessSpawnFailed(std::io::Error),
-    #[error("Waiting on the completion of the \"chown\" process failed: `{0}`")]
+    #[error("Waiting on the completion of the \"chown\" process failed: {0}")]
     ProcessWaitFailed(std::io::Error),
-    #[error("The \"chown\" process exited with a non-zero exit status: `{0}`")]
+    #[error("The \"chown\" process exited with a non-zero exit status: {0}")]
     ProcessExitedWithWrongStatus(ExitStatus),
-    #[error("An in-process recursive chown implementation in the filesystem backend failed: `{0}`")]
+    #[error("An in-process recursive chown implementation in the filesystem backend failed: {0}")]
     FsBackendError(FsBackendError),
 }
 

@@ -20,7 +20,7 @@ pub struct VmmInstallation {
 /// Error caused during [VmmInstallation] verification.
 #[derive(Debug, thiserror::Error)]
 pub enum VmmInstallationError {
-    #[error("An error was emitted by the FS backend: `{0}`")]
+    #[error("An error was emitted by the FS backend: {0}")]
     FsBackendError(FsBackendError),
     #[error("A binary inside the installation doesn't exist")]
     BinaryMissing,

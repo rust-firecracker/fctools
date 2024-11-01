@@ -367,9 +367,9 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
 pub enum JailRenamerError {
     #[error("The given path which is supposed to be a file has no filename")]
     PathHasNoFilename,
-    #[error("A conversion of the outer path `{0}` to an inner path was not configured")]
+    #[error("A conversion of the outer path {0} to an inner path was not configured")]
     PathIsUnmapped(PathBuf),
-    #[error("Another error occurred: `{0}`")]
+    #[error("Another error occurred: {0}")]
     Other(Box<dyn std::error::Error + Send>),
 }
 

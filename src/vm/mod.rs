@@ -80,21 +80,21 @@ impl std::fmt::Display for VmState {
 /// All errors that can be produced by a [Vm].
 #[derive(Debug, thiserror::Error)]
 pub enum VmError {
-    #[error("The underlying VMM process returned an error: `{0}`")]
+    #[error("The underlying VMM process returned an error: {0}")]
     ProcessError(VmmProcessError),
-    #[error("An ownership change requested on the VM level failed: `{0}`")]
+    #[error("An ownership change requested on the VM level failed: {0}")]
     ChangeOwnerError(ChangeOwnerError),
-    #[error("A filesystem backend operation failed: `{0}`")]
+    #[error("A filesystem backend operation failed: {0}")]
     FsBackendError(FsBackendError),
-    #[error("Joining on an async task failed: `{0}`")]
+    #[error("Joining on an async task failed: {0}")]
     TaskJoinFailed(JoinError),
     #[error("Making a FIFO named pipe failed: {0}")]
     MkfifoError(std::io::Error),
-    #[error("A state check of the VM failed: `{0}`")]
+    #[error("A state check of the VM failed: {0}")]
     StateCheckError(VmStateCheckError),
-    #[error("A request issued to the API server internally failed: `{0}`")]
+    #[error("A request issued to the API server internally failed: {0}")]
     ApiError(VmApiError),
-    #[error("Serialization of the transient JSON configuration failed: `{0}`")]
+    #[error("Serialization of the transient JSON configuration failed: {0}")]
     ConfigurationSerdeError(serde_json::Error),
     #[error("No shutdown methods were specified for a VM shutdown operation")]
     NoShutdownMethodsSpecified,
@@ -108,11 +108,11 @@ pub enum VmError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum VmStateCheckError {
-    #[error("Expected the VM to have exited or crashed, but the actual state was `{actual}`")]
+    #[error("Expected the VM to have exited or crashed, but the actual state was {actual}")]
     ExitedOrCrashed { actual: VmState },
-    #[error("Expected the VM to be paused or running, but the actual state was `{actual}`")]
+    #[error("Expected the VM to be paused or running, but the actual state was {actual}")]
     PausedOrRunning { actual: VmState },
-    #[error("Expected the VM to be in the `{expected}` state, but the actual state was `{actual}`")]
+    #[error("Expected the VM to be in the {expected} state, but the actual state was {actual}")]
     Other { expected: VmState, actual: VmState },
 }
 

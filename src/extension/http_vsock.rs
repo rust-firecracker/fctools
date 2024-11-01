@@ -14,18 +14,18 @@ use crate::{fs_backend::FsBackend, process_spawner::ProcessSpawner, vm::Vm, vmm:
 pub enum VsockHttpError {
     #[error("A vsock device was not configured for this VM")]
     VsockNotConfigured,
-    #[error("Could not connect to the vsock socket: `{0}`")]
+    #[error("Could not connect to the vsock socket: {0}")]
     CannotConnect(tokio::io::Error),
-    #[error("Could not perform an HTTP handshake with the vsock socket: `{0}`")]
+    #[error("Could not perform an HTTP handshake with the vsock socket: {0}")]
     CannotHandshake(hyper::Error),
 }
 
 /// An error that can be emitted by the [VsockHttpPool] abstraction.
 #[derive(Debug, thiserror::Error)]
 pub enum VsockHttpPoolError {
-    #[error("A vsock URI cannot be constructed: `{0}`")]
+    #[error("A vsock URI cannot be constructed: {0}")]
     UriCannotBeConstructed(Box<dyn std::error::Error>),
-    #[error("An error occurred in the hyper-util connection pool: `{0}`")]
+    #[error("An error occurred in the hyper-util connection pool: {0}")]
     ConnectionPoolError(hyper_util::client::legacy::Error),
 }
 

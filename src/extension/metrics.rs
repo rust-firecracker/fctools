@@ -292,11 +292,11 @@ pub struct MetricsAggregate {
 
 #[derive(Debug, thiserror::Error)]
 pub enum MetricsTaskError {
-    #[error("An asynchronous I/O task failed: `{0}`")]
+    #[error("An asynchronous I/O task failed: {0}")]
     IoError(tokio::io::Error),
-    #[error("Deserializing the metrics JSON failed: `{0}`")]
+    #[error("Deserializing the metrics JSON failed: {0}")]
     SerdeError(serde_json::Error),
-    #[error("Sending the metrics to the channel failed: `{0}`")]
+    #[error("Sending the metrics to the channel failed: {0}")]
     SendError(SendError<Metrics>),
 }
 

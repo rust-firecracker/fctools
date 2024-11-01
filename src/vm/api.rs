@@ -32,24 +32,24 @@ use super::{
 /// An error that can be emitted by the [VmApi] Firecracker Management API bindings.
 #[derive(Debug, thiserror::Error)]
 pub enum VmApiError {
-    #[error("Serializing or deserializing JSON data via serde-json failed: `{0}`")]
+    #[error("Serializing or deserializing JSON data via serde-json failed: {0}")]
     SerdeError(serde_json::Error),
-    #[error("The API returned an unsuccessful HTTP response with the `{status_code}` status: `{fault_message}`")]
+    #[error("The API returned an unsuccessful HTTP response with the {status_code} status: {fault_message}")]
     ReceivedErrorResponse {
         status_code: StatusCode,
         fault_message: String,
     },
-    #[error("Building the HTTP request for the API failed: `{0}`")]
+    #[error("Building the HTTP request for the API failed: {0}")]
     RequestBuildError(http::Error),
-    #[error("Sending the HTTP process via the VMM process failed: `{0}`")]
+    #[error("Sending the HTTP process via the VMM process failed: {0}")]
     ConnectionError(VmmProcessError),
-    #[error("The HTTP response body from the API could not be received over the established connection: `{0}")]
+    #[error("The HTTP response body from the API could not be received over the established connection: {0}")]
     ResponseBodyReceiveError(hyper::Error),
-    #[error("The HTTP response body from the API was presumed empty but actually contains data: `{0}`")]
+    #[error("The HTTP response body from the API was presumed empty but actually contains data: {0}")]
     ResponseBodyContainsUnexpectedData(String),
-    #[error("A state check of the VM failed: `{0}`")]
+    #[error("A state check of the VM failed: {0}")]
     StateCheckError(VmStateCheckError),
-    #[error("Changing the owner of the snapshot failed: `{0}`")]
+    #[error("Changing the owner of the snapshot failed: {0}")]
     SnapshotChangeOwnerError(ChangeOwnerError),
 }
 
