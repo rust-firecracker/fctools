@@ -285,32 +285,21 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                     .unwrap_or("firecracker")
             ));
 
-            let pid: i32;
+            child.wait().await.map_err(VmmExecutorError::IoError)?;
 
-            child.wait().await.unwrap();
+            upgrade_owner(
+                &pid_file_path,
+                ownership_model,
+                process_spawner.as_ref(),
+                fs_backend.as_ref(),
+            )
+            .await
+            .map_err(VmmExecutorError::ChangeOwnerError)?;
 
-            loop {
-                if tokio::fs::try_exists(&pid_file_path)
-                    .await
-                    .map_err(VmmExecutorError::IoError)?
-                {
-                    upgrade_owner(
-                        &pid_file_path,
-                        ownership_model,
-                        process_spawner.as_ref(),
-                        fs_backend.as_ref(),
-                    )
-                    .await
-                    .map_err(VmmExecutorError::ChangeOwnerError)?;
-
-                    let pid_string = tokio::fs::read_to_string(&pid_file_path)
-                        .await
-                        .map_err(VmmExecutorError::IoError)?;
-
-                    pid = dbg!(pid_string.trim_end().parse().map_err(VmmExecutorError::ParseIntError)?);
-                    break;
-                }
-            }
+            let pid_string = tokio::fs::read_to_string(&pid_file_path)
+                .await
+                .map_err(VmmExecutorError::IoError)?;
+            let pid: i32 = pid_string.trim_end().parse().map_err(VmmExecutorError::ParseIntError)?;
 
             Ok(ProcessHandle::detached(Pid::from_raw(pid)).map_err(VmmExecutorError::IoError)?)
         } else {

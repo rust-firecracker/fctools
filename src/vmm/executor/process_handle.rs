@@ -1,15 +1,9 @@
 use std::{
-    os::{
-        fd::{AsFd, FromRawFd, OwnedFd, RawFd},
-        unix::process::ExitStatusExt,
-    },
+    os::{fd::RawFd, unix::process::ExitStatusExt},
     process::ExitStatus,
 };
 
-use nix::{
-    sys::wait::{Id, WaitPidFlag, WaitStatus},
-    unistd::Pid,
-};
+use nix::unistd::Pid;
 use tokio::{
     io::unix::AsyncFd,
     process::{Child, ChildStderr, ChildStdin, ChildStdout},
@@ -70,11 +64,11 @@ impl ProcessHandle {
 
         let raw_pidfd = raw_pidfd as RawFd;
         let (exited_tx, exited_rx) = oneshot::channel();
+        let async_pidfd = AsyncFd::new(raw_pidfd)?;
 
         tokio::task::spawn(async move {
-            let async_pidfd = AsyncFd::new(raw_pidfd).expect("Returned pidfd was invalid");
             if async_pidfd.readable().await.is_ok() {
-                exited_tx.send(());
+                let _ = exited_tx.send(());
             }
         });
 
@@ -96,7 +90,7 @@ impl ProcessHandle {
                 exited_rx: _,
                 exited,
             } => {
-                if let Some(exited) = exited {
+                if exited.is_some() {
                     return Err(std::io::Error::other("Trying to send SIGKILL to exited process"));
                 }
 
@@ -132,35 +126,6 @@ impl ProcessHandle {
                 let exit_status = ExitStatus::from_raw(0);
                 *exited = Some(exit_status);
                 Ok(exit_status)
-
-                // if let Some(reaped_exit_status) = reaped_exit_status {
-                //     return Ok(*reaped_exit_status);
-                // }
-
-                // pidfd.readable().await?.retain_ready();
-
-                // match dbg!(nix::sys::wait::waitid(
-                //     Id::PIDFd(pidfd.as_fd()),
-                //     WaitPidFlag::WEXITED | WaitPidFlag::WUNTRACED
-                // )) {
-                //     Ok(wait_status) => match wait_status {
-                //         WaitStatus::Exited(_, wait_status) => {
-                //             let exit_status = ExitStatus::from_raw(wait_status);
-                //             *reaped_exit_status = Some(exit_status);
-                //             Ok(exit_status)
-                //         }
-                //         WaitStatus::Signaled(_, signal, _) => {
-                //             let exit_status = ExitStatus::from_raw(signal as i32);
-                //             *reaped_exit_status = Some(exit_status);
-                //             Ok(exit_status)
-                //         }
-                //         _ => Err(std::io::Error::other(
-                //             "waitid on WEXITED returned something other than exited or signaled",
-                //         )),
-                //     },
-                //     // Err(errno) if errno == Errno::ECHILD => Ok(ExitStatus::from_raw(0)),
-                //     _ => Err(std::io::Error::last_os_error()),
-                // }
             }
         }
     }
@@ -187,31 +152,6 @@ impl ProcessHandle {
                 } else {
                     Ok(None)
                 }
-
-                // if let Some(reaped_exit_status) = reaped_exit_status {
-                //     return Ok(Some(*reaped_exit_status));
-                // }
-
-                // match dbg!(nix::sys::wait::waitid(
-                //     Id::PIDFd(pidfd.as_fd()),
-                //     WaitPidFlag::WEXITED | WaitPidFlag::WNOHANG
-                // )) {
-                //     Ok(wait_status) => match wait_status {
-                //         WaitStatus::Exited(_, wait_status) => {
-                //             let exit_status = ExitStatus::from_raw(wait_status);
-                //             *reaped_exit_status = Some(exit_status);
-                //             Ok(Some(exit_status))
-                //         }
-                //         WaitStatus::Signaled(_, signal, _) => {
-                //             let exit_status = ExitStatus::from_raw(signal as i32);
-                //             *reaped_exit_status = Some(exit_status);
-                //             Ok(Some(exit_status))
-                //         }
-                //         _ => Ok(None),
-                //     },
-                //     // Err(errno) if errno == Errno::ECHILD => Ok(Some(ExitStatus::from_raw(0))),
-                //     _ => Err(std::io::Error::last_os_error()),
-                // }
             }
         }
     }
