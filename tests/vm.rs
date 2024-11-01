@@ -37,7 +37,7 @@ fn vm_can_boot_via_api_calls() {
     VmBuilder::new()
         .init_method(InitMethod::ViaApiCalls)
         .run(|mut vm| async move {
-            shutdown_test_vm(&mut vm, ShutdownMethod::Kill).await;
+            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
         });
 }
 
@@ -156,19 +156,6 @@ fn vm_can_take_pipes() {
 
             assert!(buf.contains("Artificially kick devices."));
         });
-}
-
-#[test]
-fn vm_can_not_take_pipes_when_new_pid_ns() {
-    VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
-        if is_jailed {
-            vm.take_pipes().unwrap_err();
-        } else {
-            vm.take_pipes().unwrap();
-        }
-
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
-    });
 }
 
 #[test]

@@ -303,7 +303,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                 .map_err(VmmExecutorError::FsBackendError)?;
             let pid = pid_string.trim_end().parse().map_err(VmmExecutorError::ParseIntError)?;
 
-            Ok(ProcessHandle::detached(pid).map_err(VmmExecutorError::IoError)?)
+            Ok(ProcessHandle::detached(pid, fs_backend).map_err(VmmExecutorError::IoError)?)
         } else {
             Ok(ProcessHandle::attached(child, false))
         }

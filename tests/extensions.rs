@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{os::unix::fs::FileTypeExt, time::Duration};
 
 use fctools::{
     extension::{metrics::spawn_metrics_task, snapshot_editor::SnapshotEditorExt},
@@ -12,6 +12,7 @@ use test_framework::{
     get_real_firecracker_installation, get_tmp_fifo_path, get_tmp_path, shutdown_test_vm, TestOptions, TestVm,
     VmBuilder,
 };
+use tokio::fs::metadata;
 
 mod test_framework;
 
@@ -106,17 +107,27 @@ fn snapshot_editor_can_get_snapshot_vm_state() {
 fn metrics_task_can_receive_data_from_plaintext() {
     VmBuilder::new()
         .metrics_system(MetricsSystem::new(get_tmp_path()))
-        .run(test_metrics_recv);
+        .run(|vm| test_metrics_recv(false, vm));
 }
 
 #[test]
 fn metrics_task_can_receive_data_from_fifo() {
     VmBuilder::new()
         .metrics_system(MetricsSystem::new(get_tmp_fifo_path()))
-        .run(test_metrics_recv);
+        .run(|vm| test_metrics_recv(true, vm));
 }
 
-async fn test_metrics_recv(mut vm: TestVm) {
+async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
+    let metrics_path = vm.get_accessible_paths().metrics_path.clone().unwrap();
+    let file_type = metadata(&metrics_path).await.unwrap().file_type();
+
+    if is_fifo {
+        assert!(file_type.is_fifo());
+    } else {
+        assert!(!file_type.is_fifo());
+        assert!(file_type.is_file());
+    }
+
     let mut metrics_task = spawn_metrics_task(vm.get_accessible_paths().metrics_path.clone().unwrap(), 100);
     let metrics = metrics_task.receiver.recv().await.unwrap();
     assert!(metrics.put_api_requests.actions_count > 0);

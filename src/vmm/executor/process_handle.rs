@@ -1,6 +1,8 @@
 use std::{
     os::{fd::RawFd, unix::process::ExitStatusExt},
+    path::PathBuf,
     process::ExitStatus,
+    sync::Arc,
 };
 
 use tokio::{
@@ -8,6 +10,8 @@ use tokio::{
     process::{Child, ChildStderr, ChildStdin, ChildStdout},
     sync::oneshot,
 };
+
+use crate::fs_backend::FsBackend;
 
 /// A process handle is a thin abstraction over either an "attached" child process that is a Tokio [Child],
 /// or a "detached" certain process that isn't a child and is controlled via a pidfd.
@@ -42,7 +46,7 @@ enum ProcessHandleInner {
     },
     Detached {
         raw_pidfd: RawFd,
-        exited_rx: oneshot::Receiver<()>,
+        exited_rx: oneshot::Receiver<ExitStatus>,
         exited: Option<ExitStatus>,
     },
 }
@@ -54,7 +58,7 @@ impl ProcessHandle {
     }
 
     /// Try to create a [ProcessHandle] from an arbitrary detached PID.
-    pub fn detached(pid: i32) -> Result<Self, std::io::Error> {
+    pub fn detached(pid: i32, fs_backend: Arc<impl FsBackend>) -> Result<Self, std::io::Error> {
         let raw_pidfd = unsafe { nix::libc::syscall(nix::libc::SYS_pidfd_open, pid, 0) };
 
         if raw_pidfd == -1 {
@@ -67,7 +71,24 @@ impl ProcessHandle {
 
         tokio::task::spawn(async move {
             if async_pidfd.readable().await.is_ok() {
-                let _ = exited_tx.send(());
+                let mut exit_status = ExitStatus::from_raw(0);
+
+                if let Ok(content) = fs_backend
+                    .read_to_string(&PathBuf::from(format!("/proc/{pid}/stat")))
+                    .await
+                {
+                    if let Some(status_raw) = content
+                        .trim_end()
+                        .split_whitespace()
+                        .last()
+                        .map(|value| value.parse().ok())
+                        .flatten()
+                    {
+                        exit_status = ExitStatus::from_raw(status_raw);
+                    }
+                }
+
+                let _ = exited_tx.send(exit_status);
             }
         });
 
@@ -123,8 +144,9 @@ impl ProcessHandle {
                     return Ok(*exited);
                 }
 
-                let _ = exited_rx.await;
-                let exit_status = ExitStatus::from_raw(0);
+                let exit_status = exited_rx
+                    .await
+                    .map_err(|_| std::io::Error::other("Could not recv from task waiting on pidfd"))?;
                 *exited = Some(exit_status);
                 Ok(exit_status)
             }
@@ -147,8 +169,7 @@ impl ProcessHandle {
                     return Ok(Some(*exited));
                 }
 
-                if exited_rx.try_recv().is_ok() {
-                    let exit_status = ExitStatus::from_raw(0);
+                if let Ok(exit_status) = exited_rx.try_recv() {
                     *exited = Some(exit_status);
                     Ok(Some(exit_status))
                 } else {
