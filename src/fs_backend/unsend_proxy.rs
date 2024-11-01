@@ -13,11 +13,11 @@ use super::{FsBackend, FsBackendError, UnsendFsBackend};
 
 /// An [FsBackend] that runs an [UnsendFsBackend] on a separate OS thread and wraps the not-[Send] backend
 /// in a [Send] context by exchanging requests and responses to and from the OS thread via a channel
-/// pair ([tokio::sync::mpsc] and [tokio::sync::broadcast]) used internally.
+/// pair ([mpsc] and [broadcast]) used internally.
 ///
 /// A minor change the [UnsendProxy] makes to circumvent [std::io::Error] being not [Clone] is that all owned
 /// [FsBackendError]-s emitted by the [UnsendFsBackend] will be converted into [Arc]-ed errors. The [Clone]
-/// requirement is needed due to a [tokio::sync::broadcast] channel being used as a response recv channel on this
+/// requirement is needed due to a [broadcast] channel being used as a response recv channel on this
 /// [Send] side.
 pub struct UnsendProxyFsBackend {
     request_sender: mpsc::Sender<ProxyRequest>,

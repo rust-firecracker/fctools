@@ -221,12 +221,19 @@ fn vm_can_snapshot_after_original_has_exited() {
 }
 
 #[test]
-fn vm_can_boot_with_net_iface() {
-    VmBuilder::new().networking().run(|mut vm| async move {
-        let configuration = vm.api_get_effective_configuration().await.unwrap();
-        assert_eq!(configuration.network_interfaces.len(), 1);
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
-    });
+fn vm_can_boot_with_simple_networking() {
+    VmBuilder::new().simple_networking().run(verify_networking);
+}
+
+#[test]
+fn vm_can_boot_with_namespaced_networking() {
+    VmBuilder::new().namespaced_networking().run(verify_networking);
+}
+
+async fn verify_networking(mut vm: TestVm) {
+    let configuration = vm.api_get_effective_configuration().await.unwrap();
+    assert_eq!(configuration.network_interfaces.len(), 1);
+    shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
 }
 
 async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {

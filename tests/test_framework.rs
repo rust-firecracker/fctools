@@ -8,10 +8,10 @@ use std::{
     time::Duration,
 };
 
-use cidr::IpInet;
 use fcnet_types::{FirecrackerIpStack, FirecrackerNetwork, FirecrackerNetworkOperation, FirecrackerNetworkType};
 use fcnetd_client::FcnetdConnection;
 use fctools::{
+    extension::link_local::LinkLocalSubnet,
     fs_backend::{blocking::BlockingFsBackend, FsBackend},
     process_spawner::{DirectProcessSpawner, ProcessSpawner, SudoProcessSpawner},
     vm::{
@@ -244,7 +244,7 @@ type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> Pin<Box<dyn Future<Output = (
 struct NetworkData {
     network_interface: NetworkInterface,
     network: FirecrackerNetwork,
-    netns_name: String,
+    netns_name: Option<String>,
     boot_arg_append: String,
 }
 
@@ -314,9 +314,15 @@ impl VmBuilder {
         self
     }
 
-    pub fn networking(mut self) -> Self {
-        self.unrestricted_network_data = Some(self.setup_network());
-        self.jailed_network_data = Some(self.setup_network());
+    pub fn namespaced_networking(mut self) -> Self {
+        self.unrestricted_network_data = Some(self.setup_namespaced_network());
+        self.jailed_network_data = Some(self.setup_namespaced_network());
+        self
+    }
+
+    pub fn simple_networking(mut self) -> Self {
+        self.unrestricted_network_data = Some(self.setup_simple_network());
+        self.jailed_network_data = Some(self.setup_simple_network());
         self
     }
 
@@ -330,33 +336,51 @@ impl VmBuilder {
         self
     }
 
-    fn setup_network(&self) -> NetworkData {
-        fn inet(net_num: u16, num: u16) -> IpInet {
-            format!("169.254.{}.{}/29", (8 * net_num + num) / 256, (8 * net_num + num) % 256)
-                .parse()
-                .unwrap()
-        }
-
-        let net_num = rand::thread_rng().gen_range(1..=3000);
-        let guest_ip = inet(net_num, 1);
-        let tap_ip = inet(net_num, 2);
-        let tap_name = format!("tap{net_num}");
-        let netns_name = format!("fcnetns{net_num}");
-        let iface_name = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap()
-            .block_on(async { TestOptions::get().await.network_interface.clone() });
+    fn setup_simple_network(&self) -> NetworkData {
+        let subnet_index = rand::thread_rng().gen_range(1..=3000);
+        let subnet = LinkLocalSubnet::new(subnet_index, 30).unwrap();
+        let guest_ip = subnet.get_host_ip(0).unwrap().into();
+        let tap_ip = subnet.get_host_ip(1).unwrap().into();
+        let tap_name = format!("vtap{subnet_index}");
 
         let network = FirecrackerNetwork {
-            iface_name,
+            iface_name: TestOptions::get_blocking().network_interface,
+            tap_name: tap_name.clone(),
+            tap_ip,
+            network_type: FirecrackerNetworkType::Simple,
+            nft_path: None,
+            ip_stack: FirecrackerIpStack::V4,
+            guest_ip,
+        };
+        let boot_arg_append = format!(" {}", network.guest_ip_boot_arg("eth0"));
+
+        NetworkData {
+            network_interface: NetworkInterface::new("eth0", tap_name),
+            network,
+            netns_name: None,
+            boot_arg_append,
+        }
+    }
+
+    fn setup_namespaced_network(&self) -> NetworkData {
+        let subnet_index = rand::thread_rng().gen_range(1..=3000);
+        let subnet = LinkLocalSubnet::new(subnet_index, 29).unwrap();
+
+        let guest_ip = subnet.get_host_ip(0).unwrap().into();
+        let tap_ip = subnet.get_host_ip(1).unwrap().into();
+        let tap_name = format!("vtap{subnet_index}");
+        let netns_name = format!("vnetns{subnet_index}");
+
+        let network = FirecrackerNetwork {
+            iface_name: TestOptions::get_blocking().network_interface,
             tap_name: tap_name.clone(),
             tap_ip,
             network_type: FirecrackerNetworkType::Namespaced {
                 netns_name: netns_name.clone(),
-                veth1_name: format!("veth{net_num}"),
-                veth2_name: format!("vpeer{net_num}"),
-                veth1_ip: inet(net_num, 3),
-                veth2_ip: inet(net_num, 4),
+                veth1_name: format!("veth{subnet_index}"),
+                veth2_name: format!("vpeer{subnet_index}"),
+                veth1_ip: subnet.get_host_ip(2).unwrap().into(),
+                veth2_ip: subnet.get_host_ip(3).unwrap().into(),
                 forwarded_guest_ip: None,
             },
             nft_path: None,
@@ -369,7 +393,7 @@ impl VmBuilder {
         NetworkData {
             network_interface: NetworkInterface::new("eth0", tap_name),
             network,
-            netns_name,
+            netns_name: Some(netns_name),
             boot_arg_append,
         }
     }
@@ -412,8 +436,9 @@ impl VmBuilder {
         let mut unrestricted_executor =
             UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())));
         if let Some(ref network) = self.unrestricted_network_data {
-            unrestricted_executor =
-                unrestricted_executor.command_modifier(NetnsCommandModifier::new(&network.netns_name));
+            if let Some(ref netns_name) = network.netns_name {
+                unrestricted_executor = unrestricted_executor.command_modifier(NetnsCommandModifier::new(netns_name));
+            }
         }
 
         let mut jailed_data = VmConfigurationData::new(
@@ -427,8 +452,9 @@ impl VmBuilder {
             .cgroup_version(JailerCgroupVersion::V2);
 
         if let Some(ref network) = self.jailed_network_data {
-            jailer_arguments =
-                jailer_arguments.network_namespace_path(format!("/var/run/netns/{}", network.netns_name));
+            if let Some(ref netns_name) = network.netns_name {
+                jailer_arguments = jailer_arguments.network_namespace_path(format!("/var/run/netns/{}", netns_name));
+            }
         }
 
         if self.new_pid_ns {
