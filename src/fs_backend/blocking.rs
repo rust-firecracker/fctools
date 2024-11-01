@@ -34,6 +34,10 @@ impl FsBackend for BlockingFsBackend {
         tokio::fs::write(path, content).await.map_err(FsBackendError::Owned)
     }
 
+    async fn read_to_string(&self, path: &Path) -> Result<String, FsBackendError> {
+        tokio::fs::read_to_string(path).await.map_err(FsBackendError::Owned)
+    }
+
     async fn rename_file(&self, source_path: &Path, destination_path: &Path) -> Result<(), FsBackendError> {
         tokio::fs::rename(source_path, destination_path)
             .await

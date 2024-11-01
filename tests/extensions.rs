@@ -106,14 +106,14 @@ fn snapshot_editor_can_get_snapshot_vm_state() {
 fn metrics_task_can_receive_data_from_plaintext() {
     VmBuilder::new()
         .metrics_system(MetricsSystem::new(get_tmp_path()))
-        .run(|vm| test_metrics_recv(vm));
+        .run(test_metrics_recv);
 }
 
 #[test]
 fn metrics_task_can_receive_data_from_fifo() {
     VmBuilder::new()
         .metrics_system(MetricsSystem::new(get_tmp_fifo_path()))
-        .run(|vm| test_metrics_recv(vm));
+        .run(test_metrics_recv);
 }
 
 async fn test_metrics_recv(mut vm: TestVm) {

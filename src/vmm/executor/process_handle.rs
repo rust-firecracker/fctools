@@ -3,7 +3,6 @@ use std::{
     process::ExitStatus,
 };
 
-use nix::unistd::Pid;
 use tokio::{
     io::unix::AsyncFd,
     process::{Child, ChildStderr, ChildStdin, ChildStdout},
@@ -55,7 +54,7 @@ impl ProcessHandle {
     }
 
     /// Try to create a [ProcessHandle] from an arbitrary detached PID.
-    pub fn detached(pid: Pid) -> Result<Self, std::io::Error> {
+    pub fn detached(pid: i32) -> Result<Self, std::io::Error> {
         let raw_pidfd = unsafe { nix::libc::syscall(nix::libc::SYS_pidfd_open, pid, 0) };
 
         if raw_pidfd == -1 {

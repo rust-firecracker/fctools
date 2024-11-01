@@ -52,6 +52,18 @@ impl UnsendFsBackend for TokioUringFsBackend {
         file.close().await.map_err(FsBackendError::Owned)
     }
 
+    async fn read_to_string(&self, path: &Path) -> Result<String, FsBackendError> {
+        let mut open_options = tokio_uring::fs::OpenOptions::new();
+        open_options.read(true);
+        let (file, statx) =
+            tokio::try_join!(open_options.open(path), tokio_uring::fs::statx(path)).map_err(FsBackendError::Owned)?;
+
+        let buf = Vec::with_capacity(statx.stx_size as usize);
+        let (result, buf) = file.read_exact_at(buf, 0).await;
+        result.map_err(FsBackendError::Owned)?;
+        Ok(String::from_utf8_lossy(&buf).into_owned())
+    }
+
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FsBackendError> {
         // remove_dir_all is currently not supported by tokio-uring
         tokio::fs::remove_dir_all(path).await.map_err(FsBackendError::Owned)

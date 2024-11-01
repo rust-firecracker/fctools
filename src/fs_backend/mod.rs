@@ -73,6 +73,8 @@ pub trait FsBackend: Send + Sync + 'static {
 
     fn write_file(&self, path: &Path, content: String) -> impl Future<Output = Result<(), FsBackendError>> + Send;
 
+    fn read_to_string(&self, path: &Path) -> impl Future<Output = Result<String, FsBackendError>> + Send;
+
     fn rename_file(
         &self,
         source_path: &Path,
@@ -110,6 +112,8 @@ pub trait UnsendFsBackend {
     fn create_file(&self, path: &Path) -> impl Future<Output = Result<(), FsBackendError>>;
 
     fn write_file(&self, path: &Path, content: String) -> impl Future<Output = Result<(), FsBackendError>>;
+
+    fn read_to_string(&self, path: &Path) -> impl Future<Output = Result<String, FsBackendError>>;
 
     fn rename_file(
         &self,
@@ -149,6 +153,10 @@ impl<F: FsBackend> UnsendFsBackend for F {
 
     fn write_file(&self, path: &Path, content: String) -> impl Future<Output = Result<(), FsBackendError>> {
         self.write_file(path, content)
+    }
+
+    fn read_to_string(&self, path: &Path) -> impl Future<Output = Result<String, FsBackendError>> {
+        self.read_to_string(path)
     }
 
     fn rename_file(

@@ -86,6 +86,18 @@ impl<S: SpawnTask, F: UnsendFsBackend + 'static> UnsendProxy<S, F> {
                 ProxyRequestBody::WriteFile { path, content } => {
                     self.respond(request.id, |f| async move { f.write_file(&path, content).await });
                 }
+                ProxyRequestBody::ReadToString(path) => {
+                    let sender = self.response_sender.clone();
+                    let fs_backend = self.fs_backend.clone();
+                    self.spawn_task.spawn(async move {
+                        sender.send(ProxyResponse::new(
+                            request.id,
+                            ProxyResponseBody::StringAction(
+                                fs_backend.read_to_string(&path).await.map_err(|e| e.into_cloneable()),
+                            ),
+                        ))
+                    });
+                }
                 ProxyRequestBody::RenameFile {
                     source_path,
                     destination_path,
@@ -148,6 +160,7 @@ enum ProxyRequestBody {
         path: PathBuf,
         content: String,
     },
+    ReadToString(PathBuf),
     RenameFile {
         source_path: PathBuf,
         destination_path: PathBuf,
@@ -182,6 +195,7 @@ enum ProxyResponseBody {
     Stopped,
     BoolAction(Result<bool, Arc<std::io::Error>>),
     UnitAction(Result<(), Arc<std::io::Error>>),
+    StringAction(Result<String, Arc<std::io::Error>>),
 }
 
 /// [SpawnTask] is a lean trait that abstracts over spawning a potentially [Send] future onto an async runtime.
@@ -302,6 +316,13 @@ impl UnsendProxyFsBackend {
             _ => wrong_response_error(),
         }
     }
+
+    async fn string_request(&self, request_body: ProxyRequestBody) -> Result<String, FsBackendError> {
+        match self.request(request_body).await? {
+            ProxyResponseBody::StringAction(result) => result.map_err(FsBackendError::Arced),
+            _ => wrong_response_error(),
+        }
+    }
 }
 
 impl FsBackend for UnsendProxyFsBackend {
@@ -337,6 +358,10 @@ impl FsBackend for UnsendProxyFsBackend {
             path: path.to_owned(),
             content,
         })
+    }
+
+    fn read_to_string(&self, path: &Path) -> impl Future<Output = Result<String, FsBackendError>> + Send {
+        self.string_request(ProxyRequestBody::ReadToString(path.to_owned()))
     }
 
     fn rename_file(

@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use nix::unistd::Pid;
 use tokio::task::JoinSet;
 
 use crate::{
@@ -298,12 +297,13 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             .await
             .map_err(VmmExecutorError::ChangeOwnerError)?;
 
-            let pid_string = tokio::fs::read_to_string(&pid_file_path)
+            let pid_string = fs_backend
+                .read_to_string(&pid_file_path)
                 .await
-                .map_err(VmmExecutorError::IoError)?;
-            let pid: i32 = pid_string.trim_end().parse().map_err(VmmExecutorError::ParseIntError)?;
+                .map_err(VmmExecutorError::FsBackendError)?;
+            let pid = pid_string.trim_end().parse().map_err(VmmExecutorError::ParseIntError)?;
 
-            Ok(ProcessHandle::detached(Pid::from_raw(pid)).map_err(VmmExecutorError::IoError)?)
+            Ok(ProcessHandle::detached(pid).map_err(VmmExecutorError::IoError)?)
         } else {
             Ok(ProcessHandle::attached(child, false))
         }
