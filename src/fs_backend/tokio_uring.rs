@@ -61,6 +61,8 @@ impl UnsendFsBackend for TokioUringFsBackend {
         let buf = Vec::with_capacity(statx.stx_size as usize);
         let (result, buf) = file.read_exact_at(buf, 0).await;
         result.map_err(FsBackendError::Owned)?;
+        file.close().await.map_err(FsBackendError::Owned)?;
+
         Ok(String::from_utf8_lossy(&buf).into_owned())
     }
 
