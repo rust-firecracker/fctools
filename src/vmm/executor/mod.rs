@@ -88,7 +88,9 @@ pub trait VmmExecutor: Send + Sync {
         ownership_model: VmmOwnershipModel,
     ) -> impl Future<Output = Result<HashMap<PathBuf, PathBuf>, VmmExecutorError>> + Send;
 
-    /// Invoke the VMM on the given [VmmInstallation] and return the spawned async [Child] process.
+    /// Invoke the VMM on the given [VmmInstallation] and return the [ProcessHandle] that performs a connection to
+    /// the created process, regardless of it possibly being not a child and rather having been unshare()-d into
+    /// a separate PID namespace.
     fn invoke(
         &self,
         installation: &VmmInstallation,
