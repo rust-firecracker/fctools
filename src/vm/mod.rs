@@ -90,6 +90,8 @@ pub enum VmError {
     TaskJoinFailed(JoinError),
     #[error("Making a FIFO named pipe failed: {0}")]
     MkfifoError(std::io::Error),
+    #[error("Chowning a flat file failed: {0}")]
+    ChownError(std::io::Error),
     #[error("A state check of the VM failed: {0}")]
     StateCheckError(VmStateCheckError),
     #[error("A request issued to the API server internally failed: {0}")]
@@ -599,6 +601,12 @@ async fn prepare_file(
         downgrade_owner(&path, ownership_model, process_spawner.as_ref(), fs_backend.as_ref())
             .await
             .map_err(VmError::ChangeOwnerError)?;
+    } else if let Some(parent_path) = path.parent() {
+        if let Some((uid, gid)) = ownership_model.as_downgrade() {
+            if nix::unistd::chown(parent_path, Some(uid), Some(gid)).is_err() {
+                return Err(VmError::ChownError(std::io::Error::last_os_error()));
+            }
+        }
     }
 
     Ok(())

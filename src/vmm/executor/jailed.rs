@@ -286,7 +286,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                     .unwrap_or("firecracker")
             ));
 
-            let exit_status = child.wait().await.map_err(VmmExecutorError::IoError)?;
+            let exit_status = child.wait().await.map_err(VmmExecutorError::ProcessWaitError)?;
             if !exit_status.success() {
                 return Err(VmmExecutorError::ProcessExitedWithIncorrectStatus(exit_status));
             }
@@ -311,7 +311,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                 }
             }
 
-            Ok(ProcessHandle::detached(pid, fs_backend).map_err(VmmExecutorError::IoError)?)
+            Ok(ProcessHandle::detached(pid, fs_backend).map_err(VmmExecutorError::PidfdAllocationError)?)
         } else {
             Ok(ProcessHandle::attached(child, false))
         }

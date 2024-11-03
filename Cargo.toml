@@ -1,6 +1,6 @@
 [package]
 name = "fctools"
-version = "0.5.0-rc.2"
+version = "0.5.0-rc.3"
 edition = "2021"
 description = "An exhaustive, highly modular and extensible host SDK for the Firecracker microVM manager."
 license = "MIT"
@@ -75,8 +75,8 @@ rand = "0.8.5"
 tokio = { version = "1.39.2", features = ["macros", "rt-multi-thread"] }
 uuid = { version = "1.10.0", features = ["v4"] }
 which = "7.0.0"
-fcnet-types = { version = "0.1.0", features = ["simple"] }
-fcnetd-client = "0.1.0"
+fcnet-types = { version = "0.1.0", features = ["simple", "namespaced"] }
+fcnet = { version = "0.6.0", features = ["simple", "namespaced"] }
 
 fctools = { path = ".", features = ["full"] }
 file-lock = "2.1.11"

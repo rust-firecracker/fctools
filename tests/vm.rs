@@ -231,6 +231,13 @@ fn vm_can_boot_with_namespaced_networking() {
     VmBuilder::new().namespaced_networking().run(verify_networking);
 }
 
+#[test]
+fn vm_can_boot_with_vsock_device() {
+    VmBuilder::new().vsock_device().run(|mut vm| async move {
+        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+    });
+}
+
 async fn verify_networking(mut vm: TestVm) {
     let configuration = vm.api_get_effective_configuration().await.unwrap();
     assert_eq!(configuration.network_interfaces.len(), 1);

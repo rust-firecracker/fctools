@@ -40,8 +40,12 @@ pub mod process_handle;
 /// An error emitted by a [VmmExecutor].
 #[derive(Debug, thiserror::Error)]
 pub enum VmmExecutorError {
-    #[error("A non-FS I/O error occurred: {0}")]
-    IoError(std::io::Error),
+    #[error("Making a FIFO pipe failed: {0}")]
+    MkfifoError(std::io::Error),
+    #[error("Allocating a pidfd for a non-child process failed: {0}")]
+    PidfdAllocationError(std::io::Error),
+    #[error("Waiting on the exit of a child process failed: {0}")]
+    ProcessWaitError(std::io::Error),
     #[error("An I/O error emitted by an FS backend occurred: {0}")]
     FsBackendError(FsBackendError),
     #[error("An ownership change as part of an ownership upgrade or downgrade failed: {0}")]
@@ -125,7 +129,7 @@ async fn create_file_or_fifo(
 
     if path.extension().map(|ext| ext.to_str()).flatten() == Some("fifo") {
         if nix::unistd::mkfifo(&path, Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR).is_err() {
-            return Err(VmmExecutorError::IoError(std::io::Error::last_os_error()));
+            return Err(VmmExecutorError::MkfifoError(std::io::Error::last_os_error()));
         }
     } else {
         fs_backend

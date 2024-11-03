@@ -8,11 +8,10 @@ use std::{
 };
 
 use fcnet_types::{FirecrackerIpStack, FirecrackerNetwork, FirecrackerNetworkOperation, FirecrackerNetworkType};
-use fcnetd_client::FcnetdConnection;
 use fctools::{
     extension::link_local::LinkLocalSubnet,
     fs_backend::{blocking::BlockingFsBackend, FsBackend},
-    process_spawner::{DirectProcessSpawner, ProcessSpawner, SudoProcessSpawner},
+    process_spawner::{DirectProcessSpawner, ProcessSpawner},
     vm::{
         configuration::{InitMethod, VmConfiguration, VmConfigurationData},
         models::{
@@ -40,7 +39,6 @@ use fctools::{
 use rand::{Rng, RngCore};
 use serde::Deserialize;
 use tokio::{
-    net::UnixStream,
     process::Child,
     sync::{Mutex, MutexGuard, OnceCell},
 };
@@ -548,12 +546,9 @@ impl VmBuilder {
         F: Fn(TestVm, bool) -> Fut + Send,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        let (mut fcnetd_conn, mut fcnetd_child) = start_fcnetd().await;
-
         if let Some(ref network_data) = network_data {
             let lock = get_network_lock().await;
-            fcnetd_conn
-                .run(&network_data.network, FirecrackerNetworkOperation::Add)
+            fcnet::run(&network_data.network, FirecrackerNetworkOperation::Add)
                 .await
                 .unwrap();
             drop(lock);
@@ -591,14 +586,11 @@ impl VmBuilder {
 
         if let Some(network_data) = network_data {
             let lock = get_network_lock().await;
-            fcnetd_conn
-                .run(&network_data.network, FirecrackerNetworkOperation::Delete)
+            fcnet::run(&network_data.network, FirecrackerNetworkOperation::Delete)
                 .await
                 .unwrap();
             drop(lock);
         }
-
-        fcnetd_child.kill().await.unwrap();
     }
 }
 
@@ -619,28 +611,6 @@ static NETWORK_LOCKING_MUTEX: Mutex<()> = Mutex::const_new(());
 struct NetworkLock<'a> {
     mutex_guard: MutexGuard<'a, ()>,
     file_lock: file_lock::FileLock,
-}
-
-async fn start_fcnetd() -> (FcnetdConnection, Child) {
-    let socket_path = get_tmp_path();
-
-    let child = SudoProcessSpawner::new()
-        .spawn(
-            &get_test_path("toolchain/fcnetd"),
-            vec![socket_path.to_string_lossy().into_owned()],
-            true,
-        )
-        .await
-        .unwrap();
-
-    loop {
-        if tokio::fs::metadata(&socket_path).await.is_ok() && UnixStream::connect(&socket_path).await.is_ok() {
-            break;
-        }
-    }
-
-    let connection = FcnetdConnection::connect(&socket_path).await.unwrap();
-    (connection, child)
 }
 
 async fn get_network_lock<'a>() -> NetworkLock<'a> {
