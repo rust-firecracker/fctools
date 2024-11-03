@@ -74,57 +74,26 @@ pub enum ChangeOwnerError {
     ProcessExitedWithWrongStatus(ExitStatus),
     #[error("An in-process recursive chown implementation in the filesystem backend failed: {0}")]
     FsBackendError(FsBackendError),
+    #[error("A direct invocation of chown in-process failed: {0}")]
+    ChownError(std::io::Error),
 }
 
 /// For implementors of custom executors: upgrades the owner of the given [Path] using the given [ProcessSpawner]
-/// and [FsBackend], if the [VmmOwnershipModel] requires the upgrade (otherwise, no-ops).
+/// and [FsBackend], if the [VmmOwnershipModel] requires the upgrade (otherwise, no-ops). This spawns an elevated
+/// coreutils "chown" process via the [ProcessSpawner] and waits on it internally.
 pub async fn upgrade_owner(
     path: &Path,
     ownership_model: VmmOwnershipModel,
     process_spawner: &impl ProcessSpawner,
-    fs_backend: &impl FsBackend,
 ) -> Result<(), ChangeOwnerError> {
     if ownership_model.is_upgrade() {
-        change_owner(path, *PROCESS_UID, *PROCESS_GID, true, process_spawner, fs_backend).await
-    } else {
-        Ok(())
-    }
-}
-
-/// For implementors of custom executors: downgrades the owner of the given [Path] using the given [ProcessSpawner]
-/// and [FsBackend], if the [VmmOwnershipModel] requires the downgrade (otherwise, no-ops).
-pub async fn downgrade_owner(
-    path: &Path,
-    ownership_model: VmmOwnershipModel,
-    process_spawner: &impl ProcessSpawner,
-    fs_backend: &impl FsBackend,
-) -> Result<(), ChangeOwnerError> {
-    if let Some((uid, gid)) = ownership_model.as_downgrade() {
-        change_owner(path, uid, gid, false, process_spawner, fs_backend).await
-    } else {
-        Ok(())
-    }
-}
-
-async fn change_owner(
-    path: &Path,
-    uid: Uid,
-    gid: Gid,
-    forced: bool,
-    process_spawner: &impl ProcessSpawner,
-    fs_backend: &impl FsBackend,
-) -> Result<(), ChangeOwnerError> {
-    // use "chown" process spawning for forced chowns since they require privilege acquiry that can't be done on the
-    // control process
-    // otherwise, use an in-process async implementation from the FS backend
-    if forced {
         let mut child = process_spawner
             .spawn(
                 &PathBuf::from("chown"),
                 vec![
                     "-f".to_string(),
                     "-R".to_string(),
-                    format!("{uid}:{gid}"),
+                    format!("{}:{}", *PROCESS_UID, *PROCESS_GID),
                     path.to_string_lossy().into_owned(),
                 ],
                 false,
@@ -138,12 +107,41 @@ async fn change_owner(
         if !exit_status.success() && exit_status.into_raw() != 256 {
             return Err(ChangeOwnerError::ProcessExitedWithWrongStatus(exit_status));
         }
+
+        Ok(())
     } else {
+        Ok(())
+    }
+}
+
+/// For implementors of custom executors: downgrades the owner of the given [Path] recursively using the
+/// given [FsBackend]'s recursive implementation, if the [VmmOwnershipModel] requires the downgrade (otherwise, no-ops).
+pub async fn downgrade_owner_recursively(
+    path: &Path,
+    ownership_model: VmmOwnershipModel,
+    fs_backend: &impl FsBackend,
+) -> Result<(), ChangeOwnerError> {
+    if let Some((uid, gid)) = ownership_model.as_downgrade() {
         fs_backend
             .chownr(path, uid, gid)
             .await
-            .map_err(ChangeOwnerError::FsBackendError)?;
+            .map_err(ChangeOwnerError::FsBackendError)
+    } else {
+        Ok(())
     }
+}
 
-    Ok(())
+/// For implementors of custom executors: downgrades the owner of a given [Path], which should be a single
+/// flat file or directory, by invoking chown once if the [VmmOwnershipModel] requires the downgrade (otherwise,
+/// no-ops).
+pub fn downgrade_owner(path: &Path, ownership_model: VmmOwnershipModel) -> Result<(), ChangeOwnerError> {
+    if let Some((uid, gid)) = ownership_model.as_downgrade() {
+        if nix::unistd::chown(path, Some(uid), Some(gid)).is_err() {
+            Err(ChangeOwnerError::ChownError(std::io::Error::last_os_error()))
+        } else {
+            Ok(())
+        }
+    } else {
+        Ok(())
+    }
 }

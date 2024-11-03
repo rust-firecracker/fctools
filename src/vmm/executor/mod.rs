@@ -116,7 +116,6 @@ pub trait VmmExecutor: Send + Sync {
 
 async fn create_file_or_fifo(
     fs_backend: Arc<impl FsBackend>,
-    process_spawner: Arc<impl ProcessSpawner>,
     ownership_model: VmmOwnershipModel,
     path: PathBuf,
 ) -> Result<(), VmmExecutorError> {
@@ -138,9 +137,7 @@ async fn create_file_or_fifo(
             .map_err(VmmExecutorError::FsBackendError)?;
     }
 
-    downgrade_owner(&path, ownership_model, process_spawner.as_ref(), fs_backend.as_ref())
-        .await
-        .map_err(VmmExecutorError::ChangeOwnerError)?;
+    downgrade_owner(&path, ownership_model).map_err(VmmExecutorError::ChangeOwnerError)?;
 
     Ok(())
 }

@@ -239,18 +239,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmApi for Vm<E, S, F> {
         }
 
         tokio::try_join!(
-            upgrade_owner(
-                &snapshot_path,
-                self.ownership_model,
-                self.process_spawner.as_ref(),
-                self.fs_backend.as_ref()
-            ),
-            upgrade_owner(
-                &mem_file_path,
-                self.ownership_model,
-                self.process_spawner.as_ref(),
-                self.fs_backend.as_ref()
-            )
+            upgrade_owner(&snapshot_path, self.ownership_model, self.process_spawner.as_ref()),
+            upgrade_owner(&mem_file_path, self.ownership_model, self.process_spawner.as_ref())
         )
         .map_err(VmApiError::SnapshotChangeOwnerError)?;
 

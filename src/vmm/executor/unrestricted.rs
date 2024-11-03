@@ -108,7 +108,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let process_spawner = process_spawner.clone();
 
             join_set.spawn(async move {
-                upgrade_owner(&path, ownership_model, process_spawner.as_ref(), fs_backend.as_ref())
+                upgrade_owner(&path, ownership_model, process_spawner.as_ref())
                     .await
                     .map_err(VmmExecutorError::ChangeOwnerError)?;
 
@@ -129,14 +129,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let process_spawner = process_spawner.clone();
 
             join_set.spawn(async move {
-                upgrade_owner(
-                    &socket_path,
-                    ownership_model,
-                    process_spawner.as_ref(),
-                    fs_backend.as_ref(),
-                )
-                .await
-                .map_err(VmmExecutorError::ChangeOwnerError)?;
+                upgrade_owner(&socket_path, ownership_model, process_spawner.as_ref())
+                    .await
+                    .map_err(VmmExecutorError::ChangeOwnerError)?;
 
                 if fs_backend
                     .check_exists(&socket_path)
@@ -155,21 +150,11 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
         // Ensure argument paths exist
         if let Some(log_path) = self.vmm_arguments.log_path.clone() {
-            join_set.spawn(create_file_or_fifo(
-                fs_backend.clone(),
-                process_spawner.clone(),
-                ownership_model,
-                log_path,
-            ));
+            join_set.spawn(create_file_or_fifo(fs_backend.clone(), ownership_model, log_path));
         }
 
         if let Some(metrics_path) = self.vmm_arguments.metrics_path.clone() {
-            join_set.spawn(create_file_or_fifo(
-                fs_backend.clone(),
-                process_spawner.clone(),
-                ownership_model,
-                metrics_path,
-            ));
+            join_set.spawn(create_file_or_fifo(fs_backend.clone(), ownership_model, metrics_path));
         }
 
         join_on_set(join_set).await?;
@@ -217,14 +202,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let fs_backend = fs_backend.clone();
 
             join_set.spawn(async move {
-                upgrade_owner(
-                    &socket_path,
-                    ownership_model,
-                    process_spawner.as_ref(),
-                    fs_backend.as_ref(),
-                )
-                .await
-                .map_err(VmmExecutorError::ChangeOwnerError)?;
+                upgrade_owner(&socket_path, ownership_model, process_spawner.as_ref())
+                    .await
+                    .map_err(VmmExecutorError::ChangeOwnerError)?;
 
                 if fs_backend
                     .check_exists(&socket_path)
@@ -247,14 +227,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                 let process_spawner = process_spawner.clone();
 
                 join_set.spawn(async move {
-                    upgrade_owner(
-                        &log_path,
-                        ownership_model,
-                        process_spawner.as_ref(),
-                        fs_backend.as_ref(),
-                    )
-                    .await
-                    .map_err(VmmExecutorError::ChangeOwnerError)?;
+                    upgrade_owner(&log_path, ownership_model, process_spawner.as_ref())
+                        .await
+                        .map_err(VmmExecutorError::ChangeOwnerError)?;
 
                     fs_backend
                         .remove_file(&log_path)
@@ -269,14 +244,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                 let fs_backend = fs_backend.clone();
 
                 join_set.spawn(async move {
-                    upgrade_owner(
-                        &metrics_path,
-                        ownership_model,
-                        process_spawner.as_ref(),
-                        fs_backend.as_ref(),
-                    )
-                    .await
-                    .map_err(VmmExecutorError::ChangeOwnerError)?;
+                    upgrade_owner(&metrics_path, ownership_model, process_spawner.as_ref())
+                        .await
+                        .map_err(VmmExecutorError::ChangeOwnerError)?;
 
                     fs_backend
                         .remove_file(&metrics_path)

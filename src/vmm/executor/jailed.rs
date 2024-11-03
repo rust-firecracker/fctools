@@ -12,7 +12,7 @@ use crate::{
     vmm::{
         arguments::{command_modifier::CommandModifier, jailer::JailerArguments, VmmApiSocket, VmmArguments},
         installation::VmmInstallation,
-        ownership::{downgrade_owner, upgrade_owner, PROCESS_GID, PROCESS_UID},
+        ownership::{downgrade_owner_recursively, upgrade_owner, PROCESS_GID, PROCESS_UID},
     },
 };
 
@@ -95,14 +95,9 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
         // Create jail and delete previous one if necessary
         let (chroot_base_dir, jail_path) = self.get_paths(installation);
-        upgrade_owner(
-            &chroot_base_dir,
-            ownership_model,
-            process_spawner.as_ref(),
-            fs_backend.as_ref(),
-        )
-        .await
-        .map_err(VmmExecutorError::ChangeOwnerError)?;
+        upgrade_owner(&chroot_base_dir, ownership_model, process_spawner.as_ref())
+            .await
+            .map_err(VmmExecutorError::ChangeOwnerError)?;
 
         if fs_backend
             .check_exists(&jail_path)
@@ -144,7 +139,6 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         if let Some(ref log_path) = self.vmm_arguments.log_path.clone() {
             join_set.spawn(create_file_or_fifo(
                 fs_backend.clone(),
-                process_spawner.clone(),
                 ownership_model,
                 jail_path.jail_join(log_path),
             ));
@@ -153,7 +147,6 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
         if let Some(ref metrics_path) = self.vmm_arguments.metrics_path.clone() {
             join_set.spawn(create_file_or_fifo(
                 fs_backend.clone(),
-                process_spawner.clone(),
                 ownership_model,
                 jail_path.jail_join(metrics_path),
             ));
@@ -179,14 +172,9 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             let process_spawner = process_spawner.clone();
 
             join_set.spawn(async move {
-                upgrade_owner(
-                    &outer_path,
-                    ownership_model,
-                    process_spawner.as_ref(),
-                    fs_backend.as_ref(),
-                )
-                .await
-                .map_err(VmmExecutorError::ChangeOwnerError)?;
+                upgrade_owner(&outer_path, ownership_model, process_spawner.as_ref())
+                    .await
+                    .map_err(VmmExecutorError::ChangeOwnerError)?;
 
                 if !fs_backend
                     .check_exists(&outer_path)
@@ -234,14 +222,9 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             result.map_err(VmmExecutorError::TaskJoinFailed)??;
         }
 
-        downgrade_owner(
-            &jail_path,
-            ownership_model,
-            process_spawner.as_ref(),
-            fs_backend.as_ref(),
-        )
-        .await
-        .map_err(VmmExecutorError::ChangeOwnerError)?;
+        downgrade_owner_recursively(&jail_path, ownership_model, fs_backend.as_ref())
+            .await
+            .map_err(VmmExecutorError::ChangeOwnerError)?;
 
         Ok(path_mappings)
     }
@@ -291,14 +274,9 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                 return Err(VmmExecutorError::ProcessExitedWithIncorrectStatus(exit_status));
             }
 
-            upgrade_owner(
-                &pid_file_path,
-                ownership_model,
-                process_spawner.as_ref(),
-                fs_backend.as_ref(),
-            )
-            .await
-            .map_err(VmmExecutorError::ChangeOwnerError)?;
+            upgrade_owner(&pid_file_path, ownership_model, process_spawner.as_ref())
+                .await
+                .map_err(VmmExecutorError::ChangeOwnerError)?;
 
             let pid;
 
@@ -326,14 +304,9 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
     ) -> Result<(), VmmExecutorError> {
         let (_, jail_path) = self.get_paths(installation);
 
-        upgrade_owner(
-            &jail_path,
-            ownership_model,
-            process_spawner.as_ref(),
-            fs_backend.as_ref(),
-        )
-        .await
-        .map_err(VmmExecutorError::ChangeOwnerError)?;
+        upgrade_owner(&jail_path, ownership_model, process_spawner.as_ref())
+            .await
+            .map_err(VmmExecutorError::ChangeOwnerError)?;
 
         let jail_parent_path = jail_path
             .parent()

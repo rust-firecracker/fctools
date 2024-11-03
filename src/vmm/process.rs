@@ -318,14 +318,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         let hyper_client = self
             .hyper_client
             .get_or_try_init(|| async {
-                upgrade_owner(
-                    &socket_path,
-                    self.ownership_model,
-                    self.process_spawner.as_ref(),
-                    self.fs_backend.as_ref(),
-                )
-                .await
-                .map_err(VmmProcessError::ChangeOwnerError)?;
+                upgrade_owner(&socket_path, self.ownership_model, self.process_spawner.as_ref())
+                    .await
+                    .map_err(VmmProcessError::ChangeOwnerError)?;
 
                 Ok(Client::builder(TokioExecutor::new()).build(HyperUnixConnector))
             })

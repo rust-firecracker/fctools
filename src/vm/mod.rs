@@ -14,7 +14,7 @@ use crate::{
     vmm::{
         executor::{process_handle::ProcessHandlePipes, VmmExecutor},
         installation::VmmInstallation,
-        ownership::{downgrade_owner, upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
+        ownership::{downgrade_owner, downgrade_owner_recursively, upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
         process::{VmmProcess, VmmProcessError, VmmProcessState},
     },
 };
@@ -90,8 +90,6 @@ pub enum VmError {
     TaskJoinFailed(JoinError),
     #[error("Making a FIFO named pipe failed: {0}")]
     MkfifoError(std::io::Error),
-    #[error("Chowning a flat file failed: {0}")]
-    ChownError(std::io::Error),
     #[error("A state check of the VM failed: {0}")]
     StateCheckError(VmStateCheckError),
     #[error("A request issued to the API server internally failed: {0}")]
@@ -261,7 +259,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
                 let new_log_path = vmm_process.inner_to_outer_path(log_path);
                 prepare_join_set.spawn(prepare_file(
                     fs_backend.clone(),
-                    process_spawner.clone(),
                     new_log_path.clone(),
                     ownership_model,
                     false,
@@ -274,7 +271,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             let new_metrics_path = vmm_process.inner_to_outer_path(&metrics_system.metrics_path);
             prepare_join_set.spawn(prepare_file(
                 fs_backend.clone(),
-                process_spawner.clone(),
                 new_metrics_path.clone(),
                 ownership_model,
                 false,
@@ -286,7 +282,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             let new_uds_path = vmm_process.inner_to_outer_path(&vsock.uds_path);
             prepare_join_set.spawn(prepare_file(
                 fs_backend.clone(),
-                process_spawner.clone(),
                 new_uds_path.clone(),
                 ownership_model,
                 true,
@@ -352,14 +347,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             if let InitMethod::ViaJsonConfiguration(inner_path) = init_method {
                 let outer_path = self.vmm_process.inner_to_outer_path(inner_path);
                 config_path = Some(inner_path.clone());
-                prepare_file(
-                    self.fs_backend.clone(),
-                    self.process_spawner.clone(),
-                    outer_path.clone(),
-                    self.ownership_model,
-                    true,
-                )
-                .await?;
+                prepare_file(self.fs_backend.clone(), outer_path.clone(), self.ownership_model, true).await?;
                 self.fs_backend
                     .write_file(
                         &outer_path,
@@ -453,7 +441,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             path: PathBuf,
             ownership_model: VmmOwnershipModel,
         ) -> Result<(), VmError> {
-            upgrade_owner(&path, ownership_model, process_spawner.as_ref(), fs_backend.as_ref())
+            upgrade_owner(&path, ownership_model, process_spawner.as_ref())
                 .await
                 .map_err(VmError::ChangeOwnerError)?;
 
@@ -577,7 +565,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
 
 async fn prepare_file(
     fs_backend: Arc<impl FsBackend>,
-    process_spawner: Arc<impl ProcessSpawner>,
     path: PathBuf,
     ownership_model: VmmOwnershipModel,
     only_tree: bool,
@@ -598,15 +585,11 @@ async fn prepare_file(
             fs_backend.create_file(&path).await.map_err(VmError::FsBackendError)?;
         }
 
-        downgrade_owner(&path, ownership_model, process_spawner.as_ref(), fs_backend.as_ref())
+        downgrade_owner_recursively(&path, ownership_model, fs_backend.as_ref())
             .await
             .map_err(VmError::ChangeOwnerError)?;
     } else if let Some(parent_path) = path.parent() {
-        if let Some((uid, gid)) = ownership_model.as_downgrade() {
-            if nix::unistd::chown(parent_path, Some(uid), Some(gid)).is_err() {
-                return Err(VmError::ChownError(std::io::Error::last_os_error()));
-            }
-        }
+        downgrade_owner(&parent_path, ownership_model).map_err(VmError::ChangeOwnerError)?;
     }
 
     Ok(())
