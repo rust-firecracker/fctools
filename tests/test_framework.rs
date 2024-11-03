@@ -1,7 +1,6 @@
 use std::{
     future::Future,
     io::Write,
-    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
@@ -38,10 +37,10 @@ use fctools::{
         process::VmmProcessState,
     },
 };
-use nix::unistd::{getegid, geteuid};
 use rand::{Rng, RngCore};
 use serde::Deserialize;
 use tokio::{
+    net::UnixStream,
     process::Child,
     sync::{Mutex, MutexGuard, OnceCell},
 };
@@ -161,7 +160,7 @@ impl ProcessSpawner for FailingRunner {
 
 #[allow(unused)]
 pub type TestVmmProcess =
-    fctools::vmm::process::VmmProcess<EitherVmmExecutor<FlatJailRenamer>, SudoProcessSpawner, BlockingFsBackend>;
+    fctools::vmm::process::VmmProcess<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, BlockingFsBackend>;
 
 #[allow(unused)]
 pub async fn run_vmm_process_test<F, Fut>(no_new_pid_ns: bool, closure: F)
@@ -184,7 +183,7 @@ where
         assert_eq!(process.state(), VmmProcessState::Started);
     }
 
-    let (mut unrestricted_process, mut jailed_process) = get_vmm_processes(no_new_pid_ns);
+    let (mut unrestricted_process, mut jailed_process) = get_vmm_processes(no_new_pid_ns).await;
 
     init_process(&mut jailed_process, "/jailed.json").await;
     init_process(&mut unrestricted_process, get_test_path("configs/unrestricted.json")).await;
@@ -195,7 +194,7 @@ where
     println!("Succeeded with jailed VM");
 }
 
-fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProcess) {
+async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProcess) {
     let socket_path = get_tmp_path();
 
     let vmm_arguments = VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()));
@@ -209,20 +208,24 @@ fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProcess) {
 
     let unrestricted_executor = UnrestrictedVmmExecutor::new(vmm_arguments.clone());
     let jailed_executor = JailedVmmExecutor::new(vmm_arguments, jailer_arguments, FlatJailRenamer::default());
+    let ownership_model = VmmOwnershipModel::Downgraded {
+        uid: TestOptions::get().await.jailer_uid.into(),
+        gid: TestOptions::get().await.jailer_gid.into(),
+    };
 
     (
         TestVmmProcess::new(
             EitherVmmExecutor::Unrestricted(unrestricted_executor),
-            VmmOwnershipModel::UpgradedTemporarily,
-            SudoProcessSpawner::new(),
+            ownership_model,
+            DirectProcessSpawner,
             BlockingFsBackend,
             get_real_firecracker_installation(),
             vec![],
         ),
         TestVmmProcess::new(
             EitherVmmExecutor::Jailed(jailed_executor),
-            VmmOwnershipModel::UpgradedTemporarily,
-            SudoProcessSpawner::new(),
+            ownership_model,
+            DirectProcessSpawner,
             BlockingFsBackend,
             get_real_firecracker_installation(),
             vec![
@@ -237,7 +240,7 @@ fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProcess) {
 // VM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVm = fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, SudoProcessSpawner, BlockingFsBackend>;
+pub type TestVm = fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, BlockingFsBackend>;
 
 type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>>;
 
@@ -561,11 +564,14 @@ impl VmBuilder {
             EitherVmmExecutor::Unrestricted(_) => false,
         };
 
-        let mut vm: fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, SudoProcessSpawner, BlockingFsBackend> =
+        let mut vm: fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, BlockingFsBackend> =
             TestVm::prepare(
                 executor,
-                VmmOwnershipModel::UpgradedTemporarily,
-                SudoProcessSpawner::new(),
+                VmmOwnershipModel::Downgraded {
+                    uid: TestOptions::get().await.jailer_uid.into(),
+                    gid: TestOptions::get().await.jailer_gid.into(),
+                },
+                DirectProcessSpawner,
                 BlockingFsBackend,
                 get_real_firecracker_installation(),
                 configuration,
@@ -621,23 +627,15 @@ async fn start_fcnetd() -> (FcnetdConnection, Child) {
     let child = SudoProcessSpawner::new()
         .spawn(
             &get_test_path("toolchain/fcnetd"),
-            vec![
-                "--uid".to_string(),
-                geteuid().to_string(),
-                "--gid".to_string(),
-                getegid().to_string(),
-                socket_path.to_string_lossy().into_owned(),
-            ],
+            vec![socket_path.to_string_lossy().into_owned()],
             true,
         )
         .await
         .unwrap();
 
     loop {
-        if let Ok(metadata) = tokio::fs::metadata(&socket_path).await {
-            if metadata.uid() == geteuid().as_raw() && metadata.gid() == getegid().as_raw() {
-                break;
-            }
+        if tokio::fs::metadata(&socket_path).await.is_ok() && UnixStream::connect(&socket_path).await.is_ok() {
+            break;
         }
     }
 

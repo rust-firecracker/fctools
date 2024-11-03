@@ -303,11 +303,7 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             let pid;
 
             loop {
-                if let Ok(pid_string) = fs_backend
-                    .read_to_string(&pid_file_path)
-                    .await
-                    .map_err(VmmExecutorError::FsBackendError)
-                {
+                if let Ok(pid_string) = fs_backend.read_to_string(&pid_file_path).await {
                     if let Ok(read_pid) = pid_string.trim_end().parse() {
                         pid = read_pid;
                         break;

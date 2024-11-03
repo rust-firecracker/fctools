@@ -2,7 +2,7 @@ use std::{os::unix::fs::FileTypeExt, time::Duration};
 
 use fctools::{
     fs_backend::blocking::BlockingFsBackend,
-    process_spawner::SudoProcessSpawner,
+    process_spawner::DirectProcessSpawner,
     vm::{
         api::VmApi,
         configuration::InitMethod,
@@ -20,6 +20,7 @@ use fctools::{
         ownership::VmmOwnershipModel,
     },
 };
+use nix::unistd::{getegid, geteuid};
 use rand::RngCore;
 use test_framework::{
     get_real_firecracker_installation, get_tmp_fifo_path, get_tmp_path, shutdown_test_vm, TestOptions, TestVm,
@@ -250,8 +251,11 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
 
     let mut vm = TestVm::prepare(
         executor,
-        VmmOwnershipModel::UpgradedTemporarily,
-        SudoProcessSpawner::new(),
+        VmmOwnershipModel::Downgraded {
+            uid: geteuid(),
+            gid: getegid(),
+        },
+        DirectProcessSpawner,
         BlockingFsBackend,
         get_real_firecracker_installation(),
         snapshot.into_configuration(Some(true), None),
