@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use nix::unistd::{Gid, Uid};
 use tokio::task::JoinSet;
 
 use crate::{
@@ -33,7 +32,6 @@ pub struct UnrestrictedVmmExecutor {
     remove_logs_on_cleanup: bool,
     pipes_to_null: bool,
     id: Option<VmmId>,
-    ownership_downgrade: Option<(Uid, Gid)>,
 }
 
 impl UnrestrictedVmmExecutor {
@@ -45,7 +43,6 @@ impl UnrestrictedVmmExecutor {
             remove_logs_on_cleanup: false,
             pipes_to_null: false,
             id: None,
-            ownership_downgrade: None,
         }
     }
 
@@ -76,11 +73,6 @@ impl UnrestrictedVmmExecutor {
 
     pub fn id(mut self, id: VmmId) -> Self {
         self.id = Some(id);
-        self
-    }
-
-    pub fn downgrade_ownership(mut self, uid: Uid, gid: Gid) -> Self {
-        self.ownership_downgrade = Some((uid, gid));
         self
     }
 }

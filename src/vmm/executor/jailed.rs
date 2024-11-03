@@ -128,9 +128,12 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
                 let socket_parent_dir = socket_parent_dir.to_owned();
                 let fs_backend = fs_backend.clone();
                 let jail_path = jail_path.clone();
+
                 join_set.spawn(async move {
+                    let expanded_path = jail_path.jail_join(&socket_parent_dir);
+
                     fs_backend
-                        .create_dir_all(&jail_path.jail_join(&socket_parent_dir))
+                        .create_dir_all(&expanded_path)
                         .await
                         .map_err(VmmExecutorError::FsBackendError)
                 });
@@ -297,11 +300,20 @@ impl<T: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<T> {
             .await
             .map_err(VmmExecutorError::ChangeOwnerError)?;
 
-            let pid_string = fs_backend
-                .read_to_string(&pid_file_path)
-                .await
-                .map_err(VmmExecutorError::FsBackendError)?;
-            let pid = pid_string.trim_end().parse().map_err(VmmExecutorError::ParseIntError)?;
+            let pid;
+
+            loop {
+                if let Ok(pid_string) = fs_backend
+                    .read_to_string(&pid_file_path)
+                    .await
+                    .map_err(VmmExecutorError::FsBackendError)
+                {
+                    if let Ok(read_pid) = pid_string.trim_end().parse() {
+                        pid = read_pid;
+                        break;
+                    }
+                }
+            }
 
             Ok(ProcessHandle::detached(pid, fs_backend).map_err(VmmExecutorError::IoError)?)
         } else {

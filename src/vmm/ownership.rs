@@ -140,7 +140,7 @@ async fn change_owner(
         }
     } else {
         fs_backend
-            .chownr(path, *PROCESS_UID, *PROCESS_GID)
+            .chownr(path, uid, gid)
             .await
             .map_err(ChangeOwnerError::FsBackendError)?;
     }

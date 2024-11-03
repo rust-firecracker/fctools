@@ -80,6 +80,9 @@ fn chownr_impl(path: &Path, uid: Uid, gid: Gid) -> Result<(), FsBackendError> {
         }
     }
 
-    let _ = nix::unistd::chown(path, Some(uid), Some(gid));
-    Ok(())
+    if nix::unistd::chown(path, Some(uid), Some(gid)).is_err() {
+        Err(FsBackendError::Owned(std::io::Error::last_os_error()))
+    } else {
+        Ok(())
+    }
 }
