@@ -27,6 +27,7 @@ use tokio::task::{JoinError, JoinSet};
 pub mod api;
 pub mod configuration;
 pub mod models;
+pub mod shutdown;
 pub mod snapshot;
 
 /// A [Vm] is an abstraction over a [VmmProcess], and automates away tasks not handled by a VMM process in an opinionated

@@ -10,9 +10,9 @@ use super::{
 /// The data associated with a snapshot created for a [Vm](crate::vm::Vm).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotData {
-    pub(super) snapshot_path: PathBuf,
-    pub(super) mem_file_path: PathBuf,
-    pub(super) configuration_data: VmConfigurationData,
+    pub snapshot_path: PathBuf,
+    pub mem_file_path: PathBuf,
+    pub configuration_data: VmConfigurationData,
 }
 
 impl SnapshotData {
@@ -36,7 +36,7 @@ impl SnapshotData {
 
     /// Move out the data of this snapshot to the given destinations, mitigating the overhead of copying
     /// when acceptable and also modifying references to these new destinations.
-    pub async fn move_out(
+    pub async fn move_to(
         &mut self,
         fs_backend: &impl FsBackend,
         new_snapshot_path: PathBuf,
@@ -81,17 +81,5 @@ impl SnapshotData {
             load_snapshot,
             data: self.configuration_data,
         }
-    }
-
-    pub fn snapshot_path(&self) -> &PathBuf {
-        &self.snapshot_path
-    }
-
-    pub fn mem_file_path(&self) -> &PathBuf {
-        &self.mem_file_path
-    }
-
-    pub fn configuration_data(&self) -> &VmConfigurationData {
-        &self.configuration_data
     }
 }
