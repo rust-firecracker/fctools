@@ -1,4 +1,4 @@
-use std::{future::Future, path::PathBuf, pin::Pin};
+use std::{future::Future, path::PathBuf};
 
 use bytes::Bytes;
 use http::{Request, Response, Uri};
@@ -69,13 +69,7 @@ pub trait VsockHttpExt {
     ) -> impl Future<Output = Result<SendRequest<Full<Bytes>>, VsockHttpError>> + Send;
 
     /// Make a lazy HTTP connection pool (backed by hyper-util) that pools multiple connections internally to the given guest port.
-    fn vsock_create_http_connection_pool<X>(
-        &self,
-        guest_port: u32,
-        hyper_executor: X,
-    ) -> Result<VsockHttpPool, VsockHttpError>
-    where
-        X: hyper::rt::Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Send + Sync + Clone + 'static;
+    fn vsock_create_http_connection_pool(&self, guest_port: u32) -> Result<VsockHttpPool, VsockHttpError>;
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R> {
@@ -96,15 +90,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
         Ok(send_request)
     }
 
-    fn vsock_create_http_connection_pool<X>(
-        &self,
-        guest_port: u32,
-        hyper_executor: X,
-    ) -> Result<VsockHttpPool, VsockHttpError>
-    where
-        X: hyper::rt::Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Send + Sync + Clone + 'static,
-    {
-        let client = hyper_util::client::legacy::Client::builder(hyper_executor).build(HyperFirecrackerConnector);
+    fn vsock_create_http_connection_pool(&self, guest_port: u32) -> Result<VsockHttpPool, VsockHttpError> {
+        let client =
+            hyper_util::client::legacy::Client::builder(R::get_hyper_executor()).build(HyperFirecrackerConnector);
         let socket_path = self
             .get_accessible_paths()
             .vsock_multiplexer_path

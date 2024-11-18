@@ -10,7 +10,7 @@ use std::{
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{Runtime, RuntimeFilesystem, RuntimeJoinSet},
+    runtime::{Runtime, RuntimeExecutor, RuntimeFilesystem, RuntimeJoinSet},
     vmm::{
         executor::{process_handle::ProcessHandlePipes, VmmExecutor},
         installation::VmmInstallation,
@@ -324,7 +324,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             .await
             .map_err(VmError::ProcessError)?;
 
-        tokio::time::timeout(socket_wait_timeout, async move {
+        R::Executor::timeout(socket_wait_timeout, async move {
             // wait until socket exists
             loop {
                 if let Ok(true) = R::Filesystem::check_exists(&socket_path).await {

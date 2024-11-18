@@ -9,8 +9,9 @@ use std::{
 
 use crate::runtime::{Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
 
-/// A process handle is a thin abstraction over either an "attached" child process that is a Tokio [Child],
-/// or a "detached" certain process that isn't a child and is controlled via a pidfd.
+/// A process handle is a thin abstraction over either an "attached" child process that is a [RuntimeProcess],
+/// or a "detached" certain process that isn't a child and is controlled via a [RuntimeAsyncFd] wrapping a
+/// Linux pidfd.
 #[derive(Debug)]
 pub struct ProcessHandle<P: RuntimeProcess>(ProcessHandleInner<P>);
 
@@ -48,7 +49,7 @@ enum ProcessHandleInner<P: RuntimeProcess> {
 }
 
 impl<P: RuntimeProcess> ProcessHandle<P> {
-    /// Create a [ProcessHandle] from a Tokio [Child] that is attached.
+    /// Create a [ProcessHandle] from a [RuntimeProcess] that is attached.
     pub fn attached(process: P, pipes_dropped: bool) -> Self {
         Self(ProcessHandleInner::Attached { process, pipes_dropped })
     }

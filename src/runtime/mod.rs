@@ -1,4 +1,4 @@
-use std::{future::Future, os::fd::OwnedFd, path::Path, process::ExitStatus, time::Duration};
+use std::{future::Future, os::fd::OwnedFd, path::Path, pin::Pin, process::ExitStatus, time::Duration};
 
 use futures_io::{AsyncRead, AsyncWrite};
 use nix::unistd::{Gid, Uid};
@@ -10,6 +10,9 @@ pub trait Runtime: 'static {
     type Executor: RuntimeExecutor;
     type Filesystem: RuntimeFilesystem;
     type Process: RuntimeProcess;
+    type HyperExecutor: hyper::rt::Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Clone + Send + Sync + 'static;
+
+    fn get_hyper_executor() -> Self::HyperExecutor;
 }
 
 pub trait RuntimeExecutor {

@@ -12,7 +12,7 @@ use http::{Request, Response, StatusCode, Uri};
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Body, Incoming};
 use hyper_client_sockets::{HyperUnixConnector, UnixUriExt};
-use hyper_util::{client::legacy::Client, rt::TokioExecutor};
+use hyper_util::client::legacy::Client;
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -316,7 +316,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
                     .await
                     .map_err(VmmProcessError::ChangeOwnerError)?;
 
-                Ok(Client::builder(TokioExecutor::new()).build(HyperUnixConnector))
+                Ok(Client::builder(R::get_hyper_executor()).build(HyperUnixConnector))
             })
             .await?;
 

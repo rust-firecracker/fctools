@@ -15,6 +15,11 @@ impl Runtime for TokioRuntime {
     type Executor = TokioRuntimeExecutor;
     type Filesystem = TokioRuntimeFilesystem;
     type Process = TokioRuntimeProcess;
+    type HyperExecutor = hyper_util::rt::TokioExecutor;
+
+    fn get_hyper_executor() -> Self::HyperExecutor {
+        hyper_util::rt::TokioExecutor::new()
+    }
 }
 
 pub struct TokioRuntimeExecutor;
