@@ -36,6 +36,8 @@ pub mod vmm;
 )]
 pub mod extension;
 
+pub mod runtime;
+
 #[cfg(feature = "fs-backend")]
 #[cfg_attr(docsrs, doc(cfg(feature = "fs-backend")))]
 pub mod fs_backend;

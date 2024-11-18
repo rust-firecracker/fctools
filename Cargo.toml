@@ -38,6 +38,12 @@ tokio = { version = "1.41.0", features = [
     "rt",
     "sync",
 ] }
+futures-io = "0.3.31"
+# tokio runtime
+tokio-util = { version = "0.7.12", default-features = false, features = [
+    "compat",
+] }
+
 # fs backends
 uuid = { version = "1.11.0", optional = true, features = ["v4"] }
 tokio-uring = { version = "0.5.0", optional = true }
