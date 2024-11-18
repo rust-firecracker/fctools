@@ -387,7 +387,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
     /// Shut down the [Vm] by applying the given sequence of [VmShutdownAction]s until one works or all fail. If even one action works,
     /// a [VmShutdownOutcome] is returned with further information about the shutdown result, otherwise, the [VmShutdownError] caused
     /// by the last [VmShutdownAction] in the sequence is returned.
-    pub async fn shutdown(&mut self, actions: impl IntoIterator<Item = VmShutdownAction>) -> Result<VmShutdownOutcome, VmShutdownError> {
+    pub async fn shutdown(
+        &mut self,
+        actions: impl IntoIterator<Item = VmShutdownAction>,
+    ) -> Result<VmShutdownOutcome, VmShutdownError> {
         shutdown::apply(self, actions).await
     }
 

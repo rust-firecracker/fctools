@@ -1,6 +1,6 @@
 [package]
 name = "fctools"
-version = "0.5.0-rc.3"
+version = "0.5.0"
 edition = "2021"
 description = "An exhaustive, highly modular and extensible host SDK for the Firecracker microVM manager."
 license = "MIT"
@@ -30,7 +30,7 @@ strip = "symbols"
 
 [dependencies]
 # common
-thiserror = "1.0.67"
+thiserror = "1.0.69"
 tokio = { version = "1.41.0", features = [
     "process",
     "io-util",
