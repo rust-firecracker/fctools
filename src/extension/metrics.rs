@@ -1,11 +1,10 @@
-use std::path::Path;
+use std::{fs::OpenOptions, path::Path};
 
 use futures_channel::mpsc;
 use futures_util::{io::BufReader, AsyncBufReadExt, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use tokio_util::compat::TokioAsyncReadCompatExt;
 
-use crate::runtime::RuntimeExecutor;
+use crate::runtime::{Runtime, RuntimeExecutor, RuntimeFilesystem};
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Metrics {
@@ -293,14 +292,14 @@ pub struct MetricsAggregate {
 #[derive(Debug, thiserror::Error)]
 pub enum MetricsTaskError {
     #[error("An asynchronous I/O task failed: {0}")]
-    IoError(tokio::io::Error),
+    IoError(std::io::Error),
     #[error("Deserializing the metrics JSON failed: {0}")]
     SerdeError(serde_json::Error),
     #[error("Sending the metrics to the channel failed: {0}")]
     SendError(mpsc::SendError),
 }
 
-/// A spawned Tokio task that gathers Firecracker's metrics.
+/// A spawned async task that gathers Firecracker's metrics.
 #[derive(Debug)]
 pub struct MetricsTask<E: RuntimeExecutor> {
     /// The [JoinHandle] to the task that can be used to abort it or check on it.
@@ -309,21 +308,23 @@ pub struct MetricsTask<E: RuntimeExecutor> {
     pub receiver: mpsc::Receiver<Metrics>,
 }
 
-/// Spawn a dedicated Tokio task that gathers Firecracker's metrics from the given metrics path with an
+/// Spawn a dedicated async task that gathers Firecracker's metrics from the given metrics path with an
 /// asynchronous [mpsc] channel limited by the provided upper bound (buffer). Support for an agnostic
 /// [FsBackend](crate::fs_backend::FsBackend) is currently not implemented.
-pub fn spawn_metrics_task<E: RuntimeExecutor>(
+pub fn spawn_metrics_task<R: Runtime>(
     metrics_path: impl AsRef<Path> + Send + 'static,
     buffer: usize,
-) -> MetricsTask<E> {
+) -> MetricsTask<R::Executor> {
     let (mut sender, receiver) = mpsc::channel(buffer);
 
-    let join_handle = E::spawn(async move {
+    let join_handle = R::Executor::spawn(async move {
+        let mut open_options = OpenOptions::new();
+        open_options.write(true);
+
         let mut buf_reader = BufReader::new(
-            tokio::fs::File::open(metrics_path)
+            R::Filesystem::open_file(metrics_path.as_ref(), open_options)
                 .await
-                .map_err(MetricsTaskError::IoError)?
-                .compat(),
+                .map_err(MetricsTaskError::IoError)?,
         )
         .lines();
 

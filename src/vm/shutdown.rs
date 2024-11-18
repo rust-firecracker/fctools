@@ -4,7 +4,7 @@ use futures_util::AsyncWriteExt;
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::Runtime,
+    runtime::{Runtime, RuntimeExecutor},
     vmm::{executor::VmmExecutor, process::VmmProcessError},
 };
 
@@ -71,7 +71,7 @@ pub struct VmShutdownAction {
     /// The [VmShutdownMethod] used by this action.
     pub method: VmShutdownMethod,
     /// Optionally, a timeout for how long the action can take. If one is specified, the action future
-    /// will be wrapped in [tokio::time::timeout], thus not letting the shutdown hang. Otherwise, the
+    /// will be wrapped in a timeout future, thus not letting the shutdown hang. Otherwise, the
     /// future will be awaited normally with the possibility of hanging.
     pub timeout: Option<Duration>,
     /// Whether this action should be marked as graceful or not. This will reflect in the [VmShutdownOutcome]
@@ -146,7 +146,7 @@ pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
 
     for action in actions {
         let result = match action.timeout {
-            Some(duration) => tokio::time::timeout(duration, action.method.run(vm))
+            Some(duration) => R::Executor::timeout(duration, action.method.run(vm))
                 .await
                 .unwrap_or(Err(VmShutdownError::Timeout)),
             None => action.method.run(vm).await,

@@ -1,4 +1,4 @@
-use std::{future::Future, path::Path};
+use std::{future::Future, path::Path, time::Duration};
 
 use nix::unistd::{Gid, Uid};
 use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout};
@@ -31,18 +31,10 @@ impl RuntimeExecutor for TokioRuntimeExecutor {
         tokio::spawn(future)
     }
 
-    fn spawn_blocking<F, O>(function: F) -> Self::JoinHandle<O>
+    async fn timeout<F, O>(duration: Duration, future: F) -> Result<O, ()>
     where
-        F: FnOnce() -> O + Send + 'static,
-        O: Send + 'static,
-    {
-        tokio::task::spawn_blocking(function)
-    }
-
-    async fn timeout<F, O>(future: F, duration: std::time::Duration) -> Result<O, ()>
-    where
-        F: Future<Output = O> + Send + 'static,
-        O: Send + 'static,
+        F: Future<Output = O> + Send,
+        O: Send,
     {
         tokio::time::timeout(duration, future).await.map_err(|_| ())
     }
@@ -51,6 +43,8 @@ impl RuntimeExecutor for TokioRuntimeExecutor {
 pub struct TokioRuntimeFilesystem;
 
 impl RuntimeFilesystem for TokioRuntimeFilesystem {
+    type File = Compat<tokio::fs::File>;
+
     fn check_exists(path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send {
         tokio::fs::try_exists(path)
     }
@@ -103,6 +97,12 @@ impl RuntimeFilesystem for TokioRuntimeFilesystem {
         destination_path: &Path,
     ) -> impl Future<Output = Result<(), std::io::Error>> + Send {
         tokio::fs::hard_link(source_path, destination_path)
+    }
+
+    async fn open_file(path: &Path, open_options: std::fs::OpenOptions) -> Result<Self::File, std::io::Error> {
+        let open_options = tokio::fs::OpenOptions::from(open_options);
+        let file = open_options.open(path).await?;
+        Ok(file.compat())
     }
 }
 

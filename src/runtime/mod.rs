@@ -21,18 +21,15 @@ pub trait RuntimeExecutor {
         F: Future<Output = O> + Send + 'static,
         O: Send + 'static;
 
-    fn spawn_blocking<F, O>(function: F) -> Self::JoinHandle<O>
+    fn timeout<F, O>(duration: Duration, future: F) -> impl Future<Output = Result<O, ()>> + Send
     where
-        F: FnOnce() -> O + Send + 'static,
-        O: Send + 'static;
-
-    fn timeout<F, O>(future: F, duration: Duration) -> impl Future<Output = Result<O, ()>> + Send
-    where
-        F: Future<Output = O> + Send + 'static,
-        O: Send + 'static;
+        F: Future<Output = O> + Send,
+        O: Send;
 }
 
 pub trait RuntimeFilesystem {
+    type File: AsyncRead + AsyncWrite + Send + Unpin;
+
     fn check_exists(path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send;
 
     fn remove_file(path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send;
@@ -60,6 +57,11 @@ pub trait RuntimeFilesystem {
         source_path: &Path,
         destination_path: &Path,
     ) -> impl Future<Output = Result<(), std::io::Error>> + Send;
+
+    fn open_file(
+        path: &Path,
+        open_options: std::fs::OpenOptions,
+    ) -> impl Future<Output = Result<Self::File, std::io::Error>> + Send;
 }
 
 pub trait RuntimeProcess: Sized + Send + Sync + std::fmt::Debug {
@@ -101,18 +103,22 @@ impl<O: Send + 'static, E: RuntimeExecutor> RuntimeJoinSet<O, E> {
         }
     }
 
+    pub async fn join_two<F1, F2>(future1: F1, future2: F2) -> Result<Result<(), O>, E::JoinError>
+    where
+        F1: Future<Output = Result<(), O>> + Send + 'static,
+        F2: Future<Output = Result<(), O>> + Send + 'static,
+    {
+        let mut join_set = Self::new();
+        join_set.spawn(future1);
+        join_set.spawn(future2);
+        join_set.wait().await
+    }
+
     pub fn spawn<F>(&mut self, future: F)
     where
         F: Future<Output = Result<(), O>> + Send + 'static,
     {
         self.join_handles.push(E::spawn(future));
-    }
-
-    pub fn spawn_blocking<F>(&mut self, function: F)
-    where
-        F: FnOnce() -> Result<(), O> + Send + 'static,
-    {
-        self.join_handles.push(E::spawn_blocking(function));
     }
 
     pub async fn wait(self) -> Result<Result<(), O>, E::JoinError> {
