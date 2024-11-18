@@ -39,6 +39,9 @@ tokio = { version = "1.41.0", features = [
     "sync",
 ] }
 futures-io = "0.3.31"
+futures-util = { version = "0.3.31", default-features = false, features = [
+    "io",
+] }
 # tokio runtime
 tokio-util = { version = "0.7.12", default-features = false, features = [
     "compat",

@@ -123,7 +123,12 @@ fn chownr_impl(path: &Path, uid: Uid, gid: Gid) -> Result<(), std::io::Error> {
     }
 }
 
-pub struct TokioProcess(Child);
+pub struct TokioProcess {
+    child: Child,
+    stdout: Option<Compat<ChildStdout>>,
+    stdin: Option<Compat<ChildStdin>>,
+    stderr: Option<Compat<ChildStderr>>,
+}
 
 impl RuntimeProcess for TokioProcess {
     type Stdout = Compat<ChildStdout>;
@@ -133,30 +138,52 @@ impl RuntimeProcess for TokioProcess {
     type Stdin = Compat<ChildStdin>;
 
     fn spawn(command: std::process::Command) -> Result<Self, std::io::Error> {
-        tokio::process::Command::from(command).spawn().map(|child| Self(child))
+        tokio::process::Command::from(command).spawn().map(|mut child| {
+            let stdout = child.stdout.take().map(|stdout| stdout.compat());
+            let stderr = child.stderr.take().map(|stderr| stderr.compat());
+            let stdin = child.stdin.take().map(|stdin| stdin.compat_write());
+            Self {
+                child,
+                stdout,
+                stdin,
+                stderr,
+            }
+        })
     }
 
     fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, std::io::Error> {
-        self.0.try_wait()
+        self.child.try_wait()
     }
 
     fn wait(&mut self) -> impl Future<Output = Result<std::process::ExitStatus, std::io::Error>> {
-        self.0.wait()
+        self.child.wait()
     }
 
     fn kill(&mut self) -> Result<(), std::io::Error> {
-        self.0.start_kill()
+        self.child.start_kill()
+    }
+
+    fn stdout(&mut self) -> &mut Option<Self::Stdout> {
+        &mut self.stdout
+    }
+
+    fn stdin(&mut self) -> &mut Option<Self::Stdin> {
+        &mut self.stdin
+    }
+
+    fn stderr(&mut self) -> &mut Option<Self::Stderr> {
+        &mut self.stderr
     }
 
     fn take_stdout(&mut self) -> Option<Self::Stdout> {
-        self.0.stdout.take().map(|stdout| stdout.compat())
+        self.stdout.take()
     }
 
     fn take_stderr(&mut self) -> Option<Self::Stderr> {
-        self.0.stderr.take().map(|stderr| stderr.compat())
+        self.stderr.take()
     }
 
     fn take_stdin(&mut self) -> Option<Self::Stdin> {
-        self.0.stdin.take().map(|stdin| stdin.compat_write())
+        self.stdin.take()
     }
 }

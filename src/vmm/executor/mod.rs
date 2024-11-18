@@ -18,6 +18,7 @@ use tokio::task::JoinSet;
 use crate::{
     fs_backend::{FsBackend, FsBackendError},
     process_spawner::ProcessSpawner,
+    runtime::Runtime,
 };
 
 use super::{
@@ -83,11 +84,10 @@ pub trait VmmExecutor: Send + Sync {
     fn is_traceless(&self) -> bool;
 
     /// Prepare all transient resources for the VMM invocation.
-    fn prepare(
+    fn prepare<R: Runtime>(
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
         ownership_model: VmmOwnershipModel,
     ) -> impl Future<Output = Result<HashMap<PathBuf, PathBuf>, VmmExecutorError>> + Send;
@@ -95,21 +95,19 @@ pub trait VmmExecutor: Send + Sync {
     /// Invoke the VMM on the given [VmmInstallation] and return the [ProcessHandle] that performs a connection to
     /// the created process, regardless of it possibly being not a child and rather having been unshare()-d into
     /// a separate PID namespace.
-    fn invoke(
+    fn invoke<R: Runtime>(
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        fs_backend: Arc<impl FsBackend>,
         config_path: Option<PathBuf>,
         ownership_model: VmmOwnershipModel,
-    ) -> impl Future<Output = Result<ProcessHandle, VmmExecutorError>> + Send;
+    ) -> impl Future<Output = Result<ProcessHandle<R::Process>, VmmExecutorError>> + Send;
 
     /// Clean up all transient resources of the VMM invocation.
-    fn cleanup(
+    fn cleanup<R: Runtime>(
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        fs_backend: Arc<impl FsBackend>,
         ownership_model: VmmOwnershipModel,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }

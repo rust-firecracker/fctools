@@ -8,26 +8,22 @@ use std::{
     sync::Arc,
 };
 
-use tokio::{
-    io::unix::AsyncFd,
-    process::{Child, ChildStderr, ChildStdin, ChildStdout},
-    sync::oneshot,
-};
+use tokio::{io::unix::AsyncFd, sync::oneshot};
 
-use crate::fs_backend::FsBackend;
+use crate::{fs_backend::FsBackend, runtime::RuntimeProcess};
 
 /// A process handle is a thin abstraction over either an "attached" child process that is a Tokio [Child],
 /// or a "detached" certain process that isn't a child and is controlled via a pidfd.
 #[derive(Debug)]
-pub struct ProcessHandle(ProcessHandleInner);
+pub struct ProcessHandle<P: RuntimeProcess>(ProcessHandleInner<P>);
 
 /// The pipes that are extracted from a [ProcessHandle]. These can only be extracted from attached
 /// [ProcessHandle]s that haven't had their pipes dropped to /dev/null.
 #[derive(Debug)]
-pub struct ProcessHandlePipes {
-    pub stdout: ChildStdout,
-    pub stderr: ChildStderr,
-    pub stdin: ChildStdin,
+pub struct ProcessHandlePipes<P: RuntimeProcess> {
+    pub stdout: P::Stdout,
+    pub stderr: P::Stderr,
+    pub stdin: P::Stdin,
 }
 
 /// An error that didn't allow the extraction of [ProcessHandlePipes] from a [ProcessHandle].
@@ -42,9 +38,9 @@ pub enum ProcessHandlePipesError {
 }
 
 #[derive(Debug)]
-enum ProcessHandleInner {
+enum ProcessHandleInner<P: RuntimeProcess> {
     Attached {
-        child: Child,
+        process: P,
         pipes_dropped: bool,
     },
     Detached {
@@ -54,10 +50,10 @@ enum ProcessHandleInner {
     },
 }
 
-impl ProcessHandle {
+impl<P: RuntimeProcess> ProcessHandle<P> {
     /// Create a [ProcessHandle] from a Tokio [Child] that is attached.
-    pub fn attached(child: Child, pipes_dropped: bool) -> Self {
-        Self(ProcessHandleInner::Attached { child, pipes_dropped })
+    pub fn attached(process: P, pipes_dropped: bool) -> Self {
+        Self(ProcessHandleInner::Attached { process, pipes_dropped })
     }
 
     /// Try to create a [ProcessHandle] from an arbitrary detached PID.
@@ -106,9 +102,9 @@ impl ProcessHandle {
     pub fn send_sigkill(&mut self) -> Result<(), std::io::Error> {
         match self.0 {
             ProcessHandleInner::Attached {
-                ref mut child,
+                ref mut process,
                 pipes_dropped: _,
-            } => child.start_kill(),
+            } => process.kill(),
             ProcessHandleInner::Detached {
                 raw_pidfd,
                 exited_rx: _,
@@ -135,9 +131,9 @@ impl ProcessHandle {
     pub async fn wait(&mut self) -> Result<ExitStatus, std::io::Error> {
         match self.0 {
             ProcessHandleInner::Attached {
-                ref mut child,
+                ref mut process,
                 pipes_dropped: _,
-            } => child.wait().await,
+            } => process.wait().await,
             ProcessHandleInner::Detached {
                 raw_pidfd: _,
                 ref mut exited_rx,
@@ -160,9 +156,9 @@ impl ProcessHandle {
     pub fn try_wait(&mut self) -> Result<Option<ExitStatus>, std::io::Error> {
         match self.0 {
             ProcessHandleInner::Attached {
-                ref mut child,
+                ref mut process,
                 pipes_dropped: _,
-            } => child.try_wait(),
+            } => process.try_wait(),
             ProcessHandleInner::Detached {
                 raw_pidfd: _,
                 ref mut exited_rx,
@@ -184,7 +180,7 @@ impl ProcessHandle {
 
     /// Try to get the [ProcessHandlePipes] for this process. Only possible for attached (child)
     /// processes that haven't had their pipes dropped when creating.
-    pub fn get_pipes(&mut self) -> Result<ProcessHandlePipes, ProcessHandlePipesError> {
+    pub fn get_pipes(&mut self) -> Result<ProcessHandlePipes<P>, ProcessHandlePipesError> {
         match self.0 {
             ProcessHandleInner::Detached {
                 raw_pidfd: _,
@@ -192,7 +188,7 @@ impl ProcessHandle {
                 exited: _,
             } => Err(ProcessHandlePipesError::ProcessIsDetached),
             ProcessHandleInner::Attached {
-                ref mut child,
+                process: ref mut child,
                 pipes_dropped,
             } => {
                 if pipes_dropped {
@@ -200,16 +196,13 @@ impl ProcessHandle {
                 }
 
                 let stdout = child
-                    .stdout
-                    .take()
+                    .take_stdout()
                     .ok_or(ProcessHandlePipesError::PipesWereAlreadyTaken)?;
                 let stderr = child
-                    .stderr
-                    .take()
+                    .take_stderr()
                     .ok_or(ProcessHandlePipesError::PipesWereAlreadyTaken)?;
                 let stdin = child
-                    .stdin
-                    .take()
+                    .take_stdin()
                     .ok_or(ProcessHandlePipesError::PipesWereAlreadyTaken)?;
 
                 Ok(ProcessHandlePipes { stdout, stderr, stdin })

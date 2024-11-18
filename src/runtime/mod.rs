@@ -64,10 +64,10 @@ pub trait RuntimeFilesystem {
     ) -> impl Future<Output = Result<(), std::io::Error>> + Send;
 }
 
-pub trait RuntimeProcess: Sized {
-    type Stdout: AsyncRead + Unpin;
-    type Stderr: AsyncRead + Unpin;
-    type Stdin: AsyncWrite + Unpin;
+pub trait RuntimeProcess: Sized + Send + std::fmt::Debug {
+    type Stdout: AsyncRead + Unpin + Send;
+    type Stderr: AsyncRead + Unpin + Send;
+    type Stdin: AsyncWrite + Unpin + Send;
 
     fn spawn(command: std::process::Command) -> Result<Self, std::io::Error>;
 
@@ -76,6 +76,12 @@ pub trait RuntimeProcess: Sized {
     fn wait(&mut self) -> impl Future<Output = Result<ExitStatus, std::io::Error>>;
 
     fn kill(&mut self) -> Result<(), std::io::Error>;
+
+    fn stdout(&mut self) -> &mut Option<Self::Stdout>;
+
+    fn stderr(&mut self) -> &mut Option<Self::Stderr>;
+
+    fn stdin(&mut self) -> &mut Option<Self::Stdin>;
 
     fn take_stdout(&mut self) -> Option<Self::Stdout>;
 

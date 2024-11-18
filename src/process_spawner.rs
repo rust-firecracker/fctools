@@ -2,26 +2,25 @@ use std::{
     ffi::OsString,
     future::Future,
     path::{Path, PathBuf},
-    process::Stdio,
+    process::{Command, Stdio},
     sync::LazyLock,
 };
 
-use tokio::{
-    io::AsyncWriteExt,
-    process::{Child, Command},
-};
+use futures_util::AsyncWriteExt;
+
+use crate::runtime::{Runtime, RuntimeProcess};
 
 /// A [ProcessSpawner] concerns itself with spawning a rootful or rootless process from the given binary path and arguments.
 /// The command delegated to the spawner is either a "firecracker" or "jailer" invocation for starting the respective
 /// processes, or an elevated "chown"/"mkdir" invocation from the executors.
 pub trait ProcessSpawner: Send + Sync + 'static {
     /// Spawn the process with the given binary path and arguments.
-    fn spawn(
+    fn spawn<R: Runtime>(
         &self,
         binary_path: &Path,
         arguments: Vec<String>,
         pipes_to_null: bool,
-    ) -> impl Future<Output = Result<Child, std::io::Error>> + Send;
+    ) -> impl Future<Output = Result<R::Process, std::io::Error>> + Send;
 }
 
 /// A [ProcessSpawner] that directly invokes the underlying process.
@@ -41,14 +40,19 @@ fn get_stdio(pipes_to_null: bool) -> Stdio {
 
 #[cfg(feature = "direct-process-spawner")]
 impl ProcessSpawner for DirectProcessSpawner {
-    async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
+    async fn spawn<R: Runtime>(
+        &self,
+        path: &Path,
+        arguments: Vec<String>,
+        pipes_to_null: bool,
+    ) -> Result<R::Process, std::io::Error> {
         let mut command = Command::new(path);
         command
             .args(arguments)
             .stderr(get_stdio(pipes_to_null))
             .stdout(get_stdio(pipes_to_null))
             .stdin(get_stdio(pipes_to_null));
-        let child = command.spawn()?;
+        let child = R::Process::spawn(command)?;
         Ok(child)
     }
 }
@@ -81,7 +85,12 @@ impl SuProcessSpawner {
 
 #[cfg(feature = "elevation-process-spawners")]
 impl ProcessSpawner for SuProcessSpawner {
-    async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
+    async fn spawn<R: Runtime>(
+        &self,
+        path: &Path,
+        arguments: Vec<String>,
+        pipes_to_null: bool,
+    ) -> Result<R::Process, std::io::Error> {
         let mut command = Command::new(match self.su_path {
             Some(ref path) => path.as_os_str(),
             None => SU_OS_STRING.as_os_str(),
@@ -90,19 +99,19 @@ impl ProcessSpawner for SuProcessSpawner {
             .stderr(get_stdio(pipes_to_null))
             .stdout(get_stdio(pipes_to_null))
             .stdin(Stdio::piped());
-        let mut child = command.spawn()?;
+        let mut child = R::Process::spawn(command)?;
 
-        let stdin_ref = child
-            .stdin
+        let stdin = child
+            .stdin()
             .as_mut()
             .ok_or_else(|| std::io::Error::other("Stdin not received"))?;
-        stdin_ref.write(format!("{}\n", self.password).as_bytes()).await?;
-        stdin_ref
-            .write(format!("{path:?} {} ; exit\n", arguments.join(" ")).as_bytes())
+        stdin.write_all(format!("{}\n", self.password).as_bytes()).await?;
+        stdin
+            .write_all(format!("{path:?} {} ; exit\n", arguments.join(" ")).as_bytes())
             .await?;
 
         if pipes_to_null {
-            drop(child.stdin.take());
+            drop(child.take_stdin());
         }
 
         Ok(child)
@@ -142,7 +151,12 @@ static SUDO_OS_STRING: LazyLock<OsString> = LazyLock::new(|| OsString::from("sud
 
 #[cfg(feature = "elevation-process-spawners")]
 impl ProcessSpawner for SudoProcessSpawner {
-    async fn spawn(&self, path: &Path, arguments: Vec<String>, pipes_to_null: bool) -> Result<Child, std::io::Error> {
+    async fn spawn<R: Runtime>(
+        &self,
+        path: &Path,
+        arguments: Vec<String>,
+        pipes_to_null: bool,
+    ) -> Result<R::Process, std::io::Error> {
         let mut command = Command::new(match self.sudo_path {
             Some(ref path) => path.as_os_str(),
             None => SUDO_OS_STRING.as_os_str(),
@@ -156,9 +170,9 @@ impl ProcessSpawner for SudoProcessSpawner {
             .stdout(get_stdio(pipes_to_null))
             .stdin(Stdio::piped());
 
-        let mut child = command.spawn()?;
+        let mut child = R::Process::spawn(command)?;
         let stdin_ref = child
-            .stdin
+            .stdin()
             .as_mut()
             .ok_or_else(|| std::io::Error::other("Stdin not received"))?;
 
@@ -167,7 +181,7 @@ impl ProcessSpawner for SudoProcessSpawner {
         }
 
         if pipes_to_null {
-            drop(child.stdin.take());
+            drop(child.take_stdin());
         }
 
         Ok(child)
