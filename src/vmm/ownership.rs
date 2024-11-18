@@ -8,9 +8,8 @@ use std::{
 use nix::unistd::{Gid, Uid};
 
 use crate::{
-    fs_backend::{FsBackend, FsBackendError},
     process_spawner::ProcessSpawner,
-    runtime::{Runtime, RuntimeProcess},
+    runtime::{Runtime, RuntimeFilesystem, RuntimeProcess},
 };
 
 pub(crate) static PROCESS_UID: LazyLock<Uid> = LazyLock::new(|| nix::unistd::geteuid());
@@ -73,8 +72,8 @@ pub enum ChangeOwnerError {
     ProcessWaitFailed(std::io::Error),
     #[error("The \"chown\" process exited with a non-zero exit status: {0}")]
     ProcessExitedWithWrongStatus(ExitStatus),
-    #[error("An in-process recursive chown implementation in the filesystem backend failed: {0}")]
-    FsBackendError(FsBackendError),
+    #[error("An in-process recursive chown implementation failed: {0}")]
+    FilesystemError(std::io::Error),
     #[error("A direct invocation of chown in-process failed: {0}")]
     ChownError(std::io::Error),
 }
@@ -117,16 +116,14 @@ pub async fn upgrade_owner<R: Runtime>(
 
 /// For implementors of custom executors: downgrades the owner of the given [Path] recursively using the
 /// given [FsBackend]'s recursive implementation, if the [VmmOwnershipModel] requires the downgrade (otherwise, no-ops).
-pub async fn downgrade_owner_recursively(
+pub async fn downgrade_owner_recursively<R: Runtime>(
     path: &Path,
     ownership_model: VmmOwnershipModel,
-    fs_backend: &impl FsBackend,
 ) -> Result<(), ChangeOwnerError> {
     if let Some((uid, gid)) = ownership_model.as_downgrade() {
-        fs_backend
-            .chownr(path, uid, gid)
+        R::Filesystem::chownr(path, uid, gid)
             .await
-            .map_err(ChangeOwnerError::FsBackendError)
+            .map_err(ChangeOwnerError::FilesystemError)
     } else {
         Ok(())
     }

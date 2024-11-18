@@ -46,7 +46,6 @@ pub trait RuntimeFilesystem {
     fn read_to_string(path: &Path) -> impl Future<Output = Result<String, std::io::Error>> + Send;
 
     fn rename_file(
-        &self,
         source_path: &Path,
         destination_path: &Path,
     ) -> impl Future<Output = Result<(), std::io::Error>> + Send;
@@ -58,7 +57,6 @@ pub trait RuntimeFilesystem {
     fn chownr(path: &Path, uid: Uid, gid: Gid) -> impl Future<Output = Result<(), std::io::Error>> + Send;
 
     fn hard_link(
-        &self,
         source_path: &Path,
         destination_path: &Path,
     ) -> impl Future<Output = Result<(), std::io::Error>> + Send;

@@ -76,7 +76,6 @@ impl RuntimeFilesystem for TokioRuntimeFilesystem {
     }
 
     fn rename_file(
-        &self,
         source_path: &Path,
         destination_path: &Path,
     ) -> impl Future<Output = Result<(), std::io::Error>> + Send {
@@ -100,7 +99,6 @@ impl RuntimeFilesystem for TokioRuntimeFilesystem {
     }
 
     fn hard_link(
-        &self,
         source_path: &Path,
         destination_path: &Path,
     ) -> impl Future<Output = Result<(), std::io::Error>> + Send {
@@ -123,6 +121,7 @@ fn chownr_impl(path: &Path, uid: Uid, gid: Gid) -> Result<(), std::io::Error> {
     }
 }
 
+#[derive(Debug)]
 pub struct TokioProcess {
     child: Child,
     stdout: Option<Compat<ChildStdout>>,

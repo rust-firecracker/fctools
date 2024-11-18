@@ -5,12 +5,9 @@ use std::{
     },
     path::PathBuf,
     process::ExitStatus,
-    sync::Arc,
 };
 
-use tokio::sync::oneshot;
-
-use crate::{fs_backend::FsBackend, runtime::RuntimeProcess};
+use crate::runtime::{Runtime, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
 
 /// A process handle is a thin abstraction over either an "attached" child process that is a Tokio [Child],
 /// or a "detached" certain process that isn't a child and is controlled via a pidfd.
@@ -45,7 +42,7 @@ enum ProcessHandleInner<P: RuntimeProcess> {
     },
     Detached {
         raw_pidfd: RawFd,
-        exited_rx: oneshot::Receiver<ExitStatus>,
+        exited_rx: futures_channel::oneshot::Receiver<ExitStatus>,
         exited: Option<ExitStatus>,
     },
 }
@@ -57,7 +54,7 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
     }
 
     /// Try to create a [ProcessHandle] from an arbitrary detached PID.
-    pub fn detached(pid: i32, fs_backend: Arc<impl FsBackend>) -> Result<Self, std::io::Error> {
+    pub fn detached<R: Runtime>(pid: i32) -> Result<Self, std::io::Error> {
         let raw_pidfd = unsafe { nix::libc::syscall(nix::libc::SYS_pidfd_open, pid, 0) };
 
         if raw_pidfd == -1 {
@@ -65,17 +62,14 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
         }
 
         let raw_pidfd = raw_pidfd as RawFd;
-        let (exited_tx, exited_rx) = oneshot::channel();
+        let (exited_tx, exited_rx) = futures_channel::oneshot::channel();
         let async_pidfd = async_io::Async::new(unsafe { OwnedFd::from_raw_fd(raw_pidfd) })?;
 
-        tokio::task::spawn(async move {
+        R::Executor::spawn(async move {
             if async_pidfd.readable().await.is_ok() {
                 let mut exit_status = ExitStatus::from_raw(0);
 
-                if let Ok(content) = fs_backend
-                    .read_to_string(&PathBuf::from(format!("/proc/{pid}/stat")))
-                    .await
-                {
+                if let Ok(content) = R::Filesystem::read_to_string(&PathBuf::from(format!("/proc/{pid}/stat"))).await {
                     if let Some(status_raw) = content
                         .trim_end()
                         .split_whitespace()
@@ -168,7 +162,7 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
                     return Ok(Some(*exited));
                 }
 
-                if let Ok(exit_status) = exited_rx.try_recv() {
+                if let Ok(Some(exit_status)) = exited_rx.try_recv() {
                     *exited = Some(exit_status);
                     Ok(Some(exit_status))
                 } else {
