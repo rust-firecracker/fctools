@@ -18,10 +18,11 @@ use crate::{
         process::{VmmProcess, VmmProcessError, VmmProcessState},
     },
 };
-use api::{VmApi, VmApiError};
+use api::VmApiError;
 use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
 use models::LoadSnapshot;
 use nix::sys::stat::Mode;
+use shutdown::{VmShutdownAction, VmShutdownError, VmShutdownOutcome};
 use tokio::task::{JoinError, JoinSet};
 
 pub mod api;
@@ -115,18 +116,6 @@ pub enum VmStateCheckError {
     PausedOrRunning { actual: VmState },
     #[error("Expected the VM to be in the {expected} state, but the actual state was {actual}")]
     Other { expected: VmState, actual: VmState },
-}
-
-/// A shutdown method that can be applied to attempt to terminate both the guest operating system and the VMM.
-#[derive(Debug)]
-pub enum ShutdownMethod {
-    /// Send a Ctrl+Alt+Del, which is only available on x86_64.
-    CtrlAltDel,
-    /// Pause the VM per API request, wait for a graceful pause but then send a SIGKILL to the VMM process.
-    /// This is generally used to try to emulate the graceful shutdown behavior of Ctrl+Alt+Del on non-x86_64 systems.
-    PauseThenKill,
-    /// Send a SIGKILL to the VMM process.
-    Kill,
 }
 
 /// A set of common absolute (outer) paths associated with a [Vm].
@@ -395,43 +384,11 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         Ok(())
     }
 
-    /// Shut down the [Vm] by sequentially applying the given [Vec<ShutdownMethod>] in order with the given timeout [Duration],
-    /// until one of them works without erroring or all of them have errored.
-    pub async fn shutdown(&mut self, shutdown_methods: Vec<ShutdownMethod>, timeout: Duration) -> Result<(), VmError> {
-        self.ensure_paused_or_running().map_err(VmError::StateCheckError)?;
-        let mut last_result = Ok(());
-
-        for shutdown_method in shutdown_methods {
-            last_result = match shutdown_method {
-                ShutdownMethod::CtrlAltDel => self
-                    .vmm_process
-                    .send_ctrl_alt_del()
-                    .await
-                    .map_err(VmError::ProcessError),
-                ShutdownMethod::PauseThenKill => match self.api_pause().await {
-                    Ok(()) => self.vmm_process.send_sigkill().map_err(VmError::ProcessError),
-                    Err(err) => Err(VmError::ApiError(err)),
-                },
-                ShutdownMethod::Kill => self.vmm_process.send_sigkill().map_err(VmError::ProcessError),
-            };
-
-            if last_result.is_ok() {
-                last_result = tokio::time::timeout(timeout, self.vmm_process.wait_for_exit())
-                    .await
-                    .map_err(|_| VmError::Timeout)
-                    .map(|_| ());
-            }
-
-            if last_result.is_ok() {
-                break;
-            }
-        }
-
-        if last_result.is_err() {
-            return last_result;
-        }
-
-        Ok(())
+    /// Shut down the [Vm] by applying the given sequence of [VmShutdownAction]s until one works or all fail. If even one action works,
+    /// a [VmShutdownOutcome] is returned with further information about the shutdown result, otherwise, the [VmShutdownError] caused
+    /// by the last [VmShutdownAction] in the sequence is returned.
+    pub async fn shutdown(&mut self, actions: impl IntoIterator<Item = VmShutdownAction>) -> Result<VmShutdownOutcome, VmShutdownError> {
+        shutdown::apply(self, actions).await
     }
 
     /// Clean up the full environment of this [Vm] after it being [VmState::Exited] or [VmState::Crashed].

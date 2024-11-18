@@ -13,12 +13,10 @@ use fctools::{
     fs_backend::{blocking::BlockingFsBackend, FsBackend},
     process_spawner::{DirectProcessSpawner, ProcessSpawner},
     vm::{
-        configuration::{InitMethod, VmConfiguration, VmConfigurationData},
-        models::{
+        configuration::{InitMethod, VmConfiguration, VmConfigurationData}, models::{
             BalloonDevice, BootSource, Drive, LoggerSystem, MachineConfiguration, MetricsSystem, MmdsConfiguration,
             MmdsVersion, NetworkInterface, VsockDevice,
-        },
-        ShutdownMethod,
+        }, shutdown::{VmShutdownAction, VmShutdownMethod}
     },
     vmm::{
         arguments::{
@@ -595,13 +593,22 @@ impl VmBuilder {
 }
 
 #[allow(unused)]
-pub async fn shutdown_test_vm(vm: &mut TestVm, shutdown_method: ShutdownMethod) {
-    vm.shutdown(
-        vec![shutdown_method],
-        Duration::from_millis(TestOptions::get().await.waits.shutdown_timeout_ms),
+pub async fn shutdown_test_vm(vm: &mut TestVm) {
+    let timeout = Duration::from_millis(TestOptions::get().await.waits.shutdown_timeout_ms);
+
+    let outcome = vm.shutdown(
+        [
+            VmShutdownAction::new(VmShutdownMethod::CtrlAltDel).graceful(true).timeout(timeout / 2),
+            VmShutdownAction::new(VmShutdownMethod::PauseThenKill).graceful(false).timeout(timeout / 2)
+        ],
     )
     .await
     .unwrap();
+
+    if !outcome.fully_graceful() {
+        panic!("Shutdown outcome was not fully graceful");
+    }
+
     vm.cleanup().await.unwrap();
 }
 
