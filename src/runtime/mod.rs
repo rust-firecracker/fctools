@@ -62,7 +62,7 @@ pub trait RuntimeFilesystem {
     ) -> impl Future<Output = Result<(), std::io::Error>> + Send;
 }
 
-pub trait RuntimeProcess: Sized + Send + std::fmt::Debug {
+pub trait RuntimeProcess: Sized + Send + Sync + std::fmt::Debug {
     type Stdout: AsyncRead + Unpin + Send;
     type Stderr: AsyncRead + Unpin + Send;
     type Stdin: AsyncWrite + Unpin + Send;

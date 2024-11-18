@@ -35,6 +35,9 @@ futures-lite = { version = "2.5.0", default-features = false, features = [
 ] }
 thiserror = "1.0.69"
 futures-io = "0.3.31"
+futures-util = { version = "0.3.31", default-features = false, features = [
+    "std",
+] }
 async-io = "2.4.0"
 async-lock = "3.4.0"
 futures-channel = { version = "0.3.31", default-features = false }

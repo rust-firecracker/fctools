@@ -1,8 +1,10 @@
 use std::{process::ExitStatus, time::Duration};
 
+use futures_lite::AsyncWriteExt;
+
 use crate::{
-    fs_backend::FsBackend,
     process_spawner::ProcessSpawner,
+    runtime::Runtime,
     vmm::{executor::VmmExecutor, process::VmmProcessError},
 };
 
@@ -30,9 +32,9 @@ pub enum VmShutdownMethod {
 }
 
 impl VmShutdownMethod {
-    async fn run<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
+    async fn run<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
         &self,
-        vm: &mut Vm<E, S, F>,
+        vm: &mut Vm<E, S, R>,
     ) -> Result<ExitStatus, VmShutdownError> {
         match self {
             VmShutdownMethod::Kill => vm.vmm_process.send_sigkill().map_err(VmShutdownError::KillError)?,
@@ -133,8 +135,8 @@ impl VmShutdownOutcome {
     }
 }
 
-pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
-    vm: &mut Vm<E, S, F>,
+pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
+    vm: &mut Vm<E, S, R>,
     actions: impl IntoIterator<Item = VmShutdownAction>,
 ) -> Result<VmShutdownOutcome, VmShutdownError> {
     vm.ensure_paused_or_running()

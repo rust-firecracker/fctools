@@ -1,11 +1,12 @@
 use std::path::Path;
 
+use futures_channel::mpsc;
+use futures_lite::{io::BufReader, AsyncBufReadExt, StreamExt};
+use futures_util::SinkExt;
 use serde::{Deserialize, Serialize};
-use tokio::{
-    io::{AsyncBufReadExt, BufReader},
-    sync::mpsc::{self, error::SendError},
-    task::JoinHandle,
-};
+use tokio_util::compat::TokioAsyncReadCompatExt;
+
+use crate::runtime::RuntimeExecutor;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Metrics {
@@ -297,14 +298,14 @@ pub enum MetricsTaskError {
     #[error("Deserializing the metrics JSON failed: {0}")]
     SerdeError(serde_json::Error),
     #[error("Sending the metrics to the channel failed: {0}")]
-    SendError(SendError<Metrics>),
+    SendError(mpsc::SendError),
 }
 
 /// A spawned Tokio task that gathers Firecracker's metrics.
 #[derive(Debug)]
-pub struct MetricsTask {
+pub struct MetricsTask<E: RuntimeExecutor> {
     /// The [JoinHandle] to the task that can be used to abort it or check on it.
-    pub join_handle: JoinHandle<Result<(), MetricsTaskError>>,
+    pub join_handle: E::JoinHandle<Result<(), MetricsTaskError>>,
     /// An asynchronous [mpsc::Receiver] that can be used to fetch the metrics sent out by the task.
     pub receiver: mpsc::Receiver<Metrics>,
 }
@@ -312,22 +313,26 @@ pub struct MetricsTask {
 /// Spawn a dedicated Tokio task that gathers Firecracker's metrics from the given metrics path with an
 /// asynchronous [mpsc] channel limited by the provided upper bound (buffer). Support for an agnostic
 /// [FsBackend](crate::fs_backend::FsBackend) is currently not implemented.
-pub fn spawn_metrics_task(metrics_path: impl AsRef<Path> + Send + 'static, buffer: usize) -> MetricsTask {
-    let (sender, receiver) = mpsc::channel(buffer);
+pub fn spawn_metrics_task<E: RuntimeExecutor>(
+    metrics_path: impl AsRef<Path> + Send + 'static,
+    buffer: usize,
+) -> MetricsTask<E> {
+    let (mut sender, receiver) = mpsc::channel(buffer);
 
-    let join_handle = tokio::task::spawn(async move {
+    let join_handle = E::spawn(async move {
         let mut buf_reader = BufReader::new(
             tokio::fs::File::open(metrics_path)
                 .await
-                .map_err(MetricsTaskError::IoError)?,
+                .map_err(MetricsTaskError::IoError)?
+                .compat(),
         )
         .lines();
 
         loop {
-            let line = match buf_reader.next_line().await {
-                Ok(Some(line)) => line,
-                Ok(None) => continue,
-                Err(err) => return Err(MetricsTaskError::IoError(err)),
+            let line = match buf_reader.next().await {
+                Some(Ok(line)) => line,
+                None => continue,
+                Some(Err(err)) => return Err(MetricsTaskError::IoError(err)),
             };
             let metrics_entry = serde_json::from_str::<Metrics>(&line).map_err(MetricsTaskError::SerdeError)?;
             sender.send(metrics_entry).await.map_err(MetricsTaskError::SendError)?;

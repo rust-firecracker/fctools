@@ -65,7 +65,7 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
         let (exited_tx, exited_rx) = futures_channel::oneshot::channel();
         let async_pidfd = async_io::Async::new(unsafe { OwnedFd::from_raw_fd(raw_pidfd) })?;
 
-        R::Executor::spawn(async move {
+        let _ = R::Executor::spawn(async move {
             if async_pidfd.readable().await.is_ok() {
                 let mut exit_status = ExitStatus::from_raw(0);
 

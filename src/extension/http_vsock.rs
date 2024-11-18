@@ -1,13 +1,17 @@
-use std::{future::Future, path::PathBuf};
+use std::{future::Future, path::PathBuf, pin::Pin};
 
 use bytes::Bytes;
 use http::{Request, Response, Uri};
 use http_body_util::Full;
 use hyper::{body::Incoming, client::conn::http1::SendRequest};
 use hyper_client_sockets::{FirecrackerUriExt, HyperFirecrackerConnector, HyperFirecrackerStream};
-use hyper_util::rt::TokioExecutor;
 
-use crate::{fs_backend::FsBackend, process_spawner::ProcessSpawner, vm::Vm, vmm::executor::VmmExecutor};
+use crate::{
+    process_spawner::ProcessSpawner,
+    runtime::{Runtime, RuntimeExecutor},
+    vm::Vm,
+    vmm::executor::VmmExecutor,
+};
 
 /// An error that can be emitted by the HTTP-over-vsock extension.
 #[derive(Debug, thiserror::Error)]
@@ -15,7 +19,7 @@ pub enum VsockHttpError {
     #[error("A vsock device was not configured for this VM")]
     VsockNotConfigured,
     #[error("Could not connect to the vsock socket: {0}")]
-    CannotConnect(tokio::io::Error),
+    CannotConnect(std::io::Error),
     #[error("Could not perform an HTTP handshake with the vsock socket: {0}")]
     CannotHandshake(hyper::Error),
 }
@@ -65,10 +69,16 @@ pub trait VsockHttpExt {
     ) -> impl Future<Output = Result<SendRequest<Full<Bytes>>, VsockHttpError>> + Send;
 
     /// Make a lazy HTTP connection pool (backed by hyper-util) that pools multiple connections internally to the given guest port.
-    fn vsock_create_http_connection_pool(&self, guest_port: u32) -> Result<VsockHttpPool, VsockHttpError>;
+    fn vsock_create_http_connection_pool<X>(
+        &self,
+        guest_port: u32,
+        hyper_executor: X,
+    ) -> Result<VsockHttpPool, VsockHttpError>
+    where
+        X: hyper::rt::Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Send + Sync + Clone + 'static;
 }
 
-impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VsockHttpExt for Vm<E, S, F> {
+impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R> {
     async fn vsock_connect_over_http(&self, guest_port: u32) -> Result<SendRequest<Full<Bytes>>, VsockHttpError> {
         let uds_path = self
             .get_accessible_paths()
@@ -81,13 +91,20 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VsockHttpExt for Vm<E, S, 
         let (send_request, connection) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(stream)
             .await
             .map_err(VsockHttpError::CannotHandshake)?;
-        tokio::spawn(connection);
+        let _ = R::Executor::spawn(connection);
 
         Ok(send_request)
     }
 
-    fn vsock_create_http_connection_pool(&self, guest_port: u32) -> Result<VsockHttpPool, VsockHttpError> {
-        let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build(HyperFirecrackerConnector);
+    fn vsock_create_http_connection_pool<X>(
+        &self,
+        guest_port: u32,
+        hyper_executor: X,
+    ) -> Result<VsockHttpPool, VsockHttpError>
+    where
+        X: hyper::rt::Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Send + Sync + Clone + 'static,
+    {
+        let client = hyper_util::client::legacy::Client::builder(hyper_executor).build(HyperFirecrackerConnector);
         let socket_path = self
             .get_accessible_paths()
             .vsock_multiplexer_path
