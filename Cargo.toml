@@ -30,6 +30,9 @@ strip = "symbols"
 
 [dependencies]
 # common
+futures-lite = { version = "2.5.0", default-features = false, features = [
+    "std",
+] }
 thiserror = "1.0.69"
 tokio = { version = "1.41.0", features = [
     "process",
@@ -39,9 +42,8 @@ tokio = { version = "1.41.0", features = [
     "sync",
 ] }
 futures-io = "0.3.31"
-futures-util = { version = "0.3.31", default-features = false, features = [
-    "io",
-] }
+async-io = "2.4.0"
+crossbeam-channel = { version = "0.5.13", default-features = false }
 # tokio runtime
 tokio-util = { version = "0.7.12", default-features = false, features = [
     "compat",

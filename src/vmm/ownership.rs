@@ -10,6 +10,7 @@ use nix::unistd::{Gid, Uid};
 use crate::{
     fs_backend::{FsBackend, FsBackendError},
     process_spawner::ProcessSpawner,
+    runtime::{Runtime, RuntimeProcess},
 };
 
 pub(crate) static PROCESS_UID: LazyLock<Uid> = LazyLock::new(|| nix::unistd::geteuid());
@@ -81,14 +82,14 @@ pub enum ChangeOwnerError {
 /// For implementors of custom executors: upgrades the owner of the given [Path] using the given [ProcessSpawner]
 /// and [FsBackend], if the [VmmOwnershipModel] requires the upgrade (otherwise, no-ops). This spawns an elevated
 /// coreutils "chown" process via the [ProcessSpawner] and waits on it internally.
-pub async fn upgrade_owner(
+pub async fn upgrade_owner<R: Runtime>(
     path: &Path,
     ownership_model: VmmOwnershipModel,
     process_spawner: &impl ProcessSpawner,
 ) -> Result<(), ChangeOwnerError> {
     if ownership_model.is_upgrade() {
-        let mut child = process_spawner
-            .spawn(
+        let mut process = process_spawner
+            .spawn::<R>(
                 &PathBuf::from("chown"),
                 vec![
                     "-f".to_string(),
@@ -100,7 +101,7 @@ pub async fn upgrade_owner(
             )
             .await
             .map_err(ChangeOwnerError::ProcessSpawnFailed)?;
-        let exit_status = child.wait().await.map_err(ChangeOwnerError::ProcessWaitFailed)?;
+        let exit_status = process.wait().await.map_err(ChangeOwnerError::ProcessWaitFailed)?;
 
         // code 256 means that a concurrent chown is being called and the chown will still be applied, so this error can
         // "safely" be ignored, which is better than inducing the overhead of global locking on chown paths.

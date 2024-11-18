@@ -5,7 +5,7 @@ use nix::unistd::{Gid, Uid};
 
 pub mod tokio;
 
-pub trait Runtime {
+pub trait Runtime: 'static {
     type Executor: RuntimeExecutor;
     type Filesystem: RuntimeFilesystem;
     type Process: RuntimeProcess;
@@ -73,7 +73,7 @@ pub trait RuntimeProcess: Sized + Send + std::fmt::Debug {
 
     fn try_wait(&mut self) -> Result<Option<ExitStatus>, std::io::Error>;
 
-    fn wait(&mut self) -> impl Future<Output = Result<ExitStatus, std::io::Error>>;
+    fn wait(&mut self) -> impl Future<Output = Result<ExitStatus, std::io::Error>> + Send;
 
     fn kill(&mut self) -> Result<(), std::io::Error>;
 

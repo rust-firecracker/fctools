@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
 };
 
-use tokio::{io::unix::AsyncFd, sync::oneshot};
+use tokio::sync::oneshot;
 
 use crate::{fs_backend::FsBackend, runtime::RuntimeProcess};
 
@@ -66,7 +66,7 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
 
         let raw_pidfd = raw_pidfd as RawFd;
         let (exited_tx, exited_rx) = oneshot::channel();
-        let async_pidfd = AsyncFd::new(unsafe { OwnedFd::from_raw_fd(raw_pidfd) })?;
+        let async_pidfd = async_io::Async::new(unsafe { OwnedFd::from_raw_fd(raw_pidfd) })?;
 
         tokio::task::spawn(async move {
             if async_pidfd.readable().await.is_ok() {
