@@ -19,7 +19,9 @@ pub struct TokioRuntimeExecutor;
 impl RuntimeExecutor for TokioRuntimeExecutor {
     type JoinError = tokio::task::JoinError;
 
-    type JoinHandle<O> = tokio::task::JoinHandle<O>;
+    type JoinHandle<O: Send> = tokio::task::JoinHandle<O>;
+
+    type TimeoutError = tokio::time::error::Elapsed;
 
     fn spawn<F, O>(future: F) -> Self::JoinHandle<O>
     where
@@ -35,6 +37,14 @@ impl RuntimeExecutor for TokioRuntimeExecutor {
         O: Send + 'static,
     {
         tokio::task::spawn_blocking(function)
+    }
+
+    async fn timeout<F, O>(future: F, duration: std::time::Duration) -> Result<O, ()>
+    where
+        F: Future<Output = O> + Send + 'static,
+        O: Send + 'static,
+    {
+        tokio::time::timeout(duration, future).await.map_err(|_| ())
     }
 }
 

@@ -1,4 +1,4 @@
-use std::{future::Future, path::Path, process::ExitStatus};
+use std::{future::Future, path::Path, process::ExitStatus, time::Duration};
 
 use futures_io::{AsyncRead, AsyncWrite};
 use nix::unistd::{Gid, Uid};
@@ -12,8 +12,9 @@ pub trait Runtime {
 }
 
 pub trait RuntimeExecutor {
-    type JoinError: std::error::Error + std::fmt::Debug;
-    type JoinHandle<O>: Future<Output = Result<O, Self::JoinError>>;
+    type JoinError: std::error::Error + std::fmt::Debug + Send + Sync;
+    type JoinHandle<O: Send>: Future<Output = Result<O, Self::JoinError>> + Send + Sync;
+    type TimeoutError: std::error::Error + std::fmt::Debug + Send + Sync;
 
     fn spawn<F, O>(future: F) -> Self::JoinHandle<O>
     where
@@ -23,6 +24,11 @@ pub trait RuntimeExecutor {
     fn spawn_blocking<F, O>(function: F) -> Self::JoinHandle<O>
     where
         F: FnOnce() -> O + Send + 'static,
+        O: Send + 'static;
+
+    fn timeout<F, O>(future: F, duration: Duration) -> impl Future<Output = Result<O, ()>> + Send
+    where
+        F: Future<Output = O> + Send + 'static,
         O: Send + 'static;
 }
 
@@ -76,4 +82,44 @@ pub trait RuntimeProcess: Sized {
     fn take_stderr(&mut self) -> Option<Self::Stderr>;
 
     fn take_stdin(&mut self) -> Option<Self::Stdin>;
+}
+
+pub struct RuntimeJoinSet<O: Send + 'static, E: RuntimeExecutor> {
+    join_handles: Vec<E::JoinHandle<Result<(), O>>>,
+}
+
+impl<O: Send + 'static, E: RuntimeExecutor> RuntimeJoinSet<O, E> {
+    pub fn new() -> Self {
+        Self {
+            join_handles: Vec::new(),
+        }
+    }
+
+    pub fn spawn<F>(&mut self, future: F)
+    where
+        F: Future<Output = Result<(), O>> + Send + 'static,
+    {
+        self.join_handles.push(E::spawn(future));
+    }
+
+    pub fn spawn_blocking<F>(&mut self, function: F)
+    where
+        F: FnOnce() -> Result<(), O> + Send + 'static,
+    {
+        self.join_handles.push(E::spawn_blocking(function));
+    }
+
+    pub async fn wait(self) -> Result<Result<(), O>, E::JoinError> {
+        for join_handle in self.join_handles {
+            match join_handle.await {
+                Ok(result) => match result {
+                    Ok(()) => {}
+                    Err(err) => return Ok(Err(err)),
+                },
+                Err(err) => return Err(err),
+            }
+        }
+
+        Ok(Ok(()))
+    }
 }
