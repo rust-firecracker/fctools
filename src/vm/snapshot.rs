@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::runtime::{Runtime, RuntimeFilesystem};
+use crate::runtime::{Runtime, RuntimeExecutor, RuntimeFilesystem};
 
 use super::{
     configuration::{VmConfiguration, VmConfigurationData},
@@ -23,10 +23,11 @@ impl SnapshotData {
         new_snapshot_path: PathBuf,
         new_mem_file_path: PathBuf,
     ) -> Result<(), std::io::Error> {
-        tokio::try_join!(
+        R::Executor::try_join(
             R::Filesystem::copy(&self.snapshot_path, &new_snapshot_path),
-            R::Filesystem::copy(&self.mem_file_path, &new_mem_file_path)
-        )?;
+            R::Filesystem::copy(&self.mem_file_path, &new_mem_file_path),
+        )
+        .await?;
 
         self.snapshot_path = new_snapshot_path;
         self.mem_file_path = new_mem_file_path;
@@ -40,10 +41,11 @@ impl SnapshotData {
         new_snapshot_path: PathBuf,
         new_mem_file_path: PathBuf,
     ) -> Result<(), std::io::Error> {
-        tokio::try_join!(
+        R::Executor::try_join(
             R::Filesystem::rename_file(&self.snapshot_path, &new_snapshot_path),
-            R::Filesystem::rename_file(&self.mem_file_path, &new_mem_file_path)
-        )?;
+            R::Filesystem::rename_file(&self.mem_file_path, &new_mem_file_path),
+        )
+        .await?;
 
         self.snapshot_path = new_snapshot_path;
         self.mem_file_path = new_mem_file_path;
@@ -52,10 +54,11 @@ impl SnapshotData {
 
     /// Remove the data of this snapshot.
     pub async fn remove<R: Runtime>(self) -> Result<(), std::io::Error> {
-        tokio::try_join!(
+        R::Executor::try_join(
             R::Filesystem::remove_file(&self.snapshot_path),
-            R::Filesystem::remove_file(&self.mem_file_path)
-        )?;
+            R::Filesystem::remove_file(&self.mem_file_path),
+        )
+        .await?;
         Ok(())
     }
 

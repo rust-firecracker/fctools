@@ -46,12 +46,23 @@ impl RuntimeExecutor for TokioRuntimeExecutor {
     {
         tokio::time::timeout(duration, future).await.map_err(|_| ())
     }
+
+    async fn try_join<F1, F2, E>(future1: F1, future2: F2) -> Result<(), E>
+    where
+        F1: Send + Future<Output = Result<(), E>> + Send,
+        F2: Send + Future<Output = Result<(), E>> + Send,
+        E: Send,
+    {
+        tokio::try_join!(future1, future2)?;
+        Ok(())
+    }
 }
 
 pub struct TokioRuntimeFilesystem;
 
 impl RuntimeFilesystem for TokioRuntimeFilesystem {
     type File = Compat<tokio::fs::File>;
+
     type AsyncFd = TokioRuntimeAsyncFd;
 
     fn check_exists(path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send {
