@@ -1,10 +1,13 @@
-use std::{future::Future, path::Path, time::Duration};
+use std::{future::Future, os::fd::OwnedFd, path::Path, time::Duration};
 
 use nix::unistd::{Gid, Uid};
-use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout};
+use tokio::{
+    io::unix::AsyncFd,
+    process::{Child, ChildStderr, ChildStdin, ChildStdout},
+};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-use super::{Runtime, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
+use super::{Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
 
 pub struct TokioRuntime;
 
@@ -44,6 +47,7 @@ pub struct TokioRuntimeFilesystem;
 
 impl RuntimeFilesystem for TokioRuntimeFilesystem {
     type File = Compat<tokio::fs::File>;
+    type AsyncFd = TokioRuntimeAsyncFd;
 
     fn check_exists(path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send {
         tokio::fs::try_exists(path)
@@ -103,6 +107,20 @@ impl RuntimeFilesystem for TokioRuntimeFilesystem {
         let open_options = tokio::fs::OpenOptions::from(open_options);
         let file = open_options.open(path).await?;
         Ok(file.compat())
+    }
+
+    fn create_async_fd(fd: OwnedFd) -> Result<Self::AsyncFd, std::io::Error> {
+        Ok(TokioRuntimeAsyncFd(AsyncFd::new(fd)?))
+    }
+}
+
+pub struct TokioRuntimeAsyncFd(AsyncFd<OwnedFd>);
+
+impl RuntimeAsyncFd for TokioRuntimeAsyncFd {
+    async fn readable(&self) -> Result<(), std::io::Error> {
+        let mut guard = self.0.readable().await?;
+        guard.retain_ready();
+        Ok(())
     }
 }
 

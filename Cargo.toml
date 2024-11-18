@@ -35,9 +35,9 @@ futures-io = "0.3.31"
 futures-util = { version = "0.3.31", default-features = false, features = [
     "std",
 ] }
-async-io = "2.4.0"
 async-once-cell = "0.5.4"
 futures-channel = { version = "0.3.31", default-features = false }
+nix = { version = "0.29.0", features = ["user", "fs", "process", "signal"] }
 # tokio runtime
 tokio-util = { version = "0.7.12", default-features = false, features = [
     "compat",
@@ -45,14 +45,8 @@ tokio-util = { version = "0.7.12", default-features = false, features = [
 tokio = { version = "1.41.1", default-features = false, features = [
     "rt",
     "process",
-], optional = true }
-# executor
-nix = { version = "0.29.0", optional = true, features = [
-    "user",
     "fs",
-    "process",
-    "signal",
-] }
+], optional = true }
 # process
 hyper = { version = "1.5.0", features = ["client"], optional = true }
 bytes = { version = "1.8.0", optional = true }
@@ -109,7 +103,7 @@ process-spawner = []
 direct-process-spawner = ["process-spawner"]
 elevation-process-spawners = ["process-spawner"]
 # vmm
-vmm-arguments = ["dep:nix"]
+vmm-arguments = []
 vmm-installation = []
 vmm-executor = ["vmm-arguments", "vmm-installation", "process-spawner"]
 jailed-vmm-executor = ["vmm-executor"]

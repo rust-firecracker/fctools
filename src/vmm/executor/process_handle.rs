@@ -7,7 +7,7 @@ use std::{
     process::ExitStatus,
 };
 
-use crate::runtime::{Runtime, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
+use crate::runtime::{Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
 
 /// A process handle is a thin abstraction over either an "attached" child process that is a Tokio [Child],
 /// or a "detached" certain process that isn't a child and is controlled via a pidfd.
@@ -63,7 +63,7 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
 
         let raw_pidfd = raw_pidfd as RawFd;
         let (exited_tx, exited_rx) = futures_channel::oneshot::channel();
-        let async_pidfd = async_io::Async::new(unsafe { OwnedFd::from_raw_fd(raw_pidfd) })?;
+        let async_pidfd = R::Filesystem::create_async_fd(unsafe { OwnedFd::from_raw_fd(raw_pidfd) })?;
 
         let _ = R::Executor::spawn(async move {
             if async_pidfd.readable().await.is_ok() {

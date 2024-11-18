@@ -1,8 +1,9 @@
-use std::{future::Future, path::Path, process::ExitStatus, time::Duration};
+use std::{future::Future, os::fd::OwnedFd, path::Path, process::ExitStatus, time::Duration};
 
 use futures_io::{AsyncRead, AsyncWrite};
 use nix::unistd::{Gid, Uid};
 
+#[cfg(feature = "tokio-runtime")]
 pub mod tokio;
 
 pub trait Runtime: 'static {
@@ -29,6 +30,7 @@ pub trait RuntimeExecutor {
 
 pub trait RuntimeFilesystem {
     type File: AsyncRead + AsyncWrite + Send + Unpin;
+    type AsyncFd: RuntimeAsyncFd;
 
     fn check_exists(path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send;
 
@@ -62,6 +64,12 @@ pub trait RuntimeFilesystem {
         path: &Path,
         open_options: std::fs::OpenOptions,
     ) -> impl Future<Output = Result<Self::File, std::io::Error>> + Send;
+
+    fn create_async_fd(fd: OwnedFd) -> Result<Self::AsyncFd, std::io::Error>;
+}
+
+pub trait RuntimeAsyncFd: Send {
+    fn readable(&self) -> impl Future<Output = Result<(), std::io::Error>> + Send;
 }
 
 pub trait RuntimeProcess: Sized + Send + Sync + std::fmt::Debug {
