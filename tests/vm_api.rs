@@ -4,7 +4,7 @@ use fctools::{
     vm::{
         api::{VmApi, VmApiError},
         models::{BalloonDevice, MetricsSystem, UpdateBalloonDevice, UpdateBalloonStatistics},
-        ShutdownMethod, VmState,
+        VmState,
     },
     vmm::process::HyperResponseExt,
 };
@@ -32,7 +32,7 @@ fn vm_api_can_catch_api_errors() {
                     fault_message: _
                 }
             );
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
         });
 }
 
@@ -50,7 +50,7 @@ fn vm_api_can_send_custom_request() {
         assert!(response.status().is_success());
         let content = response.recv_to_string().await.unwrap();
         assert!(content.starts_with('{'));
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -62,7 +62,7 @@ fn vm_api_custom_requests_perform_pause_changes() {
         assert_eq!(vm.state(), VmState::Paused);
         vm.api_custom_request("/", request.clone(), Some(false)).await.unwrap();
         assert_eq!(vm.state(), VmState::Running);
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -72,7 +72,7 @@ fn vm_api_can_receive_info() {
         let info = vm.api_get_info().await.unwrap();
         assert_eq!(info.app_name, "Firecracker");
         assert!(!info.is_paused);
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -82,7 +82,7 @@ fn vm_api_can_flush_metrics() {
         .metrics_system(MetricsSystem::new(get_tmp_path()))
         .run(|mut vm| async move {
             vm.api_flush_metrics().await.unwrap();
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
         });
 }
 
@@ -95,7 +95,7 @@ fn vm_api_can_get_balloon() {
             assert_eq!(balloon.get_stats_polling_interval_s(), 0);
             assert_eq!(balloon.get_amount_mib(), 64);
             assert!(!balloon.get_deflate_on_oom());
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
         });
 }
 
@@ -109,7 +109,7 @@ fn vm_api_can_update_balloon() {
                 .unwrap();
             let balloon = vm.api_get_balloon_device().await.unwrap();
             assert_eq!(balloon.get_amount_mib(), 50);
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
         });
 }
 
@@ -120,7 +120,7 @@ fn vm_api_can_get_balloon_statistics() {
         .run(|mut vm| async move {
             let statistics = vm.api_get_balloon_statistics().await.unwrap();
             assert_ne!(statistics.actual_mib, 0);
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
         });
 }
 
@@ -133,7 +133,7 @@ fn vm_api_can_update_balloon_statistics() {
                 .await
                 .unwrap();
             let _ = vm.api_get_balloon_statistics().await.unwrap();
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
         });
 }
 
@@ -143,7 +143,7 @@ fn vm_api_can_get_machine_configuration() {
         let machine_configuration = vm.api_get_machine_configuration().await.unwrap();
         assert_eq!(machine_configuration.get_vcpu_count(), 1);
         assert_eq!(machine_configuration.get_mem_size_mib(), 128);
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -152,7 +152,7 @@ fn vm_api_can_get_firecracker_version() {
     VmBuilder::new().run(|mut vm| async move {
         let firecracker_version = vm.api_get_firecracker_version().await.unwrap();
         assert!(firecracker_version.contains("1"));
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -163,7 +163,7 @@ fn vm_api_can_get_effective_configuration() {
         effective_configuration.boot_source.unwrap();
         effective_configuration.machine_configuration.unwrap();
         assert_eq!(effective_configuration.drives.len(), 1);
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -174,7 +174,7 @@ fn vm_api_can_pause_and_resume() {
         assert_eq!(vm.state(), VmState::Paused);
         vm.api_resume().await.unwrap();
         assert_eq!(vm.state(), VmState::Running);
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -186,7 +186,7 @@ fn vm_api_can_put_and_get_mmds_untyped() {
             .unwrap();
         let data = serde_json::from_value::<MmdsData>(vm.api_get_mmds_untyped().await.unwrap()).unwrap();
         assert_eq!(data.number, 4);
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -201,7 +201,7 @@ fn vm_api_can_patch_mmds_untyped() {
             .unwrap();
         let data = serde_json::from_value::<MmdsData>(vm.api_get_mmds_untyped().await.unwrap()).unwrap();
         assert_eq!(data.number, 5);
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -211,7 +211,7 @@ fn vm_api_can_put_and_get_mmds_typed() {
         vm.api_create_mmds(MmdsData { number: 4 }).await.unwrap();
         let data = vm.api_get_mmds::<MmdsData>().await.unwrap();
         assert_eq!(data.number, 4);
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -222,7 +222,7 @@ fn vm_api_can_patch_mmds_typed() {
         vm.api_update_mmds(MmdsData { number: 5 }).await.unwrap();
         let data = vm.api_get_mmds::<MmdsData>().await.unwrap();
         assert_eq!(data.number, 5);
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 

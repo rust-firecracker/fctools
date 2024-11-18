@@ -5,7 +5,6 @@ use fctools::{
     vm::{
         api::VmApi,
         models::{CreateSnapshot, MetricsSystem, SnapshotType},
-        ShutdownMethod,
     },
 };
 use test_framework::{
@@ -34,10 +33,10 @@ fn snapshot_editor_can_rebase_memory() {
 
         get_real_firecracker_installation()
             .snapshot_editor()
-            .rebase_memory(base_snapshot.mem_file_path(), diff_snapshot.mem_file_path())
+            .rebase_memory(base_snapshot.mem_file_path, diff_snapshot.mem_file_path)
             .await
             .unwrap();
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     })
 }
 
@@ -53,11 +52,11 @@ fn snapshot_editor_can_get_snapshot_version() {
 
         let version = get_real_firecracker_installation()
             .snapshot_editor()
-            .get_snapshot_version(snapshot.snapshot_path())
+            .get_snapshot_version(snapshot.snapshot_path)
             .await
             .unwrap();
         assert_eq!(version.trim(), TestOptions::get().await.toolchain.snapshot_version);
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -73,13 +72,13 @@ fn snapshot_editor_can_get_snapshot_vcpu_states() {
 
         let data = get_real_firecracker_installation()
             .snapshot_editor()
-            .get_snapshot_vcpu_states(snapshot.snapshot_path())
+            .get_snapshot_vcpu_states(snapshot.snapshot_path)
             .await
             .unwrap();
         let first_line = data.lines().next().unwrap();
         assert!(first_line.contains("vcpu 0:"));
 
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -95,11 +94,11 @@ fn snapshot_editor_can_get_snapshot_vm_state() {
 
         let data = get_real_firecracker_installation()
             .snapshot_editor()
-            .get_snapshot_vm_state(snapshot.snapshot_path())
+            .get_snapshot_vm_state(snapshot.snapshot_path)
             .await
             .unwrap();
         assert!(data.contains("kvm"));
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -131,7 +130,7 @@ async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
     let mut metrics_task = spawn_metrics_task(vm.get_accessible_paths().metrics_path.clone().unwrap(), 100);
     let metrics = metrics_task.receiver.recv().await.unwrap();
     assert!(metrics.put_api_requests.actions_count > 0);
-    shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+    shutdown_test_vm(&mut vm).await;
 }
 
 #[test]
@@ -147,6 +146,6 @@ fn metrics_task_can_be_cancelled_via_join_handle() {
                     .unwrap()
                     .is_none()
             );
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
         });
 }

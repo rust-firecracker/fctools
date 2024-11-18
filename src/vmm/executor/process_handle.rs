@@ -1,5 +1,8 @@
 use std::{
-    os::{fd::RawFd, unix::process::ExitStatusExt},
+    os::{
+        fd::{FromRawFd, OwnedFd, RawFd},
+        unix::process::ExitStatusExt,
+    },
     path::PathBuf,
     process::ExitStatus,
     sync::Arc,
@@ -67,7 +70,7 @@ impl ProcessHandle {
 
         let raw_pidfd = raw_pidfd as RawFd;
         let (exited_tx, exited_rx) = oneshot::channel();
-        let async_pidfd = AsyncFd::new(raw_pidfd)?;
+        let async_pidfd = AsyncFd::new(unsafe { OwnedFd::from_raw_fd(raw_pidfd) })?;
 
         tokio::task::spawn(async move {
             if async_pidfd.readable().await.is_ok() {

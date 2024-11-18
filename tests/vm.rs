@@ -7,8 +7,9 @@ use fctools::{
         api::VmApi,
         configuration::InitMethod,
         models::{CreateSnapshot, LoggerSystem, MetricsSystem},
+        shutdown::{VmShutdownAction, VmShutdownMethod},
         snapshot::SnapshotData,
-        ShutdownMethod, VmState,
+        VmState,
     },
     vmm::{
         arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
@@ -38,7 +39,7 @@ fn vm_can_boot_via_api_calls() {
     VmBuilder::new()
         .init_method(InitMethod::ViaApiCalls)
         .run(|mut vm| async move {
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
         });
 }
 
@@ -47,21 +48,42 @@ fn vm_can_boot_via_json() {
     VmBuilder::new()
         .init_method(InitMethod::ViaJsonConfiguration(get_tmp_path()))
         .run(|mut vm| async move {
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
         });
 }
 
 #[test]
-fn vm_can_be_shut_down_via_kill() {
-    VmBuilder::new().run(|mut vm| async move {
-        shutdown_test_vm(&mut vm, ShutdownMethod::Kill).await;
-    });
+fn vm_can_shut_down_via_ctrl_alt_del() {
+    vm_shutdown_test(VmShutdownMethod::CtrlAltDel);
 }
 
 #[test]
 fn vm_can_be_shut_down_via_pause_then_kill() {
-    VmBuilder::new().run(|mut vm| async move {
-        shutdown_test_vm(&mut vm, ShutdownMethod::PauseThenKill).await;
+    vm_shutdown_test(VmShutdownMethod::PauseThenKill);
+}
+
+#[test]
+fn vm_can_be_shut_down_via_kill() {
+    vm_shutdown_test(VmShutdownMethod::Kill);
+}
+
+fn vm_shutdown_test(method: VmShutdownMethod) {
+    VmBuilder::new().run(move |mut vm| {
+        let method = method.clone();
+        async move {
+            let outcome = vm
+                .shutdown(VmShutdownAction {
+                    method: method.clone(),
+                    timeout: None,
+                    graceful: true,
+                })
+                .await
+                .unwrap();
+            assert!(method != VmShutdownMethod::CtrlAltDel || outcome.graceful);
+            assert!(outcome.errors.is_empty());
+            assert_eq!(outcome.index, 0);
+            vm.cleanup().await.unwrap();
+        }
     });
 }
 
@@ -72,7 +94,7 @@ fn vm_processes_logger_path_as_fifo() {
         .run(|mut vm| async move {
             let log_path = vm.get_accessible_paths().log_path.clone().unwrap();
             assert!(metadata(&log_path).await.unwrap().file_type().is_fifo());
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
             assert!(!try_exists(log_path).await.unwrap());
         });
 }
@@ -87,7 +109,7 @@ fn vm_processes_logger_path_as_plaintext() {
             assert!(file_type.is_file());
             assert!(!file_type.is_fifo());
 
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
             assert!(!try_exists(log_path).await.unwrap());
         });
 }
@@ -99,7 +121,7 @@ fn vm_processes_metrics_path() {
         .run(|mut vm| async move {
             let metrics_path = vm.get_accessible_paths().metrics_path.clone().unwrap();
             assert!(metadata(&metrics_path).await.unwrap().is_file());
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
             assert!(!try_exists(metrics_path).await.unwrap());
         })
 }
@@ -109,7 +131,7 @@ fn vm_processes_vsock_multiplexer_path() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
         let vsock_multiplexer_path = vm.get_accessible_paths().vsock_multiplexer_path.clone().unwrap();
         assert!(metadata(&vsock_multiplexer_path).await.unwrap().file_type().is_socket());
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
         assert!(!try_exists(vsock_multiplexer_path).await.unwrap());
     });
 }
@@ -121,7 +143,7 @@ fn vm_processes_vsock_listener_paths() {
         let expected_path = get_tmp_path();
         vm.register_vsock_listener_path(&expected_path);
         assert!(vm.get_accessible_paths().vsock_listener_paths.contains(&expected_path));
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -131,7 +153,7 @@ fn vm_translates_inner_to_outer_paths() {
         let inner_path = get_tmp_path();
         let outer_path = vm.get_accessible_path_from_inner(&inner_path);
         assert!(inner_path == outer_path || outer_path.to_str().unwrap().ends_with(inner_path.to_str().unwrap()));
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -149,7 +171,7 @@ fn vm_can_take_pipes() {
             vm.take_pipes().unwrap_err(); // cannot take out pipes twice
             let mut buf = String::new();
             let mut buf_reader = BufReader::new(pipes.stdout).lines();
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
 
             while let Ok(Some(line)) = buf_reader.next_line().await {
                 buf.push_str(&line);
@@ -169,7 +191,7 @@ fn vm_tracks_state_with_graceful_exit() {
         })
         .run(|mut vm| async move {
             assert_eq!(vm.state(), VmState::Running);
-            shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+            shutdown_test_vm(&mut vm).await;
             assert_eq!(vm.state(), VmState::Exited);
         });
 }
@@ -178,7 +200,7 @@ fn vm_tracks_state_with_graceful_exit() {
 fn vm_tracks_state_with_crash() {
     VmBuilder::new().run(|mut vm| async move {
         assert_eq!(vm.state(), VmState::Running);
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
@@ -194,10 +216,10 @@ fn vm_can_snapshot_while_original_is_running() {
         restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
 
         vm.api_resume().await.unwrap();
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
 
-        assert!(!tokio::fs::try_exists(snapshot.snapshot_path()).await.unwrap());
-        assert!(!tokio::fs::try_exists(snapshot.mem_file_path()).await.unwrap());
+        assert!(!tokio::fs::try_exists(snapshot.snapshot_path).await.unwrap());
+        assert!(!tokio::fs::try_exists(snapshot.mem_file_path).await.unwrap());
     });
 }
 
@@ -214,7 +236,7 @@ fn vm_can_snapshot_after_original_has_exited() {
             .await
             .unwrap();
         vm.api_resume().await.unwrap();
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
 
         restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
         snapshot.remove(&BlockingFsBackend).await.unwrap();
@@ -234,14 +256,14 @@ fn vm_can_boot_with_namespaced_networking() {
 #[test]
 fn vm_can_boot_with_vsock_device() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
-        shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+        shutdown_test_vm(&mut vm).await;
     });
 }
 
 async fn verify_networking(mut vm: TestVm) {
     let configuration = vm.api_get_effective_configuration().await.unwrap();
     assert_eq!(configuration.network_interfaces.len(), 1);
-    shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+    shutdown_test_vm(&mut vm).await;
 }
 
 async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
@@ -277,5 +299,5 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
     tokio::time::sleep(Duration::from_millis(TestOptions::get().await.waits.boot_wait_ms)).await;
 
     vm.api_get_info().await.unwrap();
-    shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
+    shutdown_test_vm(&mut vm).await;
 }

@@ -18,7 +18,7 @@ use fctools::{
             BalloonDevice, BootSource, Drive, LoggerSystem, MachineConfiguration, MetricsSystem, MmdsConfiguration,
             MmdsVersion, NetworkInterface, VsockDevice,
         },
-        ShutdownMethod,
+        shutdown::{VmShutdownAction, VmShutdownMethod},
     },
     vmm::{
         arguments::{
@@ -595,13 +595,29 @@ impl VmBuilder {
 }
 
 #[allow(unused)]
-pub async fn shutdown_test_vm(vm: &mut TestVm, shutdown_method: ShutdownMethod) {
-    vm.shutdown(
-        vec![shutdown_method],
-        Duration::from_millis(TestOptions::get().await.waits.shutdown_timeout_ms),
-    )
-    .await
-    .unwrap();
+pub async fn shutdown_test_vm(vm: &mut TestVm) {
+    let timeout = Duration::from_millis(TestOptions::get().await.waits.shutdown_timeout_ms);
+
+    let outcome = vm
+        .shutdown([
+            VmShutdownAction {
+                method: VmShutdownMethod::CtrlAltDel,
+                timeout: Some(timeout / 2),
+                graceful: true,
+            },
+            VmShutdownAction {
+                method: VmShutdownMethod::PauseThenKill,
+                timeout: Some(timeout / 2),
+                graceful: false,
+            },
+        ])
+        .await
+        .unwrap();
+
+    if !outcome.fully_graceful() {
+        panic!("Shutdown outcome was not fully graceful");
+    }
+
     vm.cleanup().await.unwrap();
 }
 
