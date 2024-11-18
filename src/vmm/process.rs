@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use async_lock::OnceCell;
+use async_once_cell::OnceCell;
 use bytes::{Bytes, BytesMut};
 use http::{Request, Response, StatusCode, Uri};
 use http_body_util::{BodyExt, Full};
@@ -311,7 +311,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
         let socket_path = self.get_socket_path().ok_or(VmmProcessError::SocketWasDisabled)?;
         let hyper_client = self
             .hyper_client
-            .get_or_try_init(|| async {
+            .get_or_try_init(async {
                 upgrade_owner::<R>(&socket_path, self.ownership_model, self.process_spawner.as_ref())
                     .await
                     .map_err(VmmProcessError::ChangeOwnerError)?;

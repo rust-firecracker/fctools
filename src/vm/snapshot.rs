@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::fs_backend::{FsBackend, FsBackendError};
+use crate::runtime::{Runtime, RuntimeFilesystem};
 
 use super::{
     configuration::{VmConfiguration, VmConfigurationData},
@@ -18,15 +18,14 @@ pub struct SnapshotData {
 impl SnapshotData {
     /// Copy over the data of this snapshot to the given destinations using the given [FsBackend],
     /// also modifying the data to refer to these new destinations.
-    pub async fn copy(
+    pub async fn copy<R: Runtime>(
         &mut self,
-        fs_backend: &impl FsBackend,
         new_snapshot_path: PathBuf,
         new_mem_file_path: PathBuf,
-    ) -> Result<(), FsBackendError> {
+    ) -> Result<(), std::io::Error> {
         tokio::try_join!(
-            fs_backend.copy(&self.snapshot_path, &new_snapshot_path),
-            fs_backend.copy(&self.mem_file_path, &new_mem_file_path)
+            R::Filesystem::copy(&self.snapshot_path, &new_snapshot_path),
+            R::Filesystem::copy(&self.mem_file_path, &new_mem_file_path)
         )?;
 
         self.snapshot_path = new_snapshot_path;
@@ -36,15 +35,14 @@ impl SnapshotData {
 
     /// Move out the data of this snapshot to the given destinations, mitigating the overhead of copying
     /// when acceptable and also modifying references to these new destinations.
-    pub async fn move_to(
+    pub async fn move_to<R: Runtime>(
         &mut self,
-        fs_backend: &impl FsBackend,
         new_snapshot_path: PathBuf,
         new_mem_file_path: PathBuf,
-    ) -> Result<(), FsBackendError> {
+    ) -> Result<(), std::io::Error> {
         tokio::try_join!(
-            fs_backend.rename_file(&self.snapshot_path, &new_snapshot_path),
-            fs_backend.rename_file(&self.mem_file_path, &new_mem_file_path)
+            R::Filesystem::rename_file(&self.snapshot_path, &new_snapshot_path),
+            R::Filesystem::rename_file(&self.mem_file_path, &new_mem_file_path)
         )?;
 
         self.snapshot_path = new_snapshot_path;
@@ -53,10 +51,10 @@ impl SnapshotData {
     }
 
     /// Remove the data of this snapshot.
-    pub async fn remove(self, fs_backend: &impl FsBackend) -> Result<(), FsBackendError> {
+    pub async fn remove<R: Runtime>(self) -> Result<(), std::io::Error> {
         tokio::try_join!(
-            fs_backend.remove_file(&self.snapshot_path),
-            fs_backend.remove_file(&self.mem_file_path)
+            R::Filesystem::remove_file(&self.snapshot_path),
+            R::Filesystem::remove_file(&self.mem_file_path)
         )?;
         Ok(())
     }

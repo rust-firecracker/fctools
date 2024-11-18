@@ -158,6 +158,10 @@ impl RuntimeProcess for TokioProcess {
         self.child.wait()
     }
 
+    fn wait_with_output(self) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send {
+        self.child.wait_with_output()
+    }
+
     fn kill(&mut self) -> Result<(), std::io::Error> {
         self.child.start_kill()
     }

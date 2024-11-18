@@ -73,6 +73,8 @@ pub trait RuntimeProcess: Sized + Send + Sync + std::fmt::Debug {
 
     fn wait(&mut self) -> impl Future<Output = Result<ExitStatus, std::io::Error>> + Send;
 
+    fn wait_with_output(self) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send;
+
     fn kill(&mut self) -> Result<(), std::io::Error>;
 
     fn stdout(&mut self) -> &mut Option<Self::Stdout>;

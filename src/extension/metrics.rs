@@ -1,8 +1,7 @@
 use std::path::Path;
 
 use futures_channel::mpsc;
-use futures_lite::{io::BufReader, AsyncBufReadExt, StreamExt};
-use futures_util::SinkExt;
+use futures_util::{io::BufReader, AsyncBufReadExt, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 

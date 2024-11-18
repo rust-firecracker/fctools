@@ -30,16 +30,13 @@ strip = "symbols"
 
 [dependencies]
 # common
-futures-lite = { version = "2.5.0", default-features = false, features = [
-    "std",
-] }
 thiserror = "1.0.69"
 futures-io = "0.3.31"
 futures-util = { version = "0.3.31", default-features = false, features = [
     "std",
 ] }
 async-io = "2.4.0"
-async-lock = "3.4.0"
+async-once-cell = "0.5.4"
 futures-channel = { version = "0.3.31", default-features = false }
 # tokio runtime
 tokio-util = { version = "0.7.12", default-features = false, features = [
@@ -49,10 +46,6 @@ tokio = { version = "1.41.1", default-features = false, features = [
     "rt",
     "process",
 ], optional = true }
-
-# fs backends
-uuid = { version = "1.11.0", optional = true, features = ["v4"] }
-tokio-uring = { version = "0.5.0", optional = true }
 # executor
 nix = { version = "0.29.0", optional = true, features = [
     "user",
@@ -107,9 +100,6 @@ full = [
     "grpc-vsock-extension",
     "link-local-extension",
     "snapshot-editor-extension",
-    "blocking-fs-backend",
-    "unsend-proxy-fs-backend",
-    "tokio-uring-fs-backend",
 ]
 default = []
 # runtime
@@ -118,20 +108,10 @@ tokio-runtime = ["dep:tokio", "dep:tokio-util"]
 process-spawner = []
 direct-process-spawner = ["process-spawner"]
 elevation-process-spawners = ["process-spawner"]
-# fs backend
-fs-backend = ["dep:nix"]
-blocking-fs-backend = ["fs-backend", "tokio/fs"]
-unsend-proxy-fs-backend = ["dep:uuid"]
-tokio-uring-fs-backend = ["dep:tokio-uring", "tokio/fs"]
 # vmm
 vmm-arguments = ["dep:nix"]
-vmm-installation = ["fs-backend"]
-vmm-executor = [
-    "vmm-arguments",
-    "vmm-installation",
-    "fs-backend",
-    "process-spawner",
-]
+vmm-installation = []
+vmm-executor = ["vmm-arguments", "vmm-installation", "process-spawner"]
 jailed-vmm-executor = ["vmm-executor"]
 unrestricted-vmm-executor = ["vmm-executor"]
 either-vmm-executor = ["unrestricted-vmm-executor", "jailed-vmm-executor"]

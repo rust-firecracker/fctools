@@ -1,6 +1,6 @@
 use std::{process::ExitStatus, time::Duration};
 
-use futures_lite::AsyncWriteExt;
+use futures_util::AsyncWriteExt;
 
 use crate::{
     process_spawner::ProcessSpawner,

@@ -1,11 +1,9 @@
 use std::{
     path::{Path, PathBuf},
-    process::{ExitStatus, Output, Stdio},
+    process::{Command, ExitStatus, Output, Stdio},
 };
 
-use tokio::process::Command;
-
-use crate::vmm::installation::VmmInstallation;
+use crate::{runtime::RuntimeProcess, vmm::installation::VmmInstallation};
 
 /// An extension that provides bindings to functionality exposed by Firecracker's "snapshot-editor" binary.
 /// Internally this performs sanity checks and then spawns and awaits a "snapshot-editor" process.
@@ -43,12 +41,12 @@ pub enum SnapshotEditorError {
 
 impl<'p> SnapshotEditor<'p> {
     /// Rebase base_memory_path onto diff_memory_path.
-    pub async fn rebase_memory(
+    pub async fn rebase_memory<P: RuntimeProcess>(
         &self,
         base_memory_path: impl AsRef<Path> + Send,
         diff_memory_path: impl AsRef<Path> + Send,
     ) -> Result<(), SnapshotEditorError> {
-        self.run(&[
+        self.run::<P>(&[
             "edit-memory",
             "rebase",
             "--memory-path",
@@ -67,12 +65,12 @@ impl<'p> SnapshotEditor<'p> {
     }
 
     /// Get the version of a given snapshot.
-    pub async fn get_snapshot_version(
+    pub async fn get_snapshot_version<P: RuntimeProcess>(
         &self,
         snapshot_path: impl AsRef<Path> + Send,
     ) -> Result<String, SnapshotEditorError> {
         let output = self
-            .run(&[
+            .run::<P>(&[
                 "info-vmstate",
                 "version",
                 "--vmstate-path",
@@ -87,12 +85,12 @@ impl<'p> SnapshotEditor<'p> {
 
     /// Get dbg!-produced vCPU states of a given snapshot. The dbg! format is difficult to parse,
     /// so the merit of invoking this programmatically is limited.
-    pub async fn get_snapshot_vcpu_states(
+    pub async fn get_snapshot_vcpu_states<P: RuntimeProcess>(
         &self,
         snapshot_path: impl AsRef<Path> + Send,
     ) -> Result<String, SnapshotEditorError> {
         let output = self
-            .run(&[
+            .run::<P>(&[
                 "info-vmstate",
                 "vcpu-states",
                 "--vmstate-path",
@@ -107,12 +105,12 @@ impl<'p> SnapshotEditor<'p> {
 
     /// Get a dbg!-produced full dump of a VM's state. The dbg! format is difficult to parse,
     /// so the merit of invoking this programmatically is limited.
-    pub async fn get_snapshot_vm_state(
+    pub async fn get_snapshot_vm_state<P: RuntimeProcess>(
         &self,
         snapshot_path: impl AsRef<Path> + Send,
     ) -> Result<String, SnapshotEditorError> {
         let output = self
-            .run(&[
+            .run::<P>(&[
                 "info-vmstate",
                 "vm-state",
                 "--vmstate-path",
@@ -125,14 +123,14 @@ impl<'p> SnapshotEditor<'p> {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    async fn run(&self, args: &[&str]) -> Result<Output, SnapshotEditorError> {
+    async fn run<P: RuntimeProcess>(&self, args: &[&str]) -> Result<Output, SnapshotEditorError> {
         let mut command = Command::new(self.path);
         command.args(args);
         command.stdout(Stdio::piped());
         command.stderr(Stdio::null());
         command.stdin(Stdio::null());
 
-        let child = command.spawn().map_err(SnapshotEditorError::ProcessSpawnFailed)?;
+        let child = P::spawn(command).map_err(SnapshotEditorError::ProcessSpawnFailed)?;
         let output = child
             .wait_with_output()
             .await

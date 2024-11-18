@@ -6,7 +6,7 @@ use std::{
     sync::LazyLock,
 };
 
-use futures_lite::AsyncWriteExt;
+use futures_util::AsyncWriteExt;
 
 use crate::runtime::{Runtime, RuntimeProcess};
 
