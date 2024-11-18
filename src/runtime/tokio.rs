@@ -28,7 +28,7 @@ impl RuntimeExecutor for TokioRuntimeExecutor {
         F: Future<Output = O> + Send + 'static,
         O: Send + 'static,
     {
-        tokio::spawn(future)
+        tokio::task::spawn(future)
     }
 
     async fn timeout<F, O>(duration: Duration, future: F) -> Result<O, ()>
@@ -150,16 +150,16 @@ impl RuntimeProcess for TokioRuntimeProcess {
         })
     }
 
+    async fn output(command: std::process::Command) -> Result<std::process::Output, std::io::Error> {
+        tokio::process::Command::from(command).output().await
+    }
+
     fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, std::io::Error> {
         self.child.try_wait()
     }
 
     fn wait(&mut self) -> impl Future<Output = Result<std::process::ExitStatus, std::io::Error>> {
         self.child.wait()
-    }
-
-    fn wait_with_output(self) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send {
-        self.child.wait_with_output()
     }
 
     fn kill(&mut self) -> Result<(), std::io::Error> {

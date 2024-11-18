@@ -2,12 +2,12 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use fctools::vmm::process::{HyperResponseExt, VmmProcessState};
+use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};
 use http::Uri;
 use http_body_util::Full;
 use hyper::Request;
 use hyper_client_sockets::{HyperUnixStream, UnixUriExt};
 use test_framework::{run_vmm_process_test, TestOptions, TestVmmProcess};
-use tokio::io::{AsyncBufReadExt, BufReader};
 
 mod test_framework;
 
@@ -45,7 +45,7 @@ async fn vmm_can_take_out_pipes() {
 
         let mut buf = String::new();
         let mut buf_reader = BufReader::new(pipes.stdout).lines();
-        while let Ok(Some(line)) = buf_reader.next_line().await {
+        while let Some(Ok(line)) = buf_reader.next().await {
             buf.push_str(&line);
             buf.push('\n');
         }

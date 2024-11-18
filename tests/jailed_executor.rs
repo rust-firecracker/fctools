@@ -1,17 +1,20 @@
 use std::path::PathBuf;
 
 use assert_matches::assert_matches;
-use fctools::vmm::{
-    arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
-    executor::{
-        jailed::{FlatJailRenamer, JailMoveMethod, JailRenamer, JailedVmmExecutor},
-        VmmExecutor, VmmExecutorError,
+use fctools::{
+    runtime::tokio::TokioRuntime,
+    vmm::{
+        arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
+        executor::{
+            jailed::{FlatJailRenamer, JailMoveMethod, JailRenamer, JailedVmmExecutor},
+            VmmExecutor, VmmExecutorError,
+        },
+        id::VmmId,
+        ownership::VmmOwnershipModel,
     },
-    id::VmmId,
-    ownership::VmmOwnershipModel,
 };
 use rand::RngCore;
-use test_framework::{get_fake_firecracker_installation, get_fs_backend, get_process_spawner, get_tmp_path, jail_join};
+use test_framework::{get_fake_firecracker_installation, get_process_spawner, get_tmp_path, jail_join};
 use tokio::fs::{create_dir_all, metadata, read_to_string, remove_dir_all, try_exists, write, File};
 
 mod test_framework;
@@ -49,10 +52,9 @@ async fn jailed_executor_prepare_creates_chroot_base_dir() {
     let chroot_base_dir = get_tmp_path();
     let (executor, _) = setup_executor(Some(chroot_base_dir.clone()), None, None, None, None);
     executor
-        .prepare(
+        .prepare::<TokioRuntime>(
             &get_fake_firecracker_installation(),
             get_process_spawner(),
-            get_fs_backend(),
             vec![],
             VmmOwnershipModel::Shared,
         )
@@ -66,10 +68,9 @@ async fn jailed_executor_prepare_creates_chroot_base_dir() {
 async fn jailed_executor_prepare_defaults_to_srv_jailer() {
     let (executor, jail_path) = setup_executor(None, None, None, None, None);
     executor
-        .prepare(
+        .prepare::<TokioRuntime>(
             &get_fake_firecracker_installation(),
             get_process_spawner(),
-            get_fs_backend(),
             vec![],
             VmmOwnershipModel::Shared,
         )
@@ -87,10 +88,9 @@ async fn jailed_executor_prepare_deletes_existing_jail() {
     File::create_new(&jail_inner_path).await.unwrap();
 
     executor
-        .prepare(
+        .prepare::<TokioRuntime>(
             &get_fake_firecracker_installation(),
             get_process_spawner(),
-            get_fs_backend(),
             vec![],
             VmmOwnershipModel::Shared,
         )
@@ -105,10 +105,9 @@ async fn jailed_executor_prepare_deletes_existing_jail() {
 async fn jailed_executor_prepare_creates_socket_parent_directory() {
     let (executor, jail_path) = setup_executor(None, Some(PathBuf::from("/parent_dir/socket")), None, None, None);
     executor
-        .prepare(
+        .prepare::<TokioRuntime>(
             &get_fake_firecracker_installation(),
             get_process_spawner(),
-            get_fs_backend(),
             vec![],
             VmmOwnershipModel::Shared,
         )
@@ -122,10 +121,9 @@ async fn jailed_executor_prepare_creates_socket_parent_directory() {
 async fn jailed_executor_prepare_creates_log_file() {
     let (executor, jail_path) = setup_executor(None, None, Some(PathBuf::from("/log.txt")), None, None);
     executor
-        .prepare(
+        .prepare::<TokioRuntime>(
             &get_fake_firecracker_installation(),
             get_process_spawner(),
-            get_fs_backend(),
             vec![],
             VmmOwnershipModel::Shared,
         )
@@ -139,10 +137,9 @@ async fn jailed_executor_prepare_creates_log_file() {
 async fn jailed_executor_prepare_creates_metrics_file() {
     let (executor, jail_path) = setup_executor(None, None, None, Some(PathBuf::from("/metrics.txt")), None);
     executor
-        .prepare(
+        .prepare::<TokioRuntime>(
             &get_fake_firecracker_installation(),
             get_process_spawner(),
-            get_fs_backend(),
             vec![],
             VmmOwnershipModel::Shared,
         )
@@ -158,10 +155,9 @@ async fn jailed_executor_prepare_checks_for_missing_resources() {
     let resource_path = get_tmp_path();
     assert_matches!(
         executor
-            .prepare(
+            .prepare::<TokioRuntime>(
                 &get_fake_firecracker_installation(),
                 get_process_spawner(),
-                get_fs_backend(),
                 vec![resource_path.clone()],
                 VmmOwnershipModel::Shared,
             )
@@ -190,10 +186,9 @@ async fn jailed_executor_prepare_moves_resources_by_hard_link_with_copy_fallback
 async fn jailed_executor_cleanup_recursively_removes_entire_jail() {
     let (executor, jail_path) = setup_executor(None, None, None, None, None);
     executor
-        .prepare(
+        .prepare::<TokioRuntime>(
             &get_fake_firecracker_installation(),
             get_process_spawner(),
-            get_fs_backend(),
             vec![],
             VmmOwnershipModel::Shared,
         )
@@ -201,10 +196,9 @@ async fn jailed_executor_cleanup_recursively_removes_entire_jail() {
         .unwrap();
     assert!(try_exists(&jail_path).await.unwrap());
     executor
-        .cleanup(
+        .cleanup::<TokioRuntime>(
             &get_fake_firecracker_installation(),
             get_process_spawner(),
-            get_fs_backend(),
             VmmOwnershipModel::Shared,
         )
         .await
@@ -224,10 +218,9 @@ async fn move_test_imp(jail_move_method: JailMoveMethod, try_cross_device: bool)
 
     assert_eq!(
         executor
-            .prepare(
+            .prepare::<TokioRuntime>(
                 &get_fake_firecracker_installation(),
                 get_process_spawner(),
-                get_fs_backend(),
                 vec![resource_path.clone()],
                 VmmOwnershipModel::Shared,
             )

@@ -61,13 +61,11 @@ async fn verify_imp<R: Runtime>(
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .stdin(Stdio::null());
-    let process = R::Process::spawn(command).map_err(|_| VmmInstallationError::BinaryNotExecutable)?;
-    let output = process
-        .wait_with_output()
+
+    let output = R::Process::output(command)
         .await
         .map_err(|_| VmmInstallationError::BinaryNotExecutable)?;
-
-    let stdout = dbg!(String::from_utf8_lossy(&output.stdout).into_owned());
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
 
     if !stdout.starts_with(expected_name) {
         return Err(VmmInstallationError::BinaryIsOfIncorrectType);

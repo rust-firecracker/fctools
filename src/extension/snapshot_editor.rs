@@ -126,15 +126,13 @@ impl<'p> SnapshotEditor<'p> {
     async fn run<P: RuntimeProcess>(&self, args: &[&str]) -> Result<Output, SnapshotEditorError> {
         let mut command = Command::new(self.path);
         command.args(args);
-        command.stdout(Stdio::piped());
+        command.stdout(Stdio::inherit());
         command.stderr(Stdio::null());
         command.stdin(Stdio::null());
 
-        let child = P::spawn(command).map_err(SnapshotEditorError::ProcessSpawnFailed)?;
-        let output = child
-            .wait_with_output()
+        let output = P::output(command)
             .await
-            .map_err(SnapshotEditorError::ProcessWaitFailed)?;
+            .map_err(SnapshotEditorError::ProcessSpawnFailed)?;
 
         if !output.status.success() {
             return Err(SnapshotEditorError::ExitedWithNonZeroStatus(output.status));

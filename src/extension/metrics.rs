@@ -319,7 +319,7 @@ pub fn spawn_metrics_task<R: Runtime>(
 
     let join_handle = R::Executor::spawn(async move {
         let mut open_options = OpenOptions::new();
-        open_options.write(true);
+        open_options.read(true);
 
         let mut buf_reader = BufReader::new(
             R::Filesystem::open_file(metrics_path.as_ref(), open_options)
@@ -331,7 +331,7 @@ pub fn spawn_metrics_task<R: Runtime>(
         loop {
             let line = match buf_reader.next().await {
                 Some(Ok(line)) => line,
-                None => continue,
+                None => return Ok(()),
                 Some(Err(err)) => return Err(MetricsTaskError::IoError(err)),
             };
             let metrics_entry = serde_json::from_str::<Metrics>(&line).map_err(MetricsTaskError::SerdeError)?;
