@@ -1,4 +1,8 @@
-use std::time::Duration;
+use std::{process::ExitStatus, time::Duration};
+
+use crate::vmm::process::VmmProcessError;
+
+use super::api::VmApiError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmShutdownMethod {
@@ -39,4 +43,17 @@ impl VmShutdownAction {
         self.attempt_revert = attempt_revert;
         self
     }
+}
+
+pub enum VmShutdownError {
+    Timeout,
+    KillError(VmmProcessError),
+    WaitForExitError(VmmProcessError),
+    PauseError(VmApiError)
+}
+
+pub struct VmShutdownOutcome {
+    pub exit_status: ExitStatus,
+    pub graceful: bool,
+    pub errors: Vec<VmShutdownError>,
 }

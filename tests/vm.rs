@@ -196,8 +196,8 @@ fn vm_can_snapshot_while_original_is_running() {
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
 
-        assert!(!tokio::fs::try_exists(snapshot.snapshot_path()).await.unwrap());
-        assert!(!tokio::fs::try_exists(snapshot.mem_file_path()).await.unwrap());
+        assert!(!tokio::fs::try_exists(snapshot.snapshot_path).await.unwrap());
+        assert!(!tokio::fs::try_exists(snapshot.mem_file_path).await.unwrap());
     });
 }
 

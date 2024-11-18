@@ -34,7 +34,7 @@ fn snapshot_editor_can_rebase_memory() {
 
         get_real_firecracker_installation()
             .snapshot_editor()
-            .rebase_memory(base_snapshot.mem_file_path(), diff_snapshot.mem_file_path())
+            .rebase_memory(base_snapshot.mem_file_path, diff_snapshot.mem_file_path)
             .await
             .unwrap();
         shutdown_test_vm(&mut vm, ShutdownMethod::CtrlAltDel).await;
@@ -53,7 +53,7 @@ fn snapshot_editor_can_get_snapshot_version() {
 
         let version = get_real_firecracker_installation()
             .snapshot_editor()
-            .get_snapshot_version(snapshot.snapshot_path())
+            .get_snapshot_version(snapshot.snapshot_path)
             .await
             .unwrap();
         assert_eq!(version.trim(), TestOptions::get().await.toolchain.snapshot_version);
@@ -73,7 +73,7 @@ fn snapshot_editor_can_get_snapshot_vcpu_states() {
 
         let data = get_real_firecracker_installation()
             .snapshot_editor()
-            .get_snapshot_vcpu_states(snapshot.snapshot_path())
+            .get_snapshot_vcpu_states(snapshot.snapshot_path)
             .await
             .unwrap();
         let first_line = data.lines().next().unwrap();
@@ -95,7 +95,7 @@ fn snapshot_editor_can_get_snapshot_vm_state() {
 
         let data = get_real_firecracker_installation()
             .snapshot_editor()
-            .get_snapshot_vm_state(snapshot.snapshot_path())
+            .get_snapshot_vm_state(snapshot.snapshot_path)
             .await
             .unwrap();
         assert!(data.contains("kvm"));
