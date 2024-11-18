@@ -7,6 +7,7 @@ use fctools::{
         api::VmApi,
         configuration::InitMethod,
         models::{CreateSnapshot, LoggerSystem, MetricsSystem},
+        shutdown::{VmShutdownAction, VmShutdownMethod},
         snapshot::SnapshotData,
         VmState,
     },
@@ -52,16 +53,37 @@ fn vm_can_boot_via_json() {
 }
 
 #[test]
-fn vm_can_be_shut_down_via_kill() {
-    VmBuilder::new().run(|mut vm| async move {
-        shutdown_test_vm(&mut vm).await;
-    });
+fn vm_can_shut_down_via_ctrl_alt_del() {
+    vm_shutdown_test(VmShutdownMethod::CtrlAltDel);
 }
 
 #[test]
 fn vm_can_be_shut_down_via_pause_then_kill() {
-    VmBuilder::new().run(|mut vm| async move {
-        shutdown_test_vm(&mut vm).await;
+    vm_shutdown_test(VmShutdownMethod::PauseThenKill);
+}
+
+#[test]
+fn vm_can_be_shut_down_via_kill() {
+    vm_shutdown_test(VmShutdownMethod::Kill);
+}
+
+fn vm_shutdown_test(method: VmShutdownMethod) {
+    VmBuilder::new().run(move |mut vm| {
+        let method = method.clone();
+        async move {
+            let outcome = vm
+                .shutdown(VmShutdownAction {
+                    method: method.clone(),
+                    timeout: None,
+                    graceful: true,
+                })
+                .await
+                .unwrap();
+            assert!(method != VmShutdownMethod::CtrlAltDel || outcome.graceful);
+            assert!(outcome.errors.is_empty());
+            assert_eq!(outcome.index, 0);
+            vm.cleanup().await.unwrap();
+        }
     });
 }
 

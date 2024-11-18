@@ -66,6 +66,7 @@ impl VmShutdownMethod {
 }
 
 /// A shutdown action for a [Vm]. A sequence of these can be applied to attempt to perform a shutdown.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VmShutdownAction {
     /// The [VmShutdownMethod] used by this action.
     pub method: VmShutdownMethod,
@@ -76,6 +77,17 @@ pub struct VmShutdownAction {
     /// Whether this action should be marked as graceful or not. This will reflect in the [VmShutdownOutcome]
     /// and can be used for diagnostic purposes.
     pub graceful: bool,
+}
+
+// Allow a single action to be passed by internally converting it to a Once iterator.
+impl IntoIterator for VmShutdownAction {
+    type Item = VmShutdownAction;
+
+    type IntoIter = std::iter::Once<VmShutdownAction>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        std::iter::once(self)
+    }
 }
 
 /// An error that can occur while applying a [VmShutdownAction] to a [Vm].
@@ -103,6 +115,7 @@ pub enum VmShutdownError {
 
 /// A diagnostic outcome of a successful shutdown of a VM as a result of applying a sequence of
 /// [VmShutdownAction]s.
+#[derive(Debug)]
 pub struct VmShutdownOutcome {
     /// The [ExitStatus] of the VMM process.
     pub exit_status: ExitStatus,
