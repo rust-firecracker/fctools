@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use fctools::{
-    fs_backend::blocking::BlockingFsBackend,
     process_spawner::{DirectProcessSpawner, ProcessSpawner},
+    runtime::{tokio::TokioRuntime, RuntimeProcess},
     vmm::installation::{VmmInstallation, VmmInstallationError},
 };
 use nix::unistd::geteuid;
@@ -24,7 +24,7 @@ async fn installation_does_not_verify_for_missing_files() {
     };
     assert_matches::assert_matches!(
         installation
-            .verify(&BlockingFsBackend, &TestOptions::get().await.toolchain.version)
+            .verify::<TokioRuntime>(&TestOptions::get().await.toolchain.version)
             .await,
         Err(VmmInstallationError::BinaryMissing)
     );
@@ -45,7 +45,7 @@ async fn installation_does_not_verify_for_non_executable_files() {
     };
     assert_matches::assert_matches!(
         installation
-            .verify(&BlockingFsBackend, &TestOptions::get().await.toolchain.version)
+            .verify::<TokioRuntime>(&TestOptions::get().await.toolchain.version)
             .await,
         Err(VmmInstallationError::BinaryNotExecutable)
     );
@@ -60,7 +60,7 @@ async fn installation_does_not_verify_for_incorrect_binary_type() {
     };
     assert_matches::assert_matches!(
         installation
-            .verify(&BlockingFsBackend, &TestOptions::get().await.toolchain.version)
+            .verify::<TokioRuntime>(&TestOptions::get().await.toolchain.version)
             .await,
         Err(VmmInstallationError::BinaryIsOfIncorrectType)
     );
@@ -75,7 +75,7 @@ async fn installation_does_not_verify_for_incorrect_binary_version() {
     };
     assert_matches::assert_matches!(
         installation
-            .verify(&BlockingFsBackend, &TestOptions::get().await.toolchain.version)
+            .verify::<TokioRuntime>(&TestOptions::get().await.toolchain.version)
             .await,
         Err(VmmInstallationError::BinaryDoesNotMatchExpectedVersion)
     );
@@ -89,18 +89,18 @@ async fn installation_verifies_for_correct_parameters() {
         snapshot_editor_path: get_test_path("toolchain/snapshot-editor"),
     };
     installation
-        .verify(&BlockingFsBackend, &TestOptions::get().await.toolchain.version)
+        .verify::<TokioRuntime>(&TestOptions::get().await.toolchain.version)
         .await
         .unwrap();
 }
 
 #[tokio::test]
 async fn direct_process_spawner_launches_simple_command() {
-    let child = DirectProcessSpawner
-        .spawn(&PathBuf::from("cat"), vec!["--help".to_string()], false)
+    let process = DirectProcessSpawner
+        .spawn::<TokioRuntime>(&PathBuf::from("cat"), vec!["--help".to_string()], false)
         .await
         .unwrap();
-    let output = child.wait_with_output().await.unwrap();
+    let output = process.wait_with_output().await.unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     assert!(stdout.contains("Usage: cat [OPTION]... [FILE]..."));
     assert!(stdout.contains("or available locally via: info '(coreutils) cat invocation'"))
@@ -111,7 +111,7 @@ async fn direct_process_spawner_runs_under_correct_uid() {
     let uid = geteuid();
     let stdout = String::from_utf8_lossy(
         &DirectProcessSpawner
-            .spawn(
+            .spawn::<TokioRuntime>(
                 &PathBuf::from("bash"),
                 vec!["-c".to_string(), "echo $UID".to_string()],
                 false,
@@ -129,11 +129,11 @@ async fn direct_process_spawner_runs_under_correct_uid() {
 
 #[tokio::test]
 async fn direct_process_spawner_can_null_pipes() {
-    let child = DirectProcessSpawner
-        .spawn(&PathBuf::from("echo"), vec![], true)
+    let mut process = DirectProcessSpawner
+        .spawn::<TokioRuntime>(&PathBuf::from("echo"), vec![], true)
         .await
         .unwrap();
-    assert!(child.stdout.is_none());
-    assert!(child.stderr.is_none());
-    assert!(child.stdin.is_none());
+    assert!(process.take_stdout().is_none());
+    assert!(process.take_stderr().is_none());
+    assert!(process.take_stdin().is_none());
 }

@@ -11,7 +11,7 @@ pub struct TokioRuntime;
 impl Runtime for TokioRuntime {
     type Executor = TokioRuntimeExecutor;
     type Filesystem = TokioRuntimeFilesystem;
-    type Process = TokioProcess;
+    type Process = TokioRuntimeProcess;
 }
 
 pub struct TokioRuntimeExecutor;
@@ -122,14 +122,14 @@ fn chownr_impl(path: &Path, uid: Uid, gid: Gid) -> Result<(), std::io::Error> {
 }
 
 #[derive(Debug)]
-pub struct TokioProcess {
+pub struct TokioRuntimeProcess {
     child: Child,
     stdout: Option<Compat<ChildStdout>>,
     stdin: Option<Compat<ChildStdin>>,
     stderr: Option<Compat<ChildStderr>>,
 }
 
-impl RuntimeProcess for TokioProcess {
+impl RuntimeProcess for TokioRuntimeProcess {
     type Stdout = Compat<ChildStdout>;
 
     type Stderr = Compat<ChildStderr>;

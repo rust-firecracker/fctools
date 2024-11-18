@@ -1,7 +1,6 @@
 use std::{os::unix::fs::FileTypeExt, time::Duration};
 
 use fctools::{
-    fs_backend::blocking::BlockingFsBackend,
     process_spawner::DirectProcessSpawner,
     vm::{
         api::VmApi,
