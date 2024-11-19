@@ -20,6 +20,10 @@ impl Runtime for TokioRuntime {
     fn get_hyper_executor() -> Self::HyperExecutor {
         hyper_util::rt::TokioExecutor::new()
     }
+
+    fn get_hyper_client_sockets_backend() -> hyper_client_sockets::Backend {
+        hyper_client_sockets::Backend::Tokio
+    }
 }
 
 pub struct TokioRuntimeExecutor;

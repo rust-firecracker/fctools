@@ -4,7 +4,9 @@ use bytes::Bytes;
 use http::{Request, Response, Uri};
 use http_body_util::Full;
 use hyper::{body::Incoming, client::conn::http1::SendRequest};
-use hyper_client_sockets::{FirecrackerUriExt, HyperFirecrackerConnector, HyperFirecrackerStream};
+use hyper_client_sockets::firecracker::{
+    connector::HyperFirecrackerConnector, FirecrackerUriExt, HyperFirecrackerStream,
+};
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -79,7 +81,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
             .vsock_multiplexer_path
             .as_ref()
             .ok_or(VsockHttpError::VsockNotConfigured)?;
-        let stream = HyperFirecrackerStream::connect(uds_path, guest_port)
+        let stream = HyperFirecrackerStream::connect(uds_path, guest_port, R::get_hyper_client_sockets_backend())
             .await
             .map_err(VsockHttpError::CannotConnect)?;
         let (send_request, connection) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(stream)
@@ -92,7 +94,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
 
     fn vsock_create_http_connection_pool(&self, guest_port: u32) -> Result<VsockHttpPool, VsockHttpError> {
         let client =
-            hyper_util::client::legacy::Client::builder(R::get_hyper_executor()).build(HyperFirecrackerConnector);
+            hyper_util::client::legacy::Client::builder(R::get_hyper_executor()).build(HyperFirecrackerConnector {
+                backend: R::get_hyper_client_sockets_backend(),
+            });
         let socket_path = self
             .get_accessible_paths()
             .vsock_multiplexer_path

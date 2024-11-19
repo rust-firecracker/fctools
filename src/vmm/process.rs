@@ -11,7 +11,7 @@ use bytes::{Bytes, BytesMut};
 use http::{Request, Response, StatusCode, Uri};
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Body, Incoming};
-use hyper_client_sockets::{HyperUnixConnector, UnixUriExt};
+use hyper_client_sockets::unix::{connector::HyperUnixConnector, UnixUriExt};
 use hyper_util::client::legacy::Client;
 
 use crate::{
@@ -316,7 +316,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
                     .await
                     .map_err(VmmProcessError::ChangeOwnerError)?;
 
-                Ok(Client::builder(R::get_hyper_executor()).build(HyperUnixConnector))
+                Ok(Client::builder(R::get_hyper_executor()).build(HyperUnixConnector {
+                    backend: R::get_hyper_client_sockets_backend(),
+                }))
             })
             .await?;
 

@@ -1,7 +1,7 @@
 use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
 use http::Uri;
-use hyper_client_sockets::HyperFirecrackerStream;
+use hyper_client_sockets::firecracker::HyperFirecrackerStream;
 use tonic::transport::{Channel, Endpoint};
 
 use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vm::Vm, vmm::executor::VmmExecutor};
@@ -84,6 +84,7 @@ fn create_endpoint_and_service<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
     let service = FirecrackerTowerService {
         guest_port,
         uds_path: Arc::new(uds_path),
+        backend: R::get_hyper_client_sockets_backend(),
     };
 
     Ok((endpoint, service))
@@ -92,6 +93,7 @@ fn create_endpoint_and_service<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
 struct FirecrackerTowerService {
     guest_port: u32,
     uds_path: Arc<PathBuf>,
+    backend: hyper_client_sockets::Backend,
 }
 
 impl tower_service::Service<Uri> for FirecrackerTowerService {
@@ -108,9 +110,10 @@ impl tower_service::Service<Uri> for FirecrackerTowerService {
     fn call(&mut self, _req: Uri) -> Self::Future {
         let uds_path = self.uds_path.clone();
         let guest_port = self.guest_port;
+        let backend = self.backend;
 
         Box::pin(async move {
-            let stream = HyperFirecrackerStream::connect(uds_path.as_ref(), guest_port).await?;
+            let stream = HyperFirecrackerStream::connect(uds_path.as_ref(), guest_port, backend).await?;
             Ok(stream)
         })
     }

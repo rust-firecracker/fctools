@@ -13,6 +13,8 @@ pub trait Runtime: 'static {
     type HyperExecutor: hyper::rt::Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Clone + Send + Sync + 'static;
 
     fn get_hyper_executor() -> Self::HyperExecutor;
+
+    fn get_hyper_client_sockets_backend() -> hyper_client_sockets::Backend;
 }
 
 pub trait RuntimeExecutor {
