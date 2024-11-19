@@ -1,4 +1,10 @@
-use std::{future::Future, os::fd::OwnedFd, path::Path, pin::Pin, process::ExitStatus, time::Duration};
+use std::{
+    future::Future,
+    os::fd::OwnedFd,
+    path::Path,
+    process::{ExitStatus, Stdio},
+    time::Duration,
+};
 
 use futures_io::{AsyncRead, AsyncWrite};
 use nix::unistd::{Gid, Uid};
@@ -18,7 +24,11 @@ pub trait Runtime: 'static {
     type Process: RuntimeProcess;
 
     #[cfg(feature = "vmm-process")]
-    type HyperExecutor: hyper::rt::Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Clone + Send + Sync + 'static;
+    type HyperExecutor: hyper::rt::Executor<std::pin::Pin<Box<dyn Future<Output = ()> + Send>>>
+        + Clone
+        + Send
+        + Sync
+        + 'static;
 
     #[cfg(feature = "vmm-process")]
     fn get_hyper_executor() -> Self::HyperExecutor;
@@ -89,7 +99,12 @@ pub trait RuntimeProcess: Sized + Send + Sync + std::fmt::Debug {
     type Stderr: AsyncRead + Unpin + Send;
     type Stdin: AsyncWrite + Unpin + Send;
 
-    fn spawn(command: std::process::Command) -> Result<Self, std::io::Error>;
+    fn spawn(
+        command: std::process::Command,
+        stdout: Stdio,
+        stderr: Stdio,
+        stdin: Stdio,
+    ) -> Result<Self, std::io::Error>;
 
     fn output(
         command: std::process::Command,

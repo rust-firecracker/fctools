@@ -4,6 +4,7 @@ use std::{
     os::unix::prelude::OwnedFd,
     path::Path,
     pin::Pin,
+    process::Stdio,
     sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
@@ -105,8 +106,9 @@ impl RuntimeFilesystem for SmolRuntimeFilesystem {
 
     type AsyncFd = SmolRuntimeAsyncFd;
 
-    async fn check_exists(path: &Path) -> Result<bool, std::io::Error> {
-        Ok(async_fs::metadata(path).await.is_ok())
+    fn check_exists(path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send {
+        let path = path.to_owned();
+        blocking::unblock(move || std::fs::exists(path))
     }
 
     fn remove_file(path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
@@ -190,8 +192,17 @@ impl RuntimeProcess for SmolRuntimeProcess {
 
     type Stdin = ChildStdin;
 
-    fn spawn(command: std::process::Command) -> Result<Self, std::io::Error> {
-        let mut child = async_process::Command::from(command).spawn()?;
+    fn spawn(
+        command: std::process::Command,
+        stdout: Stdio,
+        stderr: Stdio,
+        stdin: Stdio,
+    ) -> Result<Self, std::io::Error> {
+        let mut child = async_process::Command::from(command)
+            .stdout(stdout)
+            .stderr(stderr)
+            .stdin(stdin)
+            .spawn()?;
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let stdin = child.stdin.take();

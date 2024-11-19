@@ -324,6 +324,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             .await
             .map_err(VmError::ProcessError)?;
 
+        println!("{socket_path:?}");
         R::Executor::timeout(socket_wait_timeout, async move {
             // wait until socket exists
             loop {

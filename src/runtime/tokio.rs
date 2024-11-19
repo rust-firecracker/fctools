@@ -1,4 +1,4 @@
-use std::{future::Future, os::fd::OwnedFd, path::Path, time::Duration};
+use std::{future::Future, os::fd::OwnedFd, path::Path, process::Stdio, time::Duration};
 
 use nix::unistd::{Gid, Uid};
 use tokio::{
@@ -156,18 +156,28 @@ impl RuntimeProcess for TokioRuntimeProcess {
 
     type Stdin = Compat<ChildStdin>;
 
-    fn spawn(command: std::process::Command) -> Result<Self, std::io::Error> {
-        tokio::process::Command::from(command).spawn().map(|mut child| {
-            let stdout = child.stdout.take().map(|stdout| stdout.compat());
-            let stderr = child.stderr.take().map(|stderr| stderr.compat());
-            let stdin = child.stdin.take().map(|stdin| stdin.compat_write());
-            Self {
-                child,
-                stdout,
-                stdin,
-                stderr,
-            }
-        })
+    fn spawn(
+        command: std::process::Command,
+        stdout: Stdio,
+        stderr: Stdio,
+        stdin: Stdio,
+    ) -> Result<Self, std::io::Error> {
+        tokio::process::Command::from(command)
+            .stdout(stdout)
+            .stderr(stderr)
+            .stdin(stdin)
+            .spawn()
+            .map(|mut child| {
+                let stdout = child.stdout.take().map(|stdout| stdout.compat());
+                let stderr = child.stderr.take().map(|stderr| stderr.compat());
+                let stdin = child.stdin.take().map(|stdin| stdin.compat_write());
+                Self {
+                    child,
+                    stdout,
+                    stdin,
+                    stderr,
+                }
+            })
     }
 
     async fn output(command: std::process::Command) -> Result<std::process::Output, std::io::Error> {

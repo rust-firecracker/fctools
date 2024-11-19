@@ -126,7 +126,7 @@ impl<'p> SnapshotEditor<'p> {
     async fn run<P: RuntimeProcess>(&self, args: &[&str]) -> Result<Output, SnapshotEditorError> {
         let mut command = Command::new(self.path);
         command.args(args);
-        command.stdout(Stdio::inherit());
+        command.stdout(Stdio::piped());
         command.stderr(Stdio::null());
         command.stdin(Stdio::null());
 

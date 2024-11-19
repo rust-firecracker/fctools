@@ -34,7 +34,7 @@ fn get_stdio(pipes_to_null: bool) -> Stdio {
     if pipes_to_null {
         Stdio::null()
     } else {
-        Stdio::piped()
+        Stdio::inherit()
     }
 }
 
@@ -47,12 +47,13 @@ impl ProcessSpawner for DirectProcessSpawner {
         pipes_to_null: bool,
     ) -> Result<R::Process, std::io::Error> {
         let mut command = Command::new(path);
-        command
-            .args(arguments)
-            .stderr(get_stdio(pipes_to_null))
-            .stdout(get_stdio(pipes_to_null))
-            .stdin(get_stdio(pipes_to_null));
-        let child = R::Process::spawn(command)?;
+        command.args(arguments);
+        let child = R::Process::spawn(
+            command,
+            get_stdio(pipes_to_null),
+            get_stdio(pipes_to_null),
+            get_stdio(pipes_to_null),
+        )?;
         Ok(child)
     }
 }
@@ -91,15 +92,16 @@ impl ProcessSpawner for SuProcessSpawner {
         arguments: Vec<String>,
         pipes_to_null: bool,
     ) -> Result<R::Process, std::io::Error> {
-        let mut command = Command::new(match self.su_path {
+        let command = Command::new(match self.su_path {
             Some(ref path) => path.as_os_str(),
             None => SU_OS_STRING.as_os_str(),
         });
-        command
-            .stderr(get_stdio(pipes_to_null))
-            .stdout(get_stdio(pipes_to_null))
-            .stdin(Stdio::piped());
-        let mut child = R::Process::spawn(command)?;
+        let mut child = R::Process::spawn(
+            command,
+            get_stdio(pipes_to_null),
+            get_stdio(pipes_to_null),
+            Stdio::piped(),
+        )?;
 
         let stdin = child
             .stdin()
@@ -161,16 +163,14 @@ impl ProcessSpawner for SudoProcessSpawner {
             Some(ref path) => path.as_os_str(),
             None => SUDO_OS_STRING.as_os_str(),
         });
-        command
-            .arg("-S")
-            .arg("-s")
-            .arg(path)
-            .args(arguments)
-            .stderr(get_stdio(pipes_to_null))
-            .stdout(get_stdio(pipes_to_null))
-            .stdin(Stdio::piped());
+        command.arg("-S").arg("-s").arg(path).args(arguments);
 
-        let mut child = R::Process::spawn(command)?;
+        let mut child = R::Process::spawn(
+            command,
+            get_stdio(pipes_to_null),
+            get_stdio(pipes_to_null),
+            Stdio::piped(),
+        )?;
         let stdin_ref = child
             .stdin()
             .as_mut()
