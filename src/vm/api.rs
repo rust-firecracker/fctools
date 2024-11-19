@@ -8,7 +8,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{Runtime, RuntimeExecutor},
+    runtime::Runtime,
     vm::upgrade_owner,
     vmm::{
         executor::VmmExecutor,
@@ -238,11 +238,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
             self.snapshot_traces.push(mem_file_path.clone());
         }
 
-        R::Executor::try_join(
+        futures_util::try_join!(
             upgrade_owner::<R>(&snapshot_path, self.ownership_model, self.process_spawner.as_ref()),
             upgrade_owner::<R>(&mem_file_path, self.ownership_model, self.process_spawner.as_ref()),
         )
-        .await
         .map_err(VmApiError::SnapshotChangeOwnerError)?;
 
         Ok(SnapshotData {

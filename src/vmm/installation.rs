@@ -3,7 +3,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-use crate::runtime::{Runtime, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
+use crate::runtime::{Runtime, RuntimeFilesystem, RuntimeProcess};
 
 /// A [VmmInstallation] encapsulates release binaries of the most important automatable VMM components:
 /// "firecracker", "jailer" and "snapshot-editor". Using a partial installation with only
@@ -34,14 +34,12 @@ impl VmmInstallation {
     /// Verify the [VmmInstallation] using the given [FsBackend] by ensuring all binaries exist,
     /// are executable and yield the correct type and version when spawned and awaited with "--version".
     pub async fn verify<R: Runtime>(&self, expected_version: impl AsRef<str>) -> Result<(), VmmInstallationError> {
-        R::Executor::try_join(
+        futures_util::try_join!(
             verify_imp::<R>(&self.firecracker_path, expected_version.as_ref(), "Firecracker"),
-            R::Executor::try_join(
-                verify_imp::<R>(&self.jailer_path, expected_version.as_ref(), "Jailer"),
-                verify_imp::<R>(&self.snapshot_editor_path, expected_version.as_ref(), "snapshot-editor"),
-            ),
-        )
-        .await
+            verify_imp::<R>(&self.jailer_path, expected_version.as_ref(), "Jailer"),
+            verify_imp::<R>(&self.snapshot_editor_path, expected_version.as_ref(), "snapshot-editor")
+        )?;
+        Ok(())
     }
 }
 

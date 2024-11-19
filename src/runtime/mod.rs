@@ -31,12 +31,6 @@ pub trait RuntimeExecutor {
     where
         F: Future<Output = O> + Send,
         O: Send;
-
-    fn try_join<F1, F2, E>(future1: F1, future2: F2) -> impl Future<Output = Result<(), E>> + Send
-    where
-        F1: Send + Future<Output = Result<(), E>> + Send,
-        F2: Send + Future<Output = Result<(), E>> + Send,
-        E: Send;
 }
 
 pub trait RuntimeFilesystem {
