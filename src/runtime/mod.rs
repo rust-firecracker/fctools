@@ -6,6 +6,12 @@ use nix::unistd::{Gid, Uid};
 #[cfg(feature = "tokio-runtime")]
 pub mod tokio;
 
+#[cfg(feature = "smol-runtime")]
+pub mod smol;
+
+#[cfg(any(feature = "tokio-runtime", feature = "smol-runtime"))]
+mod chownr;
+
 pub trait Runtime: 'static {
     type Executor: RuntimeExecutor;
     type Filesystem: RuntimeFilesystem;
@@ -65,10 +71,7 @@ pub trait RuntimeFilesystem {
         destination_path: &Path,
     ) -> impl Future<Output = Result<(), std::io::Error>> + Send;
 
-    fn open_file(
-        path: &Path,
-        open_options: std::fs::OpenOptions,
-    ) -> impl Future<Output = Result<Self::File, std::io::Error>> + Send;
+    fn open_file_for_read(path: &Path) -> impl Future<Output = Result<Self::File, std::io::Error>> + Send;
 
     fn create_async_fd(fd: OwnedFd) -> Result<Self::AsyncFd, std::io::Error>;
 }

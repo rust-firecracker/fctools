@@ -7,7 +7,7 @@ use tokio::{
 };
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-use super::{Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
+use super::{chownr::chownr_recursive, Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
 
 pub struct TokioRuntime;
 
@@ -100,7 +100,7 @@ impl RuntimeFilesystem for TokioRuntimeFilesystem {
 
     async fn chownr(path: &Path, uid: Uid, gid: Gid) -> Result<(), std::io::Error> {
         let path = path.to_owned();
-        match tokio::task::spawn_blocking(move || chownr_impl(&path, uid, gid)).await {
+        match tokio::task::spawn_blocking(move || chownr_recursive(&path, uid, gid)).await {
             Ok(result) => result,
             Err(_) => Err(std::io::Error::other("chownr_impl blocking task panicked")),
         }
@@ -113,8 +113,9 @@ impl RuntimeFilesystem for TokioRuntimeFilesystem {
         tokio::fs::hard_link(source_path, destination_path)
     }
 
-    async fn open_file(path: &Path, open_options: std::fs::OpenOptions) -> Result<Self::File, std::io::Error> {
-        let open_options = tokio::fs::OpenOptions::from(open_options);
+    async fn open_file_for_read(path: &Path) -> Result<Self::File, std::io::Error> {
+        let mut open_options = tokio::fs::OpenOptions::new();
+        open_options.read(true);
         let file = open_options.open(path).await?;
         Ok(file.compat())
     }
@@ -130,21 +131,6 @@ impl RuntimeAsyncFd for TokioRuntimeAsyncFd {
     async fn readable(&self) -> Result<(), std::io::Error> {
         let mut guard = self.0.readable().await?;
         guard.retain_ready();
-        Ok(())
-    }
-}
-
-fn chownr_impl(path: &Path, uid: Uid, gid: Gid) -> Result<(), std::io::Error> {
-    if path.is_dir() {
-        for entry in std::fs::read_dir(path)? {
-            let entry = entry?;
-            chownr_impl(entry.path().as_path(), uid, gid)?;
-        }
-    }
-
-    if nix::unistd::chown(path, Some(uid), Some(gid)).is_err() {
-        Err(std::io::Error::last_os_error())
-    } else {
         Ok(())
     }
 }

@@ -1,4 +1,4 @@
-use std::{fs::OpenOptions, path::Path};
+use std::path::Path;
 
 use futures_channel::mpsc;
 use futures_util::{io::BufReader, AsyncBufReadExt, SinkExt, StreamExt};
@@ -318,11 +318,8 @@ pub fn spawn_metrics_task<R: Runtime>(
     let (mut sender, receiver) = mpsc::channel(buffer);
 
     let join_handle = R::Executor::spawn(async move {
-        let mut open_options = OpenOptions::new();
-        open_options.read(true);
-
         let mut buf_reader = BufReader::new(
-            R::Filesystem::open_file(metrics_path.as_ref(), open_options)
+            R::Filesystem::open_file_for_read(metrics_path.as_ref())
                 .await
                 .map_err(MetricsTaskError::IoError)?,
         )

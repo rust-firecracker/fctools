@@ -48,6 +48,12 @@ tokio = { version = "1.41.1", default-features = false, features = [
     "process",
     "fs",
 ], optional = true }
+# smol runtime
+async-executor = { version = "1.13.1", optional = true }
+async-io = { version = "2.4.0", optional = true }
+async-process = { version = "2.3.0", optional = true }
+async-fs = { version = "2.1.2", optional = true }
+blocking = { version = "1.6.1", optional = true }
 # executor
 futures-util = { version = "0.3.31", default-features = false, features = [
     "std",
@@ -81,7 +87,7 @@ tower-service = { version = "0.3.3", optional = true }
 [dev-dependencies]
 assert_matches = "1.5.0"
 rand = "0.8.5"
-tokio = { version = "1.39.2", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.39.2", features = ["macros"] }
 uuid = { version = "1.10.0", features = ["v4"] }
 which = "7.0.0"
 fcnet-types = { version = "0.1.0", features = ["simple", "namespaced"] }
@@ -93,6 +99,7 @@ file-lock = "2.1.11"
 [features]
 full = [
     "tokio-runtime",
+    "smol-runtime",
     "vm",
     "direct-process-spawner",
     "elevation-process-spawners",
@@ -113,7 +120,14 @@ tokio-runtime = [
     "dep:tokio",
     "dep:tokio-util",
     "hyper-client-sockets/tokio-backend",
-    "dep:futures-util",
+]
+smol-runtime = [
+    "dep:async-executor",
+    "dep:async-io",
+    "dep:async-process",
+    "dep:async-fs",
+    "dep:blocking",
+    "hyper-client-sockets/async-io-backend",
 ]
 # process spawner
 process-spawner = ["runtime"]
