@@ -4,10 +4,16 @@ use bytes::Bytes;
 use http::{Request, Response, Uri};
 use http_body_util::Full;
 use hyper::{body::Incoming, client::conn::http1::SendRequest};
-use hyper_client_sockets::{FirecrackerUriExt, HyperFirecrackerConnector, HyperFirecrackerStream};
-use hyper_util::rt::TokioExecutor;
+use hyper_client_sockets::firecracker::{
+    connector::HyperFirecrackerConnector, FirecrackerUriExt, HyperFirecrackerStream,
+};
 
-use crate::{fs_backend::FsBackend, process_spawner::ProcessSpawner, vm::Vm, vmm::executor::VmmExecutor};
+use crate::{
+    process_spawner::ProcessSpawner,
+    runtime::{Runtime, RuntimeExecutor},
+    vm::Vm,
+    vmm::executor::VmmExecutor,
+};
 
 /// An error that can be emitted by the HTTP-over-vsock extension.
 #[derive(Debug, thiserror::Error)]
@@ -15,7 +21,7 @@ pub enum VsockHttpError {
     #[error("A vsock device was not configured for this VM")]
     VsockNotConfigured,
     #[error("Could not connect to the vsock socket: {0}")]
-    CannotConnect(tokio::io::Error),
+    CannotConnect(std::io::Error),
     #[error("Could not perform an HTTP handshake with the vsock socket: {0}")]
     CannotHandshake(hyper::Error),
 }
@@ -68,26 +74,29 @@ pub trait VsockHttpExt {
     fn vsock_create_http_connection_pool(&self, guest_port: u32) -> Result<VsockHttpPool, VsockHttpError>;
 }
 
-impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VsockHttpExt for Vm<E, S, F> {
+impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R> {
     async fn vsock_connect_over_http(&self, guest_port: u32) -> Result<SendRequest<Full<Bytes>>, VsockHttpError> {
         let uds_path = self
             .get_accessible_paths()
             .vsock_multiplexer_path
             .as_ref()
             .ok_or(VsockHttpError::VsockNotConfigured)?;
-        let stream = HyperFirecrackerStream::connect(uds_path, guest_port)
+        let stream = HyperFirecrackerStream::connect(uds_path, guest_port, R::get_hyper_client_sockets_backend())
             .await
             .map_err(VsockHttpError::CannotConnect)?;
         let (send_request, connection) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(stream)
             .await
             .map_err(VsockHttpError::CannotHandshake)?;
-        tokio::spawn(connection);
+        R::Executor::spawn(connection);
 
         Ok(send_request)
     }
 
     fn vsock_create_http_connection_pool(&self, guest_port: u32) -> Result<VsockHttpPool, VsockHttpError> {
-        let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build(HyperFirecrackerConnector);
+        let client =
+            hyper_util::client::legacy::Client::builder(R::get_hyper_executor()).build(HyperFirecrackerConnector {
+                backend: R::get_hyper_client_sockets_backend(),
+            });
         let socket_path = self
             .get_accessible_paths()
             .vsock_multiplexer_path

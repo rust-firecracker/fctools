@@ -11,13 +11,10 @@ use std::{
 use jailed::JailRenamerError;
 use nix::sys::stat::Mode;
 use process_handle::ProcessHandle;
-use tokio::task::JoinError;
-#[cfg(feature = "unrestricted-vmm-executor")]
-use tokio::task::JoinSet;
 
 use crate::{
-    fs_backend::{FsBackend, FsBackendError},
     process_spawner::ProcessSpawner,
+    runtime::{Runtime, RuntimeFilesystem},
 };
 
 use super::{
@@ -46,12 +43,12 @@ pub enum VmmExecutorError {
     PidfdAllocationError(std::io::Error),
     #[error("Waiting on the exit of a child process failed: {0}")]
     ProcessWaitError(std::io::Error),
-    #[error("An I/O error emitted by an FS backend occurred: {0}")]
-    FsBackendError(FsBackendError),
+    #[error("A filesystem I/O error occurred: {0}")]
+    FilesystemError(std::io::Error),
     #[error("An ownership change as part of an ownership upgrade or downgrade failed: {0}")]
     ChangeOwnerError(ChangeOwnerError),
-    #[error("Joining on a spawned async task failed: {0}")]
-    TaskJoinFailed(JoinError),
+    #[error("Joining on a spawned async task failed")]
+    TaskJoinFailed,
     #[error("Spawning an auxiliary or primary process via the process spawner failed: {0}")]
     ProcessSpawnFailed(std::io::Error),
     #[error("A passed-in resource at the path {0} was expected but doesn't exist or isn't accessible")]
@@ -83,11 +80,10 @@ pub trait VmmExecutor: Send + Sync {
     fn is_traceless(&self) -> bool;
 
     /// Prepare all transient resources for the VMM invocation.
-    fn prepare(
+    fn prepare<R: Runtime>(
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        fs_backend: Arc<impl FsBackend>,
         outer_paths: Vec<PathBuf>,
         ownership_model: VmmOwnershipModel,
     ) -> impl Future<Output = Result<HashMap<PathBuf, PathBuf>, VmmExecutorError>> + Send;
@@ -95,35 +91,31 @@ pub trait VmmExecutor: Send + Sync {
     /// Invoke the VMM on the given [VmmInstallation] and return the [ProcessHandle] that performs a connection to
     /// the created process, regardless of it possibly being not a child and rather having been unshare()-d into
     /// a separate PID namespace.
-    fn invoke(
+    fn invoke<R: Runtime>(
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        fs_backend: Arc<impl FsBackend>,
         config_path: Option<PathBuf>,
         ownership_model: VmmOwnershipModel,
-    ) -> impl Future<Output = Result<ProcessHandle, VmmExecutorError>> + Send;
+    ) -> impl Future<Output = Result<ProcessHandle<R::Process>, VmmExecutorError>> + Send;
 
     /// Clean up all transient resources of the VMM invocation.
-    fn cleanup(
+    fn cleanup<R: Runtime>(
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        fs_backend: Arc<impl FsBackend>,
         ownership_model: VmmOwnershipModel,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
-async fn create_file_or_fifo(
-    fs_backend: Arc<impl FsBackend>,
+async fn create_file_or_fifo<R: Runtime>(
     ownership_model: VmmOwnershipModel,
     path: PathBuf,
 ) -> Result<(), VmmExecutorError> {
     if let Some(parent_path) = path.parent() {
-        fs_backend
-            .create_dir_all(parent_path)
+        R::Filesystem::create_dir_all(parent_path)
             .await
-            .map_err(VmmExecutorError::FsBackendError)?;
+            .map_err(VmmExecutorError::FilesystemError)?;
     }
 
     if path.extension().map(|ext| ext.to_str()).flatten() == Some("fifo") {
@@ -131,33 +123,12 @@ async fn create_file_or_fifo(
             return Err(VmmExecutorError::MkfifoError(std::io::Error::last_os_error()));
         }
     } else {
-        fs_backend
-            .create_file(&path)
+        R::Filesystem::create_file(&path)
             .await
-            .map_err(VmmExecutorError::FsBackendError)?;
+            .map_err(VmmExecutorError::FilesystemError)?;
     }
 
     downgrade_owner(&path, ownership_model).map_err(VmmExecutorError::ChangeOwnerError)?;
-
-    Ok(())
-}
-
-#[cfg(feature = "unrestricted-vmm-executor")]
-async fn join_on_set(mut join_set: JoinSet<Result<(), VmmExecutorError>>) -> Result<(), VmmExecutorError> {
-    while let Some(result) = join_set.join_next().await {
-        match result {
-            Ok(result) => {
-                if let Err(err) = result {
-                    join_set.abort_all();
-                    return Err(err);
-                }
-            }
-            Err(err) => {
-                join_set.abort_all();
-                return Err(VmmExecutorError::TaskJoinFailed(err));
-            }
-        }
-    }
 
     Ok(())
 }

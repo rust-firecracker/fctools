@@ -6,17 +6,17 @@ use std::{
     sync::Arc,
 };
 
+use async_once_cell::OnceCell;
 use bytes::{Bytes, BytesMut};
 use http::{Request, Response, StatusCode, Uri};
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Body, Incoming};
-use hyper_client_sockets::{HyperUnixConnector, UnixUriExt};
-use hyper_util::{client::legacy::Client, rt::TokioExecutor};
-use tokio::sync::OnceCell;
+use hyper_client_sockets::unix::{connector::HyperUnixConnector, UnixUriExt};
+use hyper_util::client::legacy::Client;
 
 use crate::{
-    fs_backend::FsBackend,
     process_spawner::ProcessSpawner,
+    runtime::Runtime,
     vmm::{
         executor::{VmmExecutor, VmmExecutorError},
         installation::VmmInstallation,
@@ -29,15 +29,14 @@ use super::{
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
-/// tied to the given [VmmExecutor] E, [ProcessSpawner] S and [FsBackend] F.
+/// tied to the given [VmmExecutor] E, [ProcessSpawner] S and [Runtime] R.
 #[derive(Debug)]
-pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
+pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     executor: Arc<E>,
     ownership_model: VmmOwnershipModel,
     process_spawner: Arc<S>,
-    fs_backend: Arc<F>,
     installation: Arc<VmmInstallation>,
-    process_handle: Option<ProcessHandle>,
+    process_handle: Option<ProcessHandle<R::Process>>,
     state: VmmProcessState,
     hyper_client: OnceCell<Client<HyperUnixConnector, Full<Bytes>>>,
     outer_paths: Option<Vec<PathBuf>>,
@@ -107,7 +106,7 @@ pub enum VmmProcessError {
     IoError(std::io::Error),
 }
 
-impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
+impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     /// Create a new [VmmProcess] from the given component. Each component is either its owned value or an [Arc]; in the
     /// former case it will be put into an [Arc], otherwise the [Arc] will be kept. This allows for performant non-clone-based
     /// sharing of [VmmProcess] components between multiple [VmmProcess]-es.
@@ -115,7 +114,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         executor: impl Into<Arc<E>>,
         ownership_model: VmmOwnershipModel,
         process_spawner: impl Into<Arc<S>>,
-        fs_backend: impl Into<Arc<F>>,
         installation: impl Into<Arc<VmmInstallation>>,
         outer_paths: Vec<PathBuf>,
     ) -> Self {
@@ -126,7 +124,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
             ownership_model,
             process_spawner: process_spawner.into(),
             installation,
-            fs_backend: fs_backend.into(),
             process_handle: None,
             state: VmmProcessState::AwaitingPrepare,
             hyper_client: OnceCell::new(),
@@ -139,10 +136,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         self.ensure_state(VmmProcessState::AwaitingPrepare)?;
         let path_mappings = self
             .executor
-            .prepare(
+            .prepare::<R>(
                 self.installation.as_ref(),
                 self.process_spawner.clone(),
-                self.fs_backend.clone(),
                 self.outer_paths
                     .take()
                     .expect("Outer paths cannot ever be none, unreachable"),
@@ -160,10 +156,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.process_handle = Some(
             self.executor
-                .invoke(
+                .invoke::<R>(
                     self.installation.as_ref(),
                     self.process_spawner.clone(),
-                    self.fs_backend.clone(),
                     config_path,
                     self.ownership_model,
                 )
@@ -193,7 +188,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     /// Take out the stdout, stdin, stderr pipes of the underlying process. This can be only done once,
     /// if some code takes out the pipes, it now owns them for the remaining lifespan of the process.
     /// Allowed in [VmmProcessState::Started].
-    pub fn take_pipes(&mut self) -> Result<ProcessHandlePipes, VmmProcessError> {
+    pub fn take_pipes(&mut self) -> Result<ProcessHandlePipes<R::Process>, VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
         self.process_handle
             .as_mut()
@@ -277,10 +272,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
     pub async fn cleanup(&mut self) -> Result<(), VmmProcessError> {
         self.ensure_exited_or_crashed()?;
         self.executor
-            .cleanup(
+            .cleanup::<R>(
                 self.installation.as_ref(),
                 self.process_spawner.clone(),
-                self.fs_backend.clone(),
                 self.ownership_model,
             )
             .await
@@ -317,12 +311,14 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmmProcess<E, S, F> {
         let socket_path = self.get_socket_path().ok_or(VmmProcessError::SocketWasDisabled)?;
         let hyper_client = self
             .hyper_client
-            .get_or_try_init(|| async {
-                upgrade_owner(&socket_path, self.ownership_model, self.process_spawner.as_ref())
+            .get_or_try_init(async {
+                upgrade_owner::<R>(&socket_path, self.ownership_model, self.process_spawner.as_ref())
                     .await
                     .map_err(VmmProcessError::ChangeOwnerError)?;
 
-                Ok(Client::builder(TokioExecutor::new()).build(HyperUnixConnector))
+                Ok(Client::builder(R::get_hyper_executor()).build(HyperUnixConnector {
+                    backend: R::get_hyper_client_sockets_backend(),
+                }))
             })
             .await?;
 

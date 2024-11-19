@@ -10,8 +10,8 @@ use std::{
 use fcnet_types::{FirecrackerIpStack, FirecrackerNetwork, FirecrackerNetworkOperation, FirecrackerNetworkType};
 use fctools::{
     extension::link_local::LinkLocalSubnet,
-    fs_backend::{blocking::BlockingFsBackend, FsBackend},
     process_spawner::{DirectProcessSpawner, ProcessSpawner},
+    runtime::{tokio::TokioRuntime, Runtime},
     vm::{
         configuration::{InitMethod, VmConfiguration, VmConfigurationData},
         models::{
@@ -38,10 +38,7 @@ use fctools::{
 };
 use rand::{Rng, RngCore};
 use serde::Deserialize;
-use tokio::{
-    process::Child,
-    sync::{Mutex, MutexGuard, OnceCell},
-};
+use tokio::sync::{Mutex, MutexGuard, OnceCell};
 use uuid::Uuid;
 
 static TEST_TOOLCHAIN: OnceCell<TestOptions> = OnceCell::const_new();
@@ -135,21 +132,16 @@ pub fn get_process_spawner() -> Arc<impl ProcessSpawner> {
     Arc::new(DirectProcessSpawner)
 }
 
-#[allow(unused)]
-pub fn get_fs_backend() -> Arc<impl FsBackend> {
-    Arc::new(BlockingFsBackend)
-}
-
 #[derive(Default)]
 pub struct FailingRunner;
 
 impl ProcessSpawner for FailingRunner {
-    async fn spawn(
+    async fn spawn<R: Runtime>(
         &self,
         _path: &Path,
         _arguments: Vec<String>,
         _pipes_to_null: bool,
-    ) -> Result<Child, std::io::Error> {
+    ) -> Result<R::Process, std::io::Error> {
         Err(std::io::Error::other("Purposeful test failure"))
     }
 }
@@ -158,7 +150,7 @@ impl ProcessSpawner for FailingRunner {
 
 #[allow(unused)]
 pub type TestVmmProcess =
-    fctools::vmm::process::VmmProcess<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, BlockingFsBackend>;
+    fctools::vmm::process::VmmProcess<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime>;
 
 #[allow(unused)]
 pub async fn run_vmm_process_test<F, Fut>(no_new_pid_ns: bool, closure: F)
@@ -216,7 +208,6 @@ async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProce
             EitherVmmExecutor::Unrestricted(unrestricted_executor),
             ownership_model,
             DirectProcessSpawner,
-            BlockingFsBackend,
             get_real_firecracker_installation(),
             vec![],
         ),
@@ -224,7 +215,6 @@ async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProce
             EitherVmmExecutor::Jailed(jailed_executor),
             ownership_model,
             DirectProcessSpawner,
-            BlockingFsBackend,
             get_real_firecracker_installation(),
             vec![
                 get_test_path("assets/kernel"),
@@ -238,7 +228,7 @@ async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProce
 // VM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVm = fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, BlockingFsBackend>;
+pub type TestVm = fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime>;
 
 type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>>;
 
@@ -559,7 +549,7 @@ impl VmBuilder {
             EitherVmmExecutor::Unrestricted(_) => false,
         };
 
-        let mut vm: fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, BlockingFsBackend> =
+        let mut vm: fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime> =
             TestVm::prepare(
                 executor,
                 VmmOwnershipModel::Downgraded {
@@ -567,7 +557,6 @@ impl VmBuilder {
                     gid: TestOptions::get().await.jailer_gid.into(),
                 },
                 DirectProcessSpawner,
-                BlockingFsBackend,
                 get_real_firecracker_installation(),
                 configuration,
             )

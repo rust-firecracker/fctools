@@ -1,10 +1,10 @@
 use std::{process::ExitStatus, time::Duration};
 
-use tokio::io::AsyncWriteExt;
+use futures_util::AsyncWriteExt;
 
 use crate::{
-    fs_backend::FsBackend,
     process_spawner::ProcessSpawner,
+    runtime::{Runtime, RuntimeExecutor},
     vmm::{executor::VmmExecutor, process::VmmProcessError},
 };
 
@@ -32,9 +32,9 @@ pub enum VmShutdownMethod {
 }
 
 impl VmShutdownMethod {
-    async fn run<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
+    async fn run<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
         &self,
-        vm: &mut Vm<E, S, F>,
+        vm: &mut Vm<E, S, R>,
     ) -> Result<ExitStatus, VmShutdownError> {
         match self {
             VmShutdownMethod::Kill => vm.vmm_process.send_sigkill().map_err(VmShutdownError::KillError)?,
@@ -71,7 +71,7 @@ pub struct VmShutdownAction {
     /// The [VmShutdownMethod] used by this action.
     pub method: VmShutdownMethod,
     /// Optionally, a timeout for how long the action can take. If one is specified, the action future
-    /// will be wrapped in [tokio::time::timeout], thus not letting the shutdown hang. Otherwise, the
+    /// will be wrapped in a timeout future, thus not letting the shutdown hang. Otherwise, the
     /// future will be awaited normally with the possibility of hanging.
     pub timeout: Option<Duration>,
     /// Whether this action should be marked as graceful or not. This will reflect in the [VmShutdownOutcome]
@@ -135,8 +135,8 @@ impl VmShutdownOutcome {
     }
 }
 
-pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
-    vm: &mut Vm<E, S, F>,
+pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
+    vm: &mut Vm<E, S, R>,
     actions: impl IntoIterator<Item = VmShutdownAction>,
 ) -> Result<VmShutdownOutcome, VmShutdownError> {
     vm.ensure_paused_or_running()
@@ -146,7 +146,7 @@ pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
 
     for action in actions {
         let result = match action.timeout {
-            Some(duration) => tokio::time::timeout(duration, action.method.run(vm))
+            Some(duration) => R::Executor::timeout(duration, action.method.run(vm))
                 .await
                 .unwrap_or(Err(VmShutdownError::Timeout)),
             None => action.method.run(vm).await,

@@ -7,8 +7,8 @@ use hyper::body::Incoming;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-    fs_backend::FsBackend,
     process_spawner::ProcessSpawner,
+    runtime::Runtime,
     vm::upgrade_owner,
     vmm::{
         executor::VmmExecutor,
@@ -129,7 +129,7 @@ pub trait VmApi {
     fn api_get_mmds_untyped(&mut self) -> impl Future<Output = Result<serde_json::Value, VmApiError>> + Send;
 }
 
-impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmApi for Vm<E, S, F> {
+impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
     async fn api_custom_request(
         &mut self,
         route: impl AsRef<str> + Send,
@@ -238,9 +238,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmApi for Vm<E, S, F> {
             self.snapshot_traces.push(mem_file_path.clone());
         }
 
-        tokio::try_join!(
-            upgrade_owner(&snapshot_path, self.ownership_model, self.process_spawner.as_ref()),
-            upgrade_owner(&mem_file_path, self.ownership_model, self.process_spawner.as_ref())
+        futures_util::try_join!(
+            upgrade_owner::<R>(&snapshot_path, self.ownership_model, self.process_spawner.as_ref()),
+            upgrade_owner::<R>(&mem_file_path, self.ownership_model, self.process_spawner.as_ref()),
         )
         .map_err(VmApiError::SnapshotChangeOwnerError)?;
 
@@ -328,8 +328,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> VmApi for Vm<E, S, F> {
     }
 }
 
-pub(super) async fn init_new<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
-    vm: &mut Vm<E, S, F>,
+pub(super) async fn init_new<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
+    vm: &mut Vm<E, S, R>,
     data: VmConfigurationData,
 ) -> Result<(), VmApiError> {
     send_api_request(vm, "/boot-source", "PUT", Some(&data.boot_source)).await?;
@@ -389,8 +389,8 @@ pub(super) async fn init_new<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
     .await
 }
 
-pub(super) async fn init_restored_from_snapshot<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
-    vm: &mut Vm<E, S, F>,
+pub(super) async fn init_restored_from_snapshot<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
+    vm: &mut Vm<E, S, R>,
     data: VmConfigurationData,
     load_snapshot: LoadSnapshot,
 ) -> Result<(), VmApiError> {
@@ -405,8 +405,8 @@ pub(super) async fn init_restored_from_snapshot<E: VmmExecutor, S: ProcessSpawne
     send_api_request(vm, "/snapshot/load", "PUT", Some(&load_snapshot)).await
 }
 
-async fn send_api_request<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
-    vm: &mut Vm<E, S, F>,
+async fn send_api_request<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
+    vm: &mut Vm<E, S, R>,
     route: &str,
     method: &str,
     request_body: Option<impl Serialize>,
@@ -419,8 +419,8 @@ async fn send_api_request<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
     }
 }
 
-async fn send_api_request_with_response<Resp: DeserializeOwned, E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
-    vm: &mut Vm<E, S, F>,
+async fn send_api_request_with_response<Resp: DeserializeOwned, E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
+    vm: &mut Vm<E, S, R>,
     route: &str,
     method: &str,
     request_body: Option<impl Serialize>,
@@ -429,8 +429,8 @@ async fn send_api_request_with_response<Resp: DeserializeOwned, E: VmmExecutor, 
     serde_json::from_str(&response_json).map_err(VmApiError::SerdeError)
 }
 
-async fn send_api_request_internal<E: VmmExecutor, S: ProcessSpawner, F: FsBackend>(
-    vm: &mut Vm<E, S, F>,
+async fn send_api_request_internal<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
+    vm: &mut Vm<E, S, R>,
     route: &str,
     method: &str,
     request_body: Option<impl Serialize>,

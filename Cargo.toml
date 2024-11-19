@@ -1,6 +1,6 @@
 [package]
 name = "fctools"
-version = "0.5.0"
+version = "0.6.0-alpha.0"
 edition = "2021"
 description = "An exhaustive, highly modular and extensible host SDK for the Firecracker microVM manager."
 license = "MIT"
@@ -31,33 +31,51 @@ strip = "symbols"
 [dependencies]
 # common
 thiserror = "1.0.69"
-tokio = { version = "1.41.0", features = [
-    "process",
-    "io-util",
-    "time",
-    "rt",
-    "sync",
-] }
-# fs backends
-uuid = { version = "1.11.0", optional = true, features = ["v4"] }
-tokio-uring = { version = "0.5.0", optional = true }
-# executor
-nix = { version = "0.29.0", optional = true, features = [
+# runtime
+futures-io = { version = "0.3.31", optional = true }
+nix = { version = "0.29.0", features = [
     "user",
     "fs",
     "process",
     "signal",
-] }
+], optional = true }
+# tokio runtime
+tokio-util = { version = "0.7.12", default-features = false, features = [
+    "compat",
+], optional = true }
+tokio = { version = "1.41.1", default-features = false, features = [
+    "rt",
+    "process",
+    "fs",
+], optional = true }
+# smol runtime
+async-task = { version = "4.7.1", optional = true }
+async-executor = { version = "1.13.1", optional = true }
+async-io = { version = "2.4.0", optional = true }
+async-process = { version = "2.3.0", optional = true }
+async-fs = { version = "2.1.2", optional = true }
+blocking = { version = "1.6.1", optional = true }
+smol-hyper = { version = "0.1.1", optional = true }
+pin-project-lite = { version = "0.2.15", optional = true }
+# executor
+futures-util = { version = "0.3.31", default-features = false, features = [
+    "std",
+], optional = true }
+futures-channel = { version = "0.3.31", default-features = false, optional = true }
 # process
+async-once-cell = { version = "0.5.4", optional = true }
 hyper = { version = "1.5.0", features = ["client"], optional = true }
 bytes = { version = "1.8.0", optional = true }
 http-body-util = { version = "0.1.2", optional = true }
-hyper-client-sockets = { version = "0.2.0", optional = true }
+hyper-client-sockets = { version = "0.3.1", optional = true, features = [
+    "unix",
+    "connector",
+] }
 hyper-util = { version = "0.1.10", features = [
     "client-legacy",
     "client",
     "http1",
-], optional = true }
+], default-features = false, optional = true }
 http = { version = "1.1.0", optional = true }
 # vm
 serde = { version = "1.0.214", features = ["derive"], optional = true }
@@ -72,7 +90,7 @@ tower-service = { version = "0.3.3", optional = true }
 [dev-dependencies]
 assert_matches = "1.5.0"
 rand = "0.8.5"
-tokio = { version = "1.39.2", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.39.2", features = ["macros"] }
 uuid = { version = "1.10.0", features = ["v4"] }
 which = "7.0.0"
 fcnet-types = { version = "0.1.0", features = ["simple", "namespaced"] }
@@ -83,6 +101,8 @@ file-lock = "2.1.11"
 
 [features]
 full = [
+    "tokio-runtime",
+    "smol-runtime",
     "vm",
     "direct-process-spawner",
     "elevation-process-spawners",
@@ -94,28 +114,39 @@ full = [
     "grpc-vsock-extension",
     "link-local-extension",
     "snapshot-editor-extension",
-    "blocking-fs-backend",
-    "unsend-proxy-fs-backend",
-    "tokio-uring-fs-backend",
 ]
 default = []
+# runtime
+runtime = ["dep:futures-io", "dep:nix"]
+tokio-runtime = [
+    "runtime",
+    "dep:tokio",
+    "dep:tokio-util",
+    "hyper-client-sockets/tokio-backend",
+]
+smol-runtime = [
+    "dep:async-task",
+    "dep:async-executor",
+    "dep:async-io",
+    "dep:async-process",
+    "dep:async-fs",
+    "dep:blocking",
+    "hyper-client-sockets/async-io-backend",
+    "dep:smol-hyper",
+    "dep:pin-project-lite",
+]
 # process spawner
-process-spawner = []
+process-spawner = ["runtime"]
 direct-process-spawner = ["process-spawner"]
 elevation-process-spawners = ["process-spawner"]
-# fs backend
-fs-backend = ["dep:nix"]
-blocking-fs-backend = ["fs-backend", "tokio/fs"]
-unsend-proxy-fs-backend = ["dep:uuid"]
-tokio-uring-fs-backend = ["dep:tokio-uring", "tokio/fs"]
 # vmm
 vmm-arguments = ["dep:nix"]
-vmm-installation = ["fs-backend"]
+vmm-installation = ["dep:futures-util", "runtime"]
 vmm-executor = [
     "vmm-arguments",
     "vmm-installation",
-    "fs-backend",
     "process-spawner",
+    "dep:futures-channel",
 ]
 jailed-vmm-executor = ["vmm-executor"]
 unrestricted-vmm-executor = ["vmm-executor"]
@@ -125,9 +156,9 @@ vmm-process = [
     "dep:hyper",
     "dep:bytes",
     "dep:http-body-util",
-    "hyper-client-sockets/unix",
     "dep:hyper-util",
     "dep:http",
+    "dep:async-once-cell",
 ]
 # other
 vm = ["vmm-process", "dep:serde", "dep:serde_json"]

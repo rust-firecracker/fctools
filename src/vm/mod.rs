@@ -9,8 +9,8 @@ use std::{
 };
 
 use crate::{
-    fs_backend::{FsBackend, FsBackendError},
     process_spawner::ProcessSpawner,
+    runtime::{Runtime, RuntimeExecutor, RuntimeFilesystem, RuntimeJoinSet},
     vmm::{
         executor::{process_handle::ProcessHandlePipes, VmmExecutor},
         installation::VmmInstallation,
@@ -23,7 +23,6 @@ use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
 use models::LoadSnapshot;
 use nix::sys::stat::Mode;
 use shutdown::{VmShutdownAction, VmShutdownError, VmShutdownOutcome};
-use tokio::task::{JoinError, JoinSet};
 
 pub mod api;
 pub mod configuration;
@@ -35,12 +34,11 @@ pub mod snapshot;
 /// fashion, such as: moving resources in and out, transforming resource paths from inner to outer and vice versa,
 /// removing VM traces, creating snapshots, binding to the exact endpoints of the API server and fallback-based shutdown.
 ///
-/// A [Vm] is tied to 3 components: [VmmExecutor] E, [ProcessSpawner] S and [FsBackend] F, as it wraps a [VmmProcess] tied
+/// A [Vm] is tied to 3 components: [VmmExecutor] E, [ProcessSpawner] S and [Runtime] R, as it wraps a [VmmProcess] tied
 /// to these components with opinionated functionality.
 #[derive(Debug)]
-pub struct Vm<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> {
-    vmm_process: VmmProcess<E, S, F>,
-    fs_backend: Arc<F>,
+pub struct Vm<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
+    vmm_process: VmmProcess<E, S, R>,
     process_spawner: Arc<S>,
     executor: Arc<E>,
     ownership_model: VmmOwnershipModel,
@@ -86,10 +84,10 @@ pub enum VmError {
     ProcessError(VmmProcessError),
     #[error("An ownership change requested on the VM level failed: {0}")]
     ChangeOwnerError(ChangeOwnerError),
-    #[error("A filesystem backend operation failed: {0}")]
-    FsBackendError(FsBackendError),
-    #[error("Joining on an async task failed: {0}")]
-    TaskJoinFailed(JoinError),
+    #[error("A filesystem operation backed by the runtime failed: {0}")]
+    FilesystemError(std::io::Error),
+    #[error("Joining on an async task failed")]
+    TaskJoinFailed,
     #[error("Making a FIFO named pipe failed: {0}")]
     MkfifoError(std::io::Error),
     #[error("A state check of the VM failed: {0}")]
@@ -134,14 +132,13 @@ pub struct AccessiblePaths {
     pub vsock_listener_paths: Vec<PathBuf>,
 }
 
-impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
+impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     /// Prepare the full environment of a [Vm] without booting it. Analogously to the [VmmProcess], the passed-in resources
     /// can be either owned or [Arc]-ed; in the former case they will be put into an [Arc].
     pub async fn prepare(
         executor: impl Into<Arc<E>>,
         ownership_model: VmmOwnershipModel,
         process_spawner: impl Into<Arc<S>>,
-        fs_backend: impl Into<Arc<F>>,
         installation: impl Into<Arc<VmmInstallation>>,
         mut configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
@@ -170,7 +167,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
 
         let executor = executor.into();
         let process_spawner = process_spawner.into();
-        let fs_backend = fs_backend.into();
         let installation = installation.into();
 
         if executor.get_socket_path(installation.as_ref()).is_none() {
@@ -188,7 +184,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             executor.clone(),
             ownership_model,
             process_spawner.clone(),
-            fs_backend.clone(),
             installation,
             outer_paths,
         );
@@ -242,55 +237,32 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             }
         }
 
-        let mut prepare_join_set = JoinSet::new();
+        let mut join_set: RuntimeJoinSet<_, R::Executor> = RuntimeJoinSet::new();
 
         if let Some(ref logger) = configuration.data().logger_system {
             if let Some(ref log_path) = logger.log_path {
                 let new_log_path = vmm_process.inner_to_outer_path(log_path);
-                prepare_join_set.spawn(prepare_file(
-                    fs_backend.clone(),
-                    new_log_path.clone(),
-                    ownership_model,
-                    false,
-                ));
+                join_set.spawn(prepare_file::<R>(new_log_path.clone(), ownership_model, false));
                 accessible_paths.log_path = Some(new_log_path);
             }
         }
 
         if let Some(ref metrics_system) = configuration.data().metrics_system {
             let new_metrics_path = vmm_process.inner_to_outer_path(&metrics_system.metrics_path);
-            prepare_join_set.spawn(prepare_file(
-                fs_backend.clone(),
-                new_metrics_path.clone(),
-                ownership_model,
-                false,
-            ));
+            join_set.spawn(prepare_file::<R>(new_metrics_path.clone(), ownership_model, false));
             accessible_paths.metrics_path = Some(new_metrics_path);
         }
 
         if let Some(ref vsock) = configuration.data().vsock_device {
             let new_uds_path = vmm_process.inner_to_outer_path(&vsock.uds_path);
-            prepare_join_set.spawn(prepare_file(
-                fs_backend.clone(),
-                new_uds_path.clone(),
-                ownership_model,
-                true,
-            ));
+            join_set.spawn(prepare_file::<R>(new_uds_path.clone(), ownership_model, true));
             accessible_paths.vsock_multiplexer_path = Some(new_uds_path);
         }
 
-        while let Some(result) = prepare_join_set.join_next().await {
-            match result {
-                Ok(result) => result?,
-                Err(err) => {
-                    return Err(VmError::TaskJoinFailed(err));
-                }
-            }
-        }
+        join_set.wait().await.unwrap_or(Err(VmError::TaskJoinFailed))?;
 
         Ok(Self {
             vmm_process,
-            fs_backend,
             process_spawner,
             executor,
             ownership_model,
@@ -337,14 +309,13 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             if let InitMethod::ViaJsonConfiguration(inner_path) = init_method {
                 let outer_path = self.vmm_process.inner_to_outer_path(inner_path);
                 config_path = Some(inner_path.clone());
-                prepare_file(self.fs_backend.clone(), outer_path.clone(), self.ownership_model, true).await?;
-                self.fs_backend
-                    .write_file(
-                        &outer_path,
-                        serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
-                    )
-                    .await
-                    .map_err(VmError::FsBackendError)?;
+                prepare_file::<R>(outer_path.clone(), self.ownership_model, true).await?;
+                R::Filesystem::write_file(
+                    &outer_path,
+                    serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
+                )
+                .await
+                .map_err(VmError::FilesystemError)?;
             }
         }
 
@@ -353,11 +324,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             .await
             .map_err(VmError::ProcessError)?;
 
-        let fs_backend = self.fs_backend.clone();
-        tokio::time::timeout(socket_wait_timeout, async move {
+        R::Executor::timeout(socket_wait_timeout, async move {
             // wait until socket exists
             loop {
-                if let Ok(true) = fs_backend.check_exists(&socket_path).await {
+                if let Ok(true) = R::Filesystem::check_exists(&socket_path).await {
                     break;
                 }
             }
@@ -366,7 +336,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         })
         .await
         .map_err(|_| VmError::Timeout)?
-        .map_err(VmError::FsBackendError)?;
+        .map_err(VmError::FilesystemError)?;
 
         match configuration {
             VmConfiguration::New { init_method, data } => {
@@ -396,17 +366,18 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
 
     /// Clean up the full environment of this [Vm] after it being [VmState::Exited] or [VmState::Crashed].
     pub async fn cleanup(&mut self) -> Result<(), VmError> {
-        async fn remove_file(
+        async fn remove_file<RI: Runtime>(
             process_spawner: Arc<impl ProcessSpawner>,
-            fs_backend: Arc<impl FsBackend>,
             path: PathBuf,
             ownership_model: VmmOwnershipModel,
         ) -> Result<(), VmError> {
-            upgrade_owner(&path, ownership_model, process_spawner.as_ref())
+            upgrade_owner::<RI>(&path, ownership_model, process_spawner.as_ref())
                 .await
                 .map_err(VmError::ChangeOwnerError)?;
 
-            fs_backend.remove_file(&path).await.map_err(VmError::FsBackendError)
+            RI::Filesystem::remove_file(&path)
+                .await
+                .map_err(VmError::FilesystemError)
         }
 
         self.ensure_exited_or_crashed().map_err(VmError::StateCheckError)?;
@@ -416,38 +387,34 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
             return Ok(());
         }
 
-        let mut join_set = JoinSet::new();
+        let mut join_set: RuntimeJoinSet<_, R::Executor> = RuntimeJoinSet::new();
 
         if let Some(log_path) = self.accessible_paths.log_path.clone() {
-            join_set.spawn(remove_file(
+            join_set.spawn(remove_file::<R>(
                 self.process_spawner.clone(),
-                self.fs_backend.clone(),
                 log_path,
                 self.ownership_model,
             ));
         }
 
         if let Some(metrics_path) = self.accessible_paths.metrics_path.clone() {
-            join_set.spawn(remove_file(
+            join_set.spawn(remove_file::<R>(
                 self.process_spawner.clone(),
-                self.fs_backend.clone(),
                 metrics_path,
                 self.ownership_model,
             ));
         }
 
         if let Some(multiplexer_path) = self.accessible_paths.vsock_multiplexer_path.clone() {
-            join_set.spawn(remove_file(
+            join_set.spawn(remove_file::<R>(
                 self.process_spawner.clone(),
-                self.fs_backend.clone(),
                 multiplexer_path,
                 self.ownership_model,
             ));
 
             for listener_path in self.accessible_paths.vsock_listener_paths.clone() {
-                join_set.spawn(remove_file(
+                join_set.spawn(remove_file::<R>(
                     self.process_spawner.clone(),
-                    self.fs_backend.clone(),
                     listener_path,
                     self.ownership_model,
                 ));
@@ -455,23 +422,18 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
         }
 
         while let Some(snapshot_trace_path) = self.snapshot_traces.pop() {
-            join_set.spawn(remove_file(
+            join_set.spawn(remove_file::<R>(
                 self.process_spawner.clone(),
-                self.fs_backend.clone(),
                 snapshot_trace_path,
                 self.ownership_model,
             ));
         }
 
-        while let Some(remove_result) = join_set.join_next().await {
-            let _ = remove_result; // ignore "doesn't exist" errors that have no effect
-        }
-
-        Ok(())
+        join_set.wait().await.unwrap_or(Err(VmError::TaskJoinFailed))
     }
 
     /// Take out the [ProcessHandlePipes] of the underlying process handle if possible.
-    pub fn take_pipes(&mut self) -> Result<ProcessHandlePipes, VmError> {
+    pub fn take_pipes(&mut self) -> Result<ProcessHandlePipes<R::Process>, VmError> {
         self.ensure_paused_or_running().map_err(VmError::StateCheckError)?;
         self.vmm_process.take_pipes().map_err(VmError::ProcessError)
     }
@@ -524,17 +486,15 @@ impl<E: VmmExecutor, S: ProcessSpawner, F: FsBackend> Vm<E, S, F> {
     }
 }
 
-async fn prepare_file(
-    fs_backend: Arc<impl FsBackend>,
+async fn prepare_file<R: Runtime>(
     path: PathBuf,
     ownership_model: VmmOwnershipModel,
     only_tree: bool,
 ) -> Result<(), VmError> {
     if let Some(parent_path) = path.parent() {
-        fs_backend
-            .create_dir_all(parent_path)
+        R::Filesystem::create_dir_all(parent_path)
             .await
-            .map_err(VmError::FsBackendError)?;
+            .map_err(VmError::FilesystemError)?;
     }
 
     if !only_tree {
@@ -543,10 +503,12 @@ async fn prepare_file(
                 return Err(VmError::MkfifoError(std::io::Error::last_os_error()));
             }
         } else {
-            fs_backend.create_file(&path).await.map_err(VmError::FsBackendError)?;
+            R::Filesystem::create_file(&path)
+                .await
+                .map_err(VmError::FilesystemError)?;
         }
 
-        downgrade_owner_recursively(&path, ownership_model, fs_backend.as_ref())
+        downgrade_owner_recursively::<R>(&path, ownership_model)
             .await
             .map_err(VmError::ChangeOwnerError)?;
     } else if let Some(parent_path) = path.parent() {

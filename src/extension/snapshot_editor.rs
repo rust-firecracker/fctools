@@ -1,47 +1,51 @@
 use std::{
+    marker::PhantomData,
     path::{Path, PathBuf},
-    process::{ExitStatus, Output, Stdio},
+    process::{Command, ExitStatus, Output, Stdio},
 };
 
-use tokio::process::Command;
-
-use crate::vmm::installation::VmmInstallation;
+use crate::{
+    runtime::{Runtime, RuntimeProcess},
+    vmm::installation::VmmInstallation,
+};
 
 /// An extension that provides bindings to functionality exposed by Firecracker's "snapshot-editor" binary.
 /// Internally this performs sanity checks and then spawns and awaits a "snapshot-editor" process.
 pub trait SnapshotEditorExt {
     /// Get a [SnapshotEditor] binding that is bound to this [VmmInstallation]'s lifetime.
-    fn snapshot_editor(&self) -> SnapshotEditor<'_>;
+    fn snapshot_editor<R: Runtime>(&self) -> SnapshotEditor<'_, R>;
 }
 
 impl SnapshotEditorExt for VmmInstallation {
-    fn snapshot_editor(&self) -> SnapshotEditor<'_> {
+    fn snapshot_editor<R: Runtime>(&self) -> SnapshotEditor<'_, R> {
         SnapshotEditor {
             path: &self.snapshot_editor_path,
+            runtime: PhantomData,
         }
     }
 }
 
 /// A struct exposing bindings to a "snapshot-editor" binary of this [VmmInstallation].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SnapshotEditor<'p> {
+pub struct SnapshotEditor<'p, R: Runtime> {
     path: &'p PathBuf,
+    runtime: PhantomData<R>,
 }
 
 /// An error that can be emitted by a "snapshot-editor" invocation.
 #[derive(Debug, thiserror::Error)]
 pub enum SnapshotEditorError {
     #[error("Forking the snapshot-editor process failed: {0}")]
-    ProcessSpawnFailed(tokio::io::Error),
+    ProcessSpawnFailed(std::io::Error),
     #[error("Waiting on the exit of the snapshot-editor process failed: {0}")]
-    ProcessWaitFailed(tokio::io::Error),
+    ProcessWaitFailed(std::io::Error),
     #[error("The snapshot-editor exited with a non-zero exit status: {0}")]
     ExitedWithNonZeroStatus(ExitStatus),
     #[error("A given path was not in UTF-8. Non-UTF-8 paths are unsupported.")]
     NonUTF8Path,
 }
 
-impl<'p> SnapshotEditor<'p> {
+impl<'p, R: Runtime> SnapshotEditor<'p, R> {
     /// Rebase base_memory_path onto diff_memory_path.
     pub async fn rebase_memory(
         &self,
@@ -132,11 +136,9 @@ impl<'p> SnapshotEditor<'p> {
         command.stderr(Stdio::null());
         command.stdin(Stdio::null());
 
-        let child = command.spawn().map_err(SnapshotEditorError::ProcessSpawnFailed)?;
-        let output = child
-            .wait_with_output()
+        let output = R::Process::output(command)
             .await
-            .map_err(SnapshotEditorError::ProcessWaitFailed)?;
+            .map_err(SnapshotEditorError::ProcessSpawnFailed)?;
 
         if !output.status.success() {
             return Err(SnapshotEditorError::ExitedWithNonZeroStatus(output.status));

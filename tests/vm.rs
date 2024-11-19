@@ -1,8 +1,8 @@
 use std::{os::unix::fs::FileTypeExt, time::Duration};
 
 use fctools::{
-    fs_backend::blocking::BlockingFsBackend,
     process_spawner::DirectProcessSpawner,
+    runtime::tokio::TokioRuntime,
     vm::{
         api::VmApi,
         configuration::InitMethod,
@@ -21,16 +21,14 @@ use fctools::{
         ownership::VmmOwnershipModel,
     },
 };
+use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};
 use nix::unistd::{getegid, geteuid};
 use rand::RngCore;
 use test_framework::{
     get_real_firecracker_installation, get_tmp_fifo_path, get_tmp_path, shutdown_test_vm, TestOptions, TestVm,
     VmBuilder,
 };
-use tokio::{
-    fs::{metadata, try_exists},
-    io::{AsyncBufReadExt, BufReader},
-};
+use tokio::fs::{metadata, try_exists};
 
 mod test_framework;
 
@@ -173,7 +171,7 @@ fn vm_can_take_pipes() {
             let mut buf_reader = BufReader::new(pipes.stdout).lines();
             shutdown_test_vm(&mut vm).await;
 
-            while let Ok(Some(line)) = buf_reader.next_line().await {
+            while let Some(Ok(line)) = buf_reader.next().await {
                 buf.push_str(&line);
             }
 
@@ -232,14 +230,14 @@ fn vm_can_snapshot_after_original_has_exited() {
             .await
             .unwrap();
         snapshot
-            .copy(&BlockingFsBackend, get_tmp_path(), get_tmp_path())
+            .copy::<TokioRuntime>(get_tmp_path(), get_tmp_path())
             .await
             .unwrap();
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm).await;
 
         restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
-        snapshot.remove(&BlockingFsBackend).await.unwrap();
+        snapshot.remove::<TokioRuntime>().await.unwrap();
     });
 }
 
@@ -285,7 +283,6 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
             gid: getegid(),
         },
         DirectProcessSpawner,
-        BlockingFsBackend,
         get_real_firecracker_installation(),
         snapshot.into_configuration(Some(true), None),
     )

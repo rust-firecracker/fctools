@@ -36,9 +36,9 @@ pub mod vmm;
 )]
 pub mod extension;
 
-#[cfg(feature = "fs-backend")]
-#[cfg_attr(docsrs, doc(cfg(feature = "fs-backend")))]
-pub mod fs_backend;
+#[cfg(feature = "runtime")]
+#[cfg_attr(docsrs, doc(cfg(feature = "runtime")))]
+pub mod runtime;
 
 #[cfg(feature = "process-spawner")]
 #[cfg_attr(docsrs, doc(cfg(feature = "process-spawner")))]
