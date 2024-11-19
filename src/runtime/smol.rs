@@ -1,3 +1,6 @@
+//! A runtime implementation using modular async-* crates, which are part of the Smol ecosystem,
+//! for its components.
+
 use std::{
     future::Future,
     os::unix::prelude::OwnedFd,

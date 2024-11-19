@@ -1,3 +1,8 @@
+//! Provides a set of traits that need to be implemented to have compatibility between fctools and an async runtime.
+//! Two built-in implementations are provided behind feature gates that are both disabled by default:
+//! - `tokio-runtime` using Tokio.
+//! - `smol-runtime` using the async-* crates (async-io, async-fs, async-process, async-task, async-executor).
+
 use std::{
     future::Future,
     os::fd::OwnedFd,
@@ -18,6 +23,7 @@ pub mod smol;
 #[cfg(any(feature = "tokio-runtime", feature = "smol-runtime"))]
 mod chownr;
 
+/// An async runtime platform used by fctools.
 pub trait Runtime: 'static {
     type Executor: RuntimeExecutor;
     type Filesystem: RuntimeFilesystem;
@@ -37,6 +43,7 @@ pub trait Runtime: 'static {
     fn get_hyper_client_sockets_backend() -> hyper_client_sockets::Backend;
 }
 
+/// The async task executor part of the runtime.
 pub trait RuntimeExecutor {
     type Task<O: Send + 'static>: RuntimeTask<O>;
     type TimeoutError: std::error::Error + std::fmt::Debug + Send + Sync;
@@ -52,12 +59,14 @@ pub trait RuntimeExecutor {
         O: Send;
 }
 
+/// An async task that is detached on drop, can be cancelled and joined on.
 pub trait RuntimeTask<O: Send + 'static>: Send {
     fn cancel(self) -> impl Future<Output = Option<O>> + Send;
 
     fn join(self) -> impl Future<Output = Option<O>> + Send;
 }
 
+/// The async filesystem part of the runtime.
 pub trait RuntimeFilesystem {
     type File: AsyncRead + AsyncWrite + Send + Unpin;
     type AsyncFd: RuntimeAsyncFd;
@@ -95,10 +104,13 @@ pub trait RuntimeFilesystem {
     fn create_async_fd(fd: OwnedFd) -> Result<Self::AsyncFd, std::io::Error>;
 }
 
+/// An async file descriptor in the runtime that can be polled for the "readable" interest. Used by
+/// the detached (pidfd) backend in process handles.
 pub trait RuntimeAsyncFd: Send {
     fn readable(&self) -> impl Future<Output = Result<(), std::io::Error>> + Send;
 }
 
+/// An async child process in the runtime. Used by the attached backend in process handles.
 pub trait RuntimeProcess: Sized + Send + Sync + std::fmt::Debug {
     type Stdout: AsyncRead + Unpin + Send;
     type Stderr: AsyncRead + Unpin + Send;
@@ -134,6 +146,7 @@ pub trait RuntimeProcess: Sized + Send + Sync + std::fmt::Debug {
     fn take_stdin(&mut self) -> Option<Self::Stdin>;
 }
 
+/// A utility join set of multiple [RuntimeTask]s that run concurrently and can be waited on to all complete.
 pub struct RuntimeJoinSet<O: Send + 'static, E: RuntimeExecutor> {
     join_handles: Vec<E::Task<Result<(), O>>>,
 }
@@ -143,17 +156,6 @@ impl<O: Send + 'static, E: RuntimeExecutor> RuntimeJoinSet<O, E> {
         Self {
             join_handles: Vec::new(),
         }
-    }
-
-    pub async fn join_two<F1, F2>(future1: F1, future2: F2) -> Option<Result<(), O>>
-    where
-        F1: Future<Output = Result<(), O>> + Send + 'static,
-        F2: Future<Output = Result<(), O>> + Send + 'static,
-    {
-        let mut join_set = Self::new();
-        join_set.spawn(future1);
-        join_set.spawn(future2);
-        join_set.wait().await
     }
 
     pub fn spawn<F>(&mut self, future: F)

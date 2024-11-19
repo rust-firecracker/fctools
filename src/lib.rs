@@ -36,6 +36,8 @@ pub mod vmm;
 )]
 pub mod extension;
 
+#[cfg(feature = "runtime")]
+#[cfg_attr(docsrs, doc(cfg(feature = "runtime")))]
 pub mod runtime;
 
 #[cfg(feature = "process-spawner")]

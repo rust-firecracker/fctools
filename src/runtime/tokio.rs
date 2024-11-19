@@ -1,3 +1,5 @@
+//! A runtime implementation using Tokio's different features for all of its components.
+
 use std::{future::Future, os::fd::OwnedFd, path::Path, process::Stdio, time::Duration};
 
 use nix::unistd::{Gid, Uid};
