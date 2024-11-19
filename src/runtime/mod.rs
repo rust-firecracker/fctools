@@ -38,11 +38,10 @@ pub trait Runtime: 'static {
 }
 
 pub trait RuntimeExecutor {
-    type JoinError: std::error::Error + std::fmt::Debug + Send + Sync;
-    type JoinHandle<O: Send>: Future<Output = Result<O, Self::JoinError>> + Send + Sync;
+    type Task<O: Send + 'static>: RuntimeTask<O>;
     type TimeoutError: std::error::Error + std::fmt::Debug + Send + Sync;
 
-    fn spawn<F, O>(future: F) -> Self::JoinHandle<O>
+    fn spawn<F, O>(future: F) -> Self::Task<O>
     where
         F: Future<Output = O> + Send + 'static,
         O: Send + 'static;
@@ -51,6 +50,12 @@ pub trait RuntimeExecutor {
     where
         F: Future<Output = O> + Send,
         O: Send;
+}
+
+pub trait RuntimeTask<O: Send + 'static>: Send {
+    fn cancel(self) -> impl Future<Output = Option<O>> + Send;
+
+    fn join(self) -> impl Future<Output = Option<O>> + Send;
 }
 
 pub trait RuntimeFilesystem {
@@ -130,7 +135,7 @@ pub trait RuntimeProcess: Sized + Send + Sync + std::fmt::Debug {
 }
 
 pub struct RuntimeJoinSet<O: Send + 'static, E: RuntimeExecutor> {
-    join_handles: Vec<E::JoinHandle<Result<(), O>>>,
+    join_handles: Vec<E::Task<Result<(), O>>>,
 }
 
 impl<O: Send + 'static, E: RuntimeExecutor> RuntimeJoinSet<O, E> {
@@ -140,7 +145,7 @@ impl<O: Send + 'static, E: RuntimeExecutor> RuntimeJoinSet<O, E> {
         }
     }
 
-    pub async fn join_two<F1, F2>(future1: F1, future2: F2) -> Result<Result<(), O>, E::JoinError>
+    pub async fn join_two<F1, F2>(future1: F1, future2: F2) -> Option<Result<(), O>>
     where
         F1: Future<Output = Result<(), O>> + Send + 'static,
         F2: Future<Output = Result<(), O>> + Send + 'static,
@@ -158,17 +163,17 @@ impl<O: Send + 'static, E: RuntimeExecutor> RuntimeJoinSet<O, E> {
         self.join_handles.push(E::spawn(future));
     }
 
-    pub async fn wait(self) -> Result<Result<(), O>, E::JoinError> {
+    pub async fn wait(self) -> Option<Result<(), O>> {
         for join_handle in self.join_handles {
-            match join_handle.await {
-                Ok(result) => match result {
+            match join_handle.join().await {
+                Some(result) => match result {
                     Ok(()) => {}
-                    Err(err) => return Ok(Err(err)),
+                    Err(err) => return Some(Err(err)),
                 },
-                Err(err) => return Err(err),
+                None => return None,
             }
         }
 
-        Ok(Ok(()))
+        Some(Ok(()))
     }
 }

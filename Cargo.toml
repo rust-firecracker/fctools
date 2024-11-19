@@ -49,6 +49,7 @@ tokio = { version = "1.41.1", default-features = false, features = [
     "fs",
 ], optional = true }
 # smol runtime
+async-task = { version = "4.7.1", optional = true }
 async-executor = { version = "1.13.1", optional = true }
 async-io = { version = "2.4.0", optional = true }
 async-process = { version = "2.3.0", optional = true }
@@ -124,6 +125,7 @@ tokio-runtime = [
     "hyper-client-sockets/tokio-backend",
 ]
 smol-runtime = [
+    "dep:async-task",
     "dep:async-executor",
     "dep:async-io",
     "dep:async-process",

@@ -4,10 +4,13 @@ use nix::unistd::{Gid, Uid};
 use tokio::{
     io::unix::AsyncFd,
     process::{Child, ChildStderr, ChildStdin, ChildStdout},
+    task::JoinHandle,
 };
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-use super::{chownr::chownr_recursive, Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
+use super::{
+    chownr::chownr_recursive, Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess, RuntimeTask,
+};
 
 pub struct TokioRuntime;
 
@@ -35,18 +38,16 @@ impl Runtime for TokioRuntime {
 pub struct TokioRuntimeExecutor;
 
 impl RuntimeExecutor for TokioRuntimeExecutor {
-    type JoinError = tokio::task::JoinError;
-
-    type JoinHandle<O: Send> = tokio::task::JoinHandle<O>;
+    type Task<O: Send + 'static> = TokioRuntimeTask<O>;
 
     type TimeoutError = tokio::time::error::Elapsed;
 
-    fn spawn<F, O>(future: F) -> Self::JoinHandle<O>
+    fn spawn<F, O>(future: F) -> Self::Task<O>
     where
         F: Future<Output = O> + Send + 'static,
         O: Send + 'static,
     {
-        tokio::task::spawn(future)
+        TokioRuntimeTask(tokio::task::spawn(future))
     }
 
     fn timeout<F, O>(duration: Duration, future: F) -> impl Future<Output = Result<O, Self::TimeoutError>> + Send
@@ -55,6 +56,22 @@ impl RuntimeExecutor for TokioRuntimeExecutor {
         O: Send,
     {
         tokio::time::timeout(duration, future)
+    }
+}
+
+pub struct TokioRuntimeTask<O: Send + 'static>(JoinHandle<O>);
+
+impl<O: Send + 'static> RuntimeTask<O> for TokioRuntimeTask<O> {
+    fn cancel(self) -> impl Future<Output = Option<O>> {
+        self.0.abort();
+        self.join()
+    }
+
+    async fn join(self) -> Option<O> {
+        match self.0.await {
+            Ok(output) => Some(output),
+            Err(_) => None,
+        }
     }
 }
 

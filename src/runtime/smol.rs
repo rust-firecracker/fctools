@@ -1,5 +1,4 @@
 use std::{
-    convert::Infallible,
     future::Future,
     os::unix::prelude::OwnedFd,
     path::Path,
@@ -13,12 +12,13 @@ use std::{
 use async_executor::Executor;
 use async_io::Timer;
 use async_process::{Child, ChildStderr, ChildStdin, ChildStdout};
-use futures_util::{FutureExt, TryFutureExt};
 use nix::unistd::{Gid, Uid};
 use pin_project_lite::pin_project;
 use smol_hyper::rt::SmolExecutor;
 
-use super::{chownr::chownr_recursive, Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
+use super::{
+    chownr::chownr_recursive, Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess, RuntimeTask,
+};
 
 static EXECUTOR: OnceLock<Arc<Executor>> = OnceLock::new();
 
@@ -60,19 +60,17 @@ impl std::fmt::Display for TimeoutError {
 }
 
 impl RuntimeExecutor for SmolRuntimeExecutor {
-    type JoinError = Infallible;
-
-    type JoinHandle<O: Send> = Pin<Box<dyn Future<Output = Result<O, Infallible>> + Send + Sync>>;
+    type Task<O: Send + 'static> = SmolRuntimeTask<O>;
 
     type TimeoutError = TimeoutError;
 
-    fn spawn<F, O>(future: F) -> Self::JoinHandle<O>
+    fn spawn<F, O>(future: F) -> Self::Task<O>
     where
         F: Future<Output = O> + Send + 'static,
         O: Send + 'static,
     {
         let task = EXECUTOR.get().expect("Executor not initialized").spawn(future);
-        Box::pin(task.map(|ret| Ok(ret)))
+        SmolRuntimeTask(Some(task))
     }
 
     fn timeout<F, O>(duration: Duration, future: F) -> impl Future<Output = Result<O, Self::TimeoutError>> + Send
@@ -83,6 +81,26 @@ impl RuntimeExecutor for SmolRuntimeExecutor {
         TimeoutFuture {
             timer: Timer::after(duration),
             future,
+        }
+    }
+}
+
+pub struct SmolRuntimeTask<O: Send + 'static>(Option<async_task::Task<O>>);
+
+impl<O: Send + 'static> RuntimeTask<O> for SmolRuntimeTask<O> {
+    fn cancel(mut self) -> impl Future<Output = Option<O>> {
+        self.0.take().expect("Task option can't be None before drop").cancel()
+    }
+
+    async fn join(mut self) -> Option<O> {
+        Some(self.0.take().expect("Task option can't be None before drop").await)
+    }
+}
+
+impl<O: Send + 'static> Drop for SmolRuntimeTask<O> {
+    fn drop(&mut self) {
+        if let Some(task) = self.0.take() {
+            task.detach();
         }
     }
 }
@@ -139,8 +157,8 @@ impl RuntimeFilesystem for SmolRuntimeFilesystem {
         async_fs::create_dir_all(path)
     }
 
-    fn create_file(path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
-        async_fs::File::create(path).map_ok(|_| ())
+    async fn create_file(path: &Path) -> Result<(), std::io::Error> {
+        async_fs::File::create(path).await.map(|_| ())
     }
 
     fn write_file(path: &Path, content: String) -> impl Future<Output = Result<(), std::io::Error>> + Send {
@@ -162,8 +180,8 @@ impl RuntimeFilesystem for SmolRuntimeFilesystem {
         async_fs::remove_dir_all(path)
     }
 
-    fn copy(source_path: &Path, destination_path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
-        async_fs::copy(source_path, destination_path).map_ok(|_| ())
+    async fn copy(source_path: &Path, destination_path: &Path) -> Result<(), std::io::Error> {
+        async_fs::copy(source_path, destination_path).await.map(|_| ())
     }
 
     fn chownr(path: &Path, uid: Uid, gid: Gid) -> impl Future<Output = Result<(), std::io::Error>> + Send {

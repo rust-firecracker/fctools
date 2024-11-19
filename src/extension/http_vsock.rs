@@ -87,7 +87,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
         let (send_request, connection) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(stream)
             .await
             .map_err(VsockHttpError::CannotHandshake)?;
-        let _ = R::Executor::spawn(connection);
+        R::Executor::spawn(connection);
 
         Ok(send_request)
     }

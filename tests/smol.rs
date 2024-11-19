@@ -12,8 +12,9 @@ use fctools::{
         Vm,
     },
     vmm::{
-        arguments::{VmmApiSocket, VmmArguments},
-        executor::unrestricted::UnrestrictedVmmExecutor,
+        arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
+        executor::jailed::{FlatJailRenamer, JailedVmmExecutor},
+        id::VmmId,
         ownership::VmmOwnershipModel,
     },
 };
@@ -39,7 +40,15 @@ fn t() {
                 .path_on_host(get_test_path("assets/rootfs.ext4"))
                 .is_read_only(true),
         );
-        let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())));
+        let jailer_arguments = JailerArguments::new(VmmId::new("somevmid").unwrap())
+            .daemonize()
+            .exec_in_new_pid_ns();
+
+        let executor = JailedVmmExecutor::new(
+            VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())),
+            jailer_arguments,
+            FlatJailRenamer,
+        );
 
         let configuration = VmConfiguration::New {
             init_method: InitMethod::ViaApiCalls,

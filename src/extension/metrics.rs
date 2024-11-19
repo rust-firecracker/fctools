@@ -302,8 +302,8 @@ pub enum MetricsTaskError {
 /// A spawned async task that gathers Firecracker's metrics.
 #[derive(Debug)]
 pub struct MetricsTask<E: RuntimeExecutor> {
-    /// The [JoinHandle] to the task that can be used to abort it or check on it.
-    pub join_handle: E::JoinHandle<Result<(), MetricsTaskError>>,
+    /// The task that can be detached, cancelled or joined on.
+    pub task: E::Task<Result<(), MetricsTaskError>>,
     /// An asynchronous [mpsc::Receiver] that can be used to fetch the metrics sent out by the task.
     pub receiver: mpsc::Receiver<Metrics>,
 }
@@ -317,7 +317,7 @@ pub fn spawn_metrics_task<R: Runtime>(
 ) -> MetricsTask<R::Executor> {
     let (mut sender, receiver) = mpsc::channel(buffer);
 
-    let join_handle = R::Executor::spawn(async move {
+    let task = R::Executor::spawn(async move {
         let mut buf_reader = BufReader::new(
             R::Filesystem::open_file_for_read(metrics_path.as_ref())
                 .await
@@ -336,5 +336,5 @@ pub fn spawn_metrics_task<R: Runtime>(
         }
     });
 
-    MetricsTask { join_handle, receiver }
+    MetricsTask { task, receiver }
 }
