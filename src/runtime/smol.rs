@@ -34,12 +34,15 @@ impl Runtime for SmolRuntime {
 
     type Process = SmolRuntimeProcess;
 
+    #[cfg(feature = "vmm-process")]
     type HyperExecutor = SmolExecutor<Arc<Executor<'static>>>;
 
+    #[cfg(feature = "vmm-process")]
     fn get_hyper_executor() -> Self::HyperExecutor {
         SmolExecutor::new(EXECUTOR.get().expect("Executor not initialized").clone())
     }
 
+    #[cfg(feature = "vmm-process")]
     fn get_hyper_client_sockets_backend() -> hyper_client_sockets::Backend {
         hyper_client_sockets::Backend::AsyncIo
     }

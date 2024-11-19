@@ -16,10 +16,14 @@ pub trait Runtime: 'static {
     type Executor: RuntimeExecutor;
     type Filesystem: RuntimeFilesystem;
     type Process: RuntimeProcess;
+
+    #[cfg(feature = "vmm-process")]
     type HyperExecutor: hyper::rt::Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Clone + Send + Sync + 'static;
 
+    #[cfg(feature = "vmm-process")]
     fn get_hyper_executor() -> Self::HyperExecutor;
 
+    #[cfg(feature = "vmm-process")]
     fn get_hyper_client_sockets_backend() -> hyper_client_sockets::Backend;
 }
 
