@@ -1,6 +1,6 @@
 [package]
 name = "fctools"
-version = "0.6.0-alpha.1"
+version = "0.6.0-alpha.2"
 edition = "2021"
 description = "An exhaustive, highly modular and extensible host SDK for the Firecracker microVM manager."
 license = "MIT"
@@ -58,10 +58,7 @@ blocking = { version = "1.6.1", optional = true }
 smol-hyper = { version = "0.1.1", optional = true }
 pin-project-lite = { version = "0.2.15", optional = true }
 # executor
-futures-util = { version = "0.3.31", default-features = false, features = [
-    "std",
-    "sink",
-], optional = true }
+futures-util = { version = "0.3.31", features = ["sink"], optional = true }
 futures-channel = { version = "0.3.31", default-features = false, optional = true }
 # process
 async-once-cell = { version = "0.5.4", optional = true }
