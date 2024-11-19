@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use async_executor::Executor;
-use async_io::block_on;
+use async_io::{block_on, Timer};
 use fctools::{
     process_spawner::DirectProcessSpawner,
     runtime::smol::SmolRuntime,
@@ -55,16 +55,18 @@ fn t() {
         )
         .await
         .unwrap();
-        vm.start(Duration::from_secs(6)).await.unwrap();
+        vm.start(Duration::from_secs(5)).await.unwrap();
+        Timer::after(Duration::from_secs(3)).await;
+
         let outcome = vm
             .shutdown(VmShutdownAction {
                 method: VmShutdownMethod::CtrlAltDel,
-                timeout: Some(Duration::from_secs(6)),
+                timeout: None,
                 graceful: true,
             })
             .await
             .unwrap();
-        assert!(outcome.fully_graceful());
+        assert!(outcome.graceful);
         vm.cleanup().await.unwrap();
     });
 

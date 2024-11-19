@@ -6,14 +6,16 @@ use std::{
     pin::Pin,
     process::Stdio,
     sync::{Arc, OnceLock},
+    task::Poll,
     time::{Duration, Instant},
 };
 
 use async_executor::Executor;
 use async_io::Timer;
 use async_process::{Child, ChildStderr, ChildStdin, ChildStdout};
-use futures_util::{future::Either, FutureExt, TryFutureExt};
+use futures_util::{FutureExt, TryFutureExt};
 use nix::unistd::{Gid, Uid};
+use pin_project_lite::pin_project;
 use smol_hyper::rt::SmolExecutor;
 
 use super::{chownr::chownr_recursive, Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
@@ -51,12 +53,7 @@ impl Runtime for SmolRuntime {
 
 pub struct SmolRuntimeExecutor;
 
-#[derive(Debug, thiserror::Error)]
-pub struct SmolTimeoutError {
-    pub instant: Instant,
-}
-
-impl std::fmt::Display for SmolTimeoutError {
+impl std::fmt::Display for TimeoutError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Timed out at {:?}", self.instant)
     }
@@ -67,7 +64,7 @@ impl RuntimeExecutor for SmolRuntimeExecutor {
 
     type JoinHandle<O: Send> = Pin<Box<dyn Future<Output = Result<O, Infallible>> + Send + Sync>>;
 
-    type TimeoutError = SmolTimeoutError;
+    type TimeoutError = TimeoutError;
 
     fn spawn<F, O>(future: F) -> Self::JoinHandle<O>
     where
@@ -78,24 +75,47 @@ impl RuntimeExecutor for SmolRuntimeExecutor {
         Box::pin(task.map(|ret| Ok(ret)))
     }
 
-    async fn timeout<F, O>(duration: Duration, future: F) -> Result<O, SmolTimeoutError>
+    fn timeout<F, O>(duration: Duration, future: F) -> impl Future<Output = Result<O, Self::TimeoutError>> + Send
     where
         F: Future<Output = O> + Send,
         O: Send,
     {
-        let either = futures_util::future::select(
-            Box::pin(future),
-            Box::pin(async move {
-                let instant = Timer::after(duration).await;
-                SmolTimeoutError { instant }
-            }),
-        )
-        .await;
-
-        match either {
-            Either::Left((output, _)) => Ok(output),
-            Either::Right((err, _)) => Err(err),
+        TimeoutFuture {
+            timer: Timer::after(duration),
+            future,
         }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub struct TimeoutError {
+    pub instant: Instant,
+}
+
+pin_project! {
+    struct TimeoutFuture<F: Future<Output = O>, O> {
+        #[pin]
+        timer: Timer,
+        #[pin]
+        future: F
+    }
+}
+
+impl<F: Future<Output = O>, O> Future for TimeoutFuture<F, O> {
+    type Output = Result<O, TimeoutError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        let proj = self.project();
+
+        if let Poll::Ready(instant) = proj.timer.poll(cx) {
+            return Poll::Ready(Err(TimeoutError { instant }));
+        }
+
+        if let Poll::Ready(output) = proj.future.poll(cx) {
+            return Poll::Ready(Ok(output));
+        }
+
+        Poll::Pending
     }
 }
 
@@ -108,7 +128,7 @@ impl RuntimeFilesystem for SmolRuntimeFilesystem {
 
     fn check_exists(path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send {
         let path = path.to_owned();
-        blocking::unblock(move || std::fs::exists(path))
+        blocking::unblock(move || std::fs::exists(&path))
     }
 
     fn remove_file(path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
