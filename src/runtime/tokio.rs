@@ -13,8 +13,11 @@ pub struct TokioRuntime;
 
 impl Runtime for TokioRuntime {
     type Executor = TokioRuntimeExecutor;
+
     type Filesystem = TokioRuntimeFilesystem;
+
     type Process = TokioRuntimeProcess;
+
     type HyperExecutor = hyper_util::rt::TokioExecutor;
 
     fn get_hyper_executor() -> Self::HyperExecutor {
@@ -43,12 +46,12 @@ impl RuntimeExecutor for TokioRuntimeExecutor {
         tokio::task::spawn(future)
     }
 
-    async fn timeout<F, O>(duration: Duration, future: F) -> Result<O, ()>
+    fn timeout<F, O>(duration: Duration, future: F) -> impl Future<Output = Result<O, Self::TimeoutError>> + Send
     where
         F: Future<Output = O> + Send,
         O: Send,
     {
-        tokio::time::timeout(duration, future).await.map_err(|_| ())
+        tokio::time::timeout(duration, future)
     }
 }
 

@@ -33,7 +33,7 @@ pub trait RuntimeExecutor {
         F: Future<Output = O> + Send + 'static,
         O: Send + 'static;
 
-    fn timeout<F, O>(duration: Duration, future: F) -> impl Future<Output = Result<O, ()>> + Send
+    fn timeout<F, O>(duration: Duration, future: F) -> impl Future<Output = Result<O, Self::TimeoutError>> + Send
     where
         F: Future<Output = O> + Send,
         O: Send;

@@ -5,15 +5,17 @@ use std::{
     path::Path,
     pin::Pin,
     sync::{Arc, OnceLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use async_executor::Executor;
 use async_io::Timer;
+use async_process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use futures_util::{future::Either, FutureExt, TryFutureExt};
 use nix::unistd::{Gid, Uid};
+use smol_hyper::rt::SmolExecutor;
 
-use super::{chownr::chownr_recursive, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem};
+use super::{chownr::chownr_recursive, Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
 
 static EXECUTOR: OnceLock<Arc<Executor>> = OnceLock::new();
 
@@ -25,16 +27,43 @@ impl SmolRuntime {
     }
 }
 
-// impl Runtime for SmolRuntime {}
+impl Runtime for SmolRuntime {
+    type Executor = SmolRuntimeExecutor;
+
+    type Filesystem = SmolRuntimeFilesystem;
+
+    type Process = SmolRuntimeProcess;
+
+    type HyperExecutor = SmolExecutor<Arc<Executor<'static>>>;
+
+    fn get_hyper_executor() -> Self::HyperExecutor {
+        SmolExecutor::new(EXECUTOR.get().expect("Executor not initialized").clone())
+    }
+
+    fn get_hyper_client_sockets_backend() -> hyper_client_sockets::Backend {
+        hyper_client_sockets::Backend::AsyncIo
+    }
+}
 
 pub struct SmolRuntimeExecutor;
+
+#[derive(Debug, thiserror::Error)]
+pub struct SmolTimeoutError {
+    pub instant: Instant,
+}
+
+impl std::fmt::Display for SmolTimeoutError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Timed out at {:?}", self.instant)
+    }
+}
 
 impl RuntimeExecutor for SmolRuntimeExecutor {
     type JoinError = Infallible;
 
     type JoinHandle<O: Send> = Pin<Box<dyn Future<Output = Result<O, Infallible>> + Send + Sync>>;
 
-    type TimeoutError = Infallible;
+    type TimeoutError = SmolTimeoutError;
 
     fn spawn<F, O>(future: F) -> Self::JoinHandle<O>
     where
@@ -45,7 +74,7 @@ impl RuntimeExecutor for SmolRuntimeExecutor {
         Box::pin(task.map(|ret| Ok(ret)))
     }
 
-    async fn timeout<F, O>(duration: Duration, future: F) -> Result<O, ()>
+    async fn timeout<F, O>(duration: Duration, future: F) -> Result<O, SmolTimeoutError>
     where
         F: Future<Output = O> + Send,
         O: Send,
@@ -53,15 +82,15 @@ impl RuntimeExecutor for SmolRuntimeExecutor {
         let either = futures_util::future::select(
             Box::pin(future),
             Box::pin(async move {
-                Timer::after(duration).await;
-                ()
+                let instant = Timer::after(duration).await;
+                SmolTimeoutError { instant }
             }),
         )
         .await;
 
         match either {
             Either::Left((output, _)) => Ok(output),
-            Either::Right(_) => Err(()),
+            Either::Right((err, _)) => Err(err),
         }
     }
 }
@@ -140,5 +169,77 @@ pub struct SmolRuntimeAsyncFd(async_io::Async<OwnedFd>);
 impl RuntimeAsyncFd for SmolRuntimeAsyncFd {
     fn readable(&self) -> impl Future<Output = Result<(), std::io::Error>> + Send {
         self.0.readable()
+    }
+}
+
+#[derive(Debug)]
+pub struct SmolRuntimeProcess {
+    child: Child,
+    stdout: Option<ChildStdout>,
+    stderr: Option<ChildStderr>,
+    stdin: Option<ChildStdin>,
+}
+
+impl RuntimeProcess for SmolRuntimeProcess {
+    type Stdout = ChildStdout;
+
+    type Stderr = ChildStderr;
+
+    type Stdin = ChildStdin;
+
+    fn spawn(command: std::process::Command) -> Result<Self, std::io::Error> {
+        let mut child = async_process::Command::from(command).spawn()?;
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let stdin = child.stdin.take();
+
+        Ok(Self {
+            child,
+            stdout,
+            stderr,
+            stdin,
+        })
+    }
+
+    fn output(
+        command: std::process::Command,
+    ) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send {
+        async_process::Command::from(command).output()
+    }
+
+    fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, std::io::Error> {
+        self.child.try_status()
+    }
+
+    fn wait(&mut self) -> impl Future<Output = Result<std::process::ExitStatus, std::io::Error>> + Send {
+        self.child.status()
+    }
+
+    fn kill(&mut self) -> Result<(), std::io::Error> {
+        self.child.kill()
+    }
+
+    fn stdout(&mut self) -> &mut Option<Self::Stdout> {
+        &mut self.stdout
+    }
+
+    fn stderr(&mut self) -> &mut Option<Self::Stderr> {
+        &mut self.stderr
+    }
+
+    fn stdin(&mut self) -> &mut Option<Self::Stdin> {
+        &mut self.stdin
+    }
+
+    fn take_stdout(&mut self) -> Option<Self::Stdout> {
+        self.stdout.take()
+    }
+
+    fn take_stderr(&mut self) -> Option<Self::Stderr> {
+        self.stderr.take()
+    }
+
+    fn take_stdin(&mut self) -> Option<Self::Stdin> {
+        self.stdin.take()
     }
 }
