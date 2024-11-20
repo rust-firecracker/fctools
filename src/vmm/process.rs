@@ -10,7 +10,7 @@ use async_once_cell::OnceCell;
 use bytes::{Bytes, BytesMut};
 use http::{Request, Response, StatusCode, Uri};
 use http_body_util::{BodyExt, Full};
-use hyper::body::{Body, Incoming};
+use hyper::body::Incoming;
 use hyper_client_sockets::unix::{connector::HyperUnixConnector, UnixUriExt};
 use hyper_util::client::legacy::Client;
 
@@ -371,7 +371,7 @@ pub trait HyperResponseExt: Send {
 
 impl HyperResponseExt for Response<Incoming> {
     async fn recv_to_buf(&mut self) -> Result<BytesMut, hyper::Error> {
-        let mut buf = BytesMut::with_capacity(self.body().size_hint().lower() as usize);
+        let mut buf = BytesMut::new();
         while let Some(frame) = self.frame().await {
             if let Ok(bytes) = frame?.into_data() {
                 buf.extend(bytes);
