@@ -98,19 +98,19 @@ impl std::error::Error for VmError {}
 impl std::fmt::Display for VmError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VmError::ProcessError(error) => write!(f, "The underlying VMM process returned an error: {error}"),
-            VmError::ChangeOwnerError(error) => {
-                write!(f, "An ownership change requested on the VM level failed: {error}")
+            VmError::ProcessError(err) => write!(f, "The underlying VMM process returned an error: {err}"),
+            VmError::ChangeOwnerError(err) => {
+                write!(f, "An ownership change failed: {err}")
             }
-            VmError::FilesystemError(error) => {
-                write!(f, "A filesystem operation backed by the runtime failed: {error}")
+            VmError::FilesystemError(err) => {
+                write!(f, "A filesystem operation backed by the runtime failed: {err}")
             }
-            VmError::TaskJoinFailed => write!(f, "Joining on an async task failed"),
-            VmError::MkfifoError(error) => write!(f, "Making a FIFO named pipe failed: {error}"),
-            VmError::StateCheckError(error) => write!(f, "A state check of the VM failed: {error}"),
-            VmError::ApiError(error) => write!(f, "A request issued to the API server internally failed: {error}"),
-            VmError::ConfigurationSerdeError(error) => {
-                write!(f, "Serialization of the transient JSON configuration failed: {error}")
+            VmError::TaskJoinFailed => write!(f, "Joining on an async task via the runtime failed"),
+            VmError::MkfifoError(err) => write!(f, "Making a FIFO named pipe failed: {err}"),
+            VmError::StateCheckError(err) => write!(f, "A state check of the VM failed: {err}"),
+            VmError::ApiError(err) => write!(f, "A request issued to the API server internally failed: {err}"),
+            VmError::ConfigurationSerdeError(err) => {
+                write!(f, "Serialization of the transient JSON configuration failed: {err}")
             }
             VmError::SocketWaitTimeout => write!(f, "The wait for the API socket to become available timed out"),
             VmError::DisabledApiSocketIsUnsupported => write!(

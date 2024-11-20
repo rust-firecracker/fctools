@@ -175,7 +175,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             .spawn::<R>(&binary_path, arguments, self.pipes_to_null)
             .await
             .map_err(VmmExecutorError::ProcessSpawnFailed)?;
-        Ok(ProcessHandle::attached(child, self.pipes_to_null))
+        Ok(ProcessHandle::with_child(child, self.pipes_to_null))
     }
 
     async fn cleanup<R: Runtime>(

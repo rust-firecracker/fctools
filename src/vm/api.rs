@@ -50,10 +50,9 @@ impl std::error::Error for VmApiError {}
 impl std::fmt::Display for VmApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VmApiError::SerdeError(error) => write!(
-                f,
-                "Serializing or deserializing JSON data via serde-json failed: {error}"
-            ),
+            VmApiError::SerdeError(err) => {
+                write!(f, "Serializing or deserializing JSON data via serde-json failed: {err}")
+            }
             VmApiError::ReceivedErrorResponse {
                 status_code,
                 fault_message,
@@ -61,22 +60,22 @@ impl std::fmt::Display for VmApiError {
                 f,
                 "The API returned an unsuccessful HTTP response with the {status_code} status: {fault_message}"
             ),
-            VmApiError::RequestBuildError(error) => {
-                write!(f, "The HTTP request for the API could not be built: {error}")
+            VmApiError::RequestBuildError(err) => {
+                write!(f, "The HTTP request for the API could not be built: {err}")
             }
-            VmApiError::ConnectionError(error) => {
-                write!(f, "Sending the HTTP request over the connection failed: {error}")
+            VmApiError::ConnectionError(err) => {
+                write!(f, "Sending the HTTP request over the connection failed: {err}")
             }
-            VmApiError::ResponseBodyReceiveError(error) => write!(
+            VmApiError::ResponseBodyReceiveError(err) => write!(
                 f,
-                "The HTTP response body could not be received over the connection: {error}"
+                "The HTTP response body could not be received over the connection: {err}"
             ),
-            VmApiError::ResponseBodyContainsUnexpectedData(data) => {
-                write!(f, "The HTTP response body was presumed empty but contains: {data}")
+            VmApiError::ResponseBodyContainsUnexpectedData(err) => {
+                write!(f, "The HTTP response body was presumed empty but contains: {err}")
             }
-            VmApiError::StateCheckError(error) => write!(f, "A state check of the VM failed: {error}"),
-            VmApiError::SnapshotChangeOwnerError(error) => {
-                write!(f, "Changing the owner of a snapshot failed: {error}")
+            VmApiError::StateCheckError(err) => write!(f, "A state check of the VM failed: {err}"),
+            VmApiError::SnapshotChangeOwnerError(err) => {
+                write!(f, "Changing the owner of a snapshot failed: {err}")
             }
         }
     }

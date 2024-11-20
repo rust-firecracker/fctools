@@ -37,11 +37,11 @@ pub enum ProcessHandlePipesError {
 
 #[derive(Debug)]
 enum ProcessHandleInner<P: RuntimeProcess> {
-    Attached {
+    Child {
         process: P,
         pipes_dropped: bool,
     },
-    Detached {
+    Pidfd {
         raw_pidfd: RawFd,
         exited_rx: futures_channel::oneshot::Receiver<ExitStatus>,
         exited: Option<ExitStatus>,
@@ -49,13 +49,13 @@ enum ProcessHandleInner<P: RuntimeProcess> {
 }
 
 impl<P: RuntimeProcess> ProcessHandle<P> {
-    /// Create a [ProcessHandle] from a [RuntimeProcess] that is attached.
-    pub fn attached(process: P, pipes_dropped: bool) -> Self {
-        Self(ProcessHandleInner::Attached { process, pipes_dropped })
+    /// Create a [ProcessHandle] from a [RuntimeProcess] that is a child of the current process.
+    pub fn with_child(process: P, pipes_dropped: bool) -> Self {
+        Self(ProcessHandleInner::Child { process, pipes_dropped })
     }
 
-    /// Try to create a [ProcessHandle] from an arbitrary detached PID.
-    pub fn detached<R: Runtime>(pid: i32) -> Result<Self, std::io::Error> {
+    /// Try to create a [ProcessHandle] by allocating a pidfd for the given PID.
+    pub fn with_pidfd<R: Runtime>(pid: i32) -> Result<Self, std::io::Error> {
         let raw_pidfd = unsafe { nix::libc::syscall(nix::libc::SYS_pidfd_open, pid, 0) };
 
         if raw_pidfd == -1 {
@@ -80,7 +80,7 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
             }
         });
 
-        Ok(Self(ProcessHandleInner::Detached {
+        Ok(Self(ProcessHandleInner::Pidfd {
             raw_pidfd,
             exited_rx,
             exited: None,
@@ -90,11 +90,11 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
     /// Send a SIGKILL signal to the process.
     pub fn send_sigkill(&mut self) -> Result<(), std::io::Error> {
         match self.0 {
-            ProcessHandleInner::Attached {
+            ProcessHandleInner::Child {
                 ref mut process,
                 pipes_dropped: _,
             } => process.kill(),
-            ProcessHandleInner::Detached {
+            ProcessHandleInner::Pidfd {
                 raw_pidfd,
                 exited_rx: _,
                 exited,
@@ -119,11 +119,11 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
     /// Wait for the process to have exited.
     pub async fn wait(&mut self) -> Result<ExitStatus, std::io::Error> {
         match self.0 {
-            ProcessHandleInner::Attached {
+            ProcessHandleInner::Child {
                 ref mut process,
                 pipes_dropped: _,
             } => process.wait().await,
-            ProcessHandleInner::Detached {
+            ProcessHandleInner::Pidfd {
                 raw_pidfd: _,
                 ref mut exited_rx,
                 ref mut exited,
@@ -144,11 +144,11 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
     /// Check if the process has exited, returning the [ExitStatus] if so or [None] otherwise.
     pub fn try_wait(&mut self) -> Result<Option<ExitStatus>, std::io::Error> {
         match self.0 {
-            ProcessHandleInner::Attached {
+            ProcessHandleInner::Child {
                 ref mut process,
                 pipes_dropped: _,
             } => process.try_wait(),
-            ProcessHandleInner::Detached {
+            ProcessHandleInner::Pidfd {
                 raw_pidfd: _,
                 ref mut exited_rx,
                 ref mut exited,
@@ -171,12 +171,12 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
     /// processes that haven't had their pipes dropped when creating.
     pub fn get_pipes(&mut self) -> Result<ProcessHandlePipes<P>, ProcessHandlePipesError> {
         match self.0 {
-            ProcessHandleInner::Detached {
+            ProcessHandleInner::Pidfd {
                 raw_pidfd: _,
                 exited_rx: _,
                 exited: _,
             } => Err(ProcessHandlePipesError::ProcessIsDetached),
-            ProcessHandleInner::Attached {
+            ProcessHandleInner::Child {
                 process: ref mut child,
                 pipes_dropped,
             } => {

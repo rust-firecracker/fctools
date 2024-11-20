@@ -109,25 +109,25 @@ impl std::error::Error for VmShutdownError {}
 impl std::fmt::Display for VmShutdownError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VmShutdownError::StateCheckError(error) => {
-                write!(f, "Checking the state of the VM for shutdown failed: {error}")
+            VmShutdownError::StateCheckError(err) => {
+                write!(f, "Checking the state of the VM for shutdown failed: {err}")
             }
             VmShutdownError::NoActionsSpecified => write!(f, "No shutdown actions were specified"),
             VmShutdownError::Timeout => write!(
                 f,
                 "The shutdown action future timed out according to the configured duration"
             ),
-            VmShutdownError::WaitForExitError(error) => {
-                write!(f, "Waiting for the VMM process to exit failed: {error}")
+            VmShutdownError::WaitForExitError(err) => {
+                write!(f, "Waiting for the VMM process to exit failed: {err}")
             }
-            VmShutdownError::KillError(error) => write!(f, "Sending a SIGKILL failed: {error}"),
-            VmShutdownError::PauseError(error) => write!(f, "Pausing the VM via the API server failed: {error}"),
-            VmShutdownError::SendCtrlAltDelError(error) => write!(f, "Sending Ctrl+Alt+Del to the VM failed: {error}"),
-            VmShutdownError::TakePipesError(error) => write!(
+            VmShutdownError::KillError(err) => write!(f, "Sending a SIGKILL failed: {err}"),
+            VmShutdownError::PauseError(err) => write!(f, "Pausing the VM via the API server failed: {err}"),
+            VmShutdownError::SendCtrlAltDelError(err) => write!(f, "Sending Ctrl+Alt+Del to the VM failed: {err}"),
+            VmShutdownError::TakePipesError(err) => write!(
                 f,
-                "Taking the pipes from the VM to perform a serial write failed: {error}"
+                "Taking the pipes from the VM to perform a serial write failed: {err}"
             ),
-            VmShutdownError::SerialError(error) => write!(f, "Performing a serial write to stdin failed: {error}"),
+            VmShutdownError::SerialError(err) => write!(f, "Performing a serial write to stdin failed: {err}"),
         }
     }
 }

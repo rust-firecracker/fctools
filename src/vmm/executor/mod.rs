@@ -35,36 +35,63 @@ pub mod unrestricted;
 pub mod process_handle;
 
 /// An error emitted by a [VmmExecutor].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum VmmExecutorError {
-    #[error("Making a FIFO pipe failed: {0}")]
     MkfifoError(std::io::Error),
-    #[error("Allocating a pidfd for a non-child process failed: {0}")]
     PidfdAllocationError(std::io::Error),
-    #[error("Waiting on the exit of a child process failed: {0}")]
     ProcessWaitError(std::io::Error),
-    #[error("A filesystem I/O error occurred: {0}")]
     FilesystemError(std::io::Error),
-    #[error("An ownership change as part of an ownership upgrade or downgrade failed: {0}")]
     ChangeOwnerError(ChangeOwnerError),
-    #[error("Joining on a spawned async task failed")]
     TaskJoinFailed,
-    #[error("Spawning an auxiliary or primary process via the process spawner failed: {0}")]
     ProcessSpawnFailed(std::io::Error),
-    #[error("A passed-in resource at the path {0} was expected but doesn't exist or isn't accessible")]
     ExpectedResourceMissing(PathBuf),
-    #[error("A directory that is supposed to have a parent in the filesystem has none")]
     ExpectedDirectoryParentMissing,
     #[cfg(feature = "jailed-vmm-executor")]
     #[cfg_attr(docsrs, doc(cfg(feature = "jailed-vmm-executor")))]
-    #[error("Invoking the jail renamer to produce an inner path failed: {0}")]
     JailRenamerFailed(JailRenamerError),
-    #[error("The watched process exited with an unsuccessful exit status: {0}")]
     ProcessExitedWithIncorrectStatus(ExitStatus),
-    #[error("Parsing an integer from a string failed: {0}")]
     ParseIntError(ParseIntError),
-    #[error("Another error occurred: {0}")]
     Other(Box<dyn std::error::Error + Send>),
+}
+
+impl std::error::Error for VmmExecutorError {}
+
+impl std::fmt::Display for VmmExecutorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmmExecutorError::MkfifoError(err) => write!(f, "Making a FIFO pipe failed: {err}"),
+            VmmExecutorError::PidfdAllocationError(err) => {
+                write!(f, "Allocating a pidfd for a process handle failed: {err}")
+            }
+            VmmExecutorError::ProcessWaitError(err) => write!(f, "Waiting on a child process failed: {err}"),
+            VmmExecutorError::FilesystemError(err) => {
+                write!(f, "A filesystem operation backed by the runtime failed: {err}")
+            }
+            VmmExecutorError::ChangeOwnerError(err) => {
+                write!(f, "An ownership change failed: {err}")
+            }
+            VmmExecutorError::TaskJoinFailed => write!(f, "Joining on an async task via the runtime failed"),
+            VmmExecutorError::ProcessSpawnFailed(err) => write!(f, "Spawning a process failed: {err}"),
+            VmmExecutorError::ExpectedResourceMissing(path) => {
+                write!(
+                    f,
+                    "A resource at the path {} was expected but isn't available",
+                    path.display()
+                )
+            }
+            VmmExecutorError::ExpectedDirectoryParentMissing => {
+                write!(f, "An expected directory in the filesystem doesn't have a parent")
+            }
+            VmmExecutorError::JailRenamerFailed(err) => {
+                write!(f, "Invoking the jail renamer to produce an inner path failed: {err}")
+            }
+            VmmExecutorError::ProcessExitedWithIncorrectStatus(exit_status) => {
+                write!(f, "A watched process exited with a non-zero exit status: {exit_status}")
+            }
+            VmmExecutorError::ParseIntError(err) => write!(f, "Parsing an integer from a string failed: {err}"),
+            VmmExecutorError::Other(err) => write!(f, "Another error occurred: {err}"),
+        }
+    }
 }
 
 /// A [VmmExecutor] manages the environment of a VMM, correctly invoking its process, while

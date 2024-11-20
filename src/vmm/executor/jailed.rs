@@ -265,9 +265,9 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                 }
             }
 
-            Ok(ProcessHandle::detached::<R>(pid).map_err(VmmExecutorError::PidfdAllocationError)?)
+            Ok(ProcessHandle::with_pidfd::<R>(pid).map_err(VmmExecutorError::PidfdAllocationError)?)
         } else {
-            Ok(ProcessHandle::attached(process, false))
+            Ok(ProcessHandle::with_child(process, false))
         }
     }
 
@@ -317,14 +317,23 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
 }
 
 /// An error that can be emitted by a [JailRenamer].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum JailRenamerError {
-    #[error("The given path which is supposed to be a file has no filename")]
-    PathHasNoFilename,
-    #[error("A conversion of the outer path {0} to an inner path was not configured")]
-    PathIsUnmapped(PathBuf),
-    #[error("Another error occurred: {0}")]
+    PathHasNoFilename(PathBuf),
     Other(Box<dyn std::error::Error + Send>),
+}
+
+impl std::error::Error for JailRenamerError {}
+
+impl std::fmt::Display for JailRenamerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JailRenamerError::PathHasNoFilename(path) => {
+                write!(f, "A supposed file has no filename: {}", path.display())
+            }
+            JailRenamerError::Other(err) => write!(f, "Another error occurred: {err}"),
+        }
+    }
 }
 
 /// A trait defining a method of conversion between an outer path and an inner path. This conversion
@@ -345,7 +354,7 @@ impl JailRenamer for FlatJailRenamer {
             "/".to_owned()
                 + &outside_path
                     .file_name()
-                    .ok_or(JailRenamerError::PathHasNoFilename)?
+                    .ok_or_else(|| JailRenamerError::PathHasNoFilename(outside_path.to_owned()))?
                     .to_string_lossy(),
         ))
     }
