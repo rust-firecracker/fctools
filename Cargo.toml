@@ -59,7 +59,7 @@ smol-hyper = { version = "0.1.1", optional = true }
 pin-project-lite = { version = "0.2.15", optional = true }
 # executor
 futures-util = { version = "0.3.31", features = ["sink"], optional = true }
-futures-channel = { version = "0.3.31", default-features = false, optional = true }
+futures-channel = { version = "0.3.31", features = ["sink"], optional = true }
 # process
 async-once-cell = { version = "0.5.4", optional = true }
 hyper = { version = "1.5.0", features = ["client"], optional = true }
