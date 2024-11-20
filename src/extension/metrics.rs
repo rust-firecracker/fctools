@@ -289,14 +289,25 @@ pub struct MetricsAggregate {
     pub sum_us: u64,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum MetricsTaskError {
-    #[error("An asynchronous I/O task failed: {0}")]
-    IoError(std::io::Error),
-    #[error("Deserializing the metrics JSON failed: {0}")]
+    FilesystemError(std::io::Error),
     SerdeError(serde_json::Error),
-    #[error("Sending the metrics to the channel failed: {0}")]
     SendError(mpsc::SendError),
+}
+
+impl std::error::Error for MetricsTaskError {}
+
+impl std::fmt::Display for MetricsTaskError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MetricsTaskError::FilesystemError(err) => {
+                write!(f, "A filesystem operation backed by the runtime failed: {err}")
+            }
+            MetricsTaskError::SerdeError(err) => write!(f, "Deserializing the metrics JSON failed: {err}"),
+            MetricsTaskError::SendError(err) => write!(f, "Sending the metrics to the channel failed: {err}"),
+        }
+    }
 }
 
 /// A spawned async task that gathers Firecracker's metrics.
@@ -321,7 +332,7 @@ pub fn spawn_metrics_task<R: Runtime>(
         let mut buf_reader = BufReader::new(
             R::Filesystem::open_file_for_read(metrics_path.as_ref())
                 .await
-                .map_err(MetricsTaskError::IoError)?,
+                .map_err(MetricsTaskError::FilesystemError)?,
         )
         .lines();
 
@@ -329,7 +340,7 @@ pub fn spawn_metrics_task<R: Runtime>(
             let line = match buf_reader.next().await {
                 Some(Ok(line)) => line,
                 None => return Ok(()),
-                Some(Err(err)) => return Err(MetricsTaskError::IoError(err)),
+                Some(Err(err)) => return Err(MetricsTaskError::FilesystemError(err)),
             };
             let metrics_entry = serde_json::from_str::<Metrics>(&line).map_err(MetricsTaskError::SerdeError)?;
             sender.send(metrics_entry).await.map_err(MetricsTaskError::SendError)?;

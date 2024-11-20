@@ -71,7 +71,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
         match &self.vmm_arguments.api_socket {
             VmmApiSocket::Disabled => None,
-            VmmApiSocket::Enabled(socket_path) => Some(self.get_paths(installation).1.jail_join(&socket_path)),
+            VmmApiSocket::Enabled(socket_path) => Some(self.get_paths(installation).1.jail_join(socket_path)),
         }
     }
 
@@ -186,7 +186,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                         let hardlink_result = R::Filesystem::hard_link(&outer_path, &expanded_inner_path)
                             .await
                             .map_err(VmmExecutorError::FilesystemError);
-                        if let Err(_) = hardlink_result {
+                        if hardlink_result.is_err() {
                             R::Filesystem::copy(&outer_path, &expanded_inner_path)
                                 .await
                                 .map_err(VmmExecutorError::FilesystemError)
@@ -241,8 +241,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                 installation
                     .firecracker_path
                     .file_name()
-                    .map(|f| f.to_str())
-                    .flatten()
+                    .and_then(|f| f.to_str())
                     .unwrap_or("firecracker")
             ));
 
@@ -266,9 +265,9 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                 }
             }
 
-            Ok(ProcessHandle::detached::<R>(pid).map_err(VmmExecutorError::PidfdAllocationError)?)
+            Ok(ProcessHandle::with_pidfd::<R>(pid).map_err(VmmExecutorError::PidfdAllocationError)?)
         } else {
-            Ok(ProcessHandle::attached(process, false))
+            Ok(ProcessHandle::with_child(process, false))
         }
     }
 
@@ -307,8 +306,7 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
                 installation
                     .firecracker_path
                     .file_name()
-                    .map(|f| f.to_str())
-                    .flatten()
+                    .and_then(|f| f.to_str())
                     .unwrap_or("firecracker"),
             )
             .join(self.jailer_arguments.jail_id.as_ref())
@@ -319,14 +317,23 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
 }
 
 /// An error that can be emitted by a [JailRenamer].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum JailRenamerError {
-    #[error("The given path which is supposed to be a file has no filename")]
-    PathHasNoFilename,
-    #[error("A conversion of the outer path {0} to an inner path was not configured")]
-    PathIsUnmapped(PathBuf),
-    #[error("Another error occurred: {0}")]
+    PathHasNoFilename(PathBuf),
     Other(Box<dyn std::error::Error + Send>),
+}
+
+impl std::error::Error for JailRenamerError {}
+
+impl std::fmt::Display for JailRenamerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JailRenamerError::PathHasNoFilename(path) => {
+                write!(f, "A supposed file has no filename: {}", path.display())
+            }
+            JailRenamerError::Other(err) => write!(f, "Another error occurred: {err}"),
+        }
+    }
 }
 
 /// A trait defining a method of conversion between an outer path and an inner path. This conversion
@@ -347,49 +354,9 @@ impl JailRenamer for FlatJailRenamer {
             "/".to_owned()
                 + &outside_path
                     .file_name()
-                    .ok_or(JailRenamerError::PathHasNoFilename)?
+                    .ok_or_else(|| JailRenamerError::PathHasNoFilename(outside_path.to_owned()))?
                     .to_string_lossy(),
         ))
-    }
-}
-
-/// A jail renamer that uses a lookup table from host to jail in order to transform paths.
-#[derive(Debug, Clone)]
-pub struct MappingJailRenamer {
-    mappings: HashMap<PathBuf, PathBuf>,
-}
-
-impl MappingJailRenamer {
-    pub fn new() -> Self {
-        Self {
-            mappings: HashMap::new(),
-        }
-    }
-
-    pub fn map(mut self, outside_path: impl Into<PathBuf>, jail_path: impl Into<PathBuf>) -> Self {
-        self.mappings.insert(outside_path.into(), jail_path.into());
-        self
-    }
-
-    pub fn map_all(mut self, mappings: impl IntoIterator<Item = (PathBuf, PathBuf)>) -> Self {
-        self.mappings.extend(mappings);
-        self
-    }
-}
-
-impl From<HashMap<PathBuf, PathBuf>> for MappingJailRenamer {
-    fn from(value: HashMap<PathBuf, PathBuf>) -> Self {
-        Self { mappings: value }
-    }
-}
-
-impl JailRenamer for MappingJailRenamer {
-    fn rename_for_jail(&self, outside_path: &Path) -> Result<PathBuf, JailRenamerError> {
-        let jail_path = self
-            .mappings
-            .get(outside_path)
-            .ok_or_else(|| JailRenamerError::PathIsUnmapped(outside_path.to_owned()))?;
-        Ok(jail_path.clone())
     }
 }
 
@@ -409,7 +376,7 @@ impl JailJoin for PathBuf {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::vmm::executor::jailed::{JailJoin, JailRenamerError, MappingJailRenamer};
+    use crate::vmm::executor::jailed::JailJoin;
 
     use super::{FlatJailRenamer, JailRenamer};
 
@@ -427,21 +394,6 @@ mod tests {
         assert_renamer(&renamer, "/opt/file", "/file");
         assert_renamer(&renamer, "/tmp/some_path.txt", "/some_path.txt");
         assert_renamer(&renamer, "/some/complex/outside/path/filename.ext4", "/filename.ext4");
-    }
-
-    #[test]
-    fn mapping_jail_renamer_moves_correctly() {
-        let renamer = MappingJailRenamer::new()
-            .map("/etc/a", "/tmp/a")
-            .map("/opt/b", "/etc/b")
-            .map("/tmp/c", "/c");
-        assert_renamer(&renamer, "/etc/a", "/tmp/a");
-        assert_renamer(&renamer, "/opt/b", "/etc/b");
-        assert_renamer(&renamer, "/tmp/c", "/c");
-        assert_matches::assert_matches!(
-            renamer.rename_for_jail(PathBuf::from("/tmp/unknown").as_ref()),
-            Err(JailRenamerError::PathIsUnmapped(_))
-        );
     }
 
     fn assert_renamer(renamer: &impl JailRenamer, path: &str, expectation: &str) {

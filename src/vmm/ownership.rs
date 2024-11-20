@@ -12,8 +12,8 @@ use crate::{
     runtime::{Runtime, RuntimeFilesystem, RuntimeProcess},
 };
 
-pub(crate) static PROCESS_UID: LazyLock<Uid> = LazyLock::new(|| nix::unistd::geteuid());
-pub(crate) static PROCESS_GID: LazyLock<Gid> = LazyLock::new(|| nix::unistd::getegid());
+pub(crate) static PROCESS_UID: LazyLock<Uid> = LazyLock::new(nix::unistd::geteuid);
+pub(crate) static PROCESS_GID: LazyLock<Gid> = LazyLock::new(nix::unistd::getegid);
 
 /// The model used for managing the ownership of resources between the controlling process
 /// (the Rust application using fctools) and the VMM process ("firecracker").
@@ -54,28 +54,42 @@ impl VmmOwnershipModel {
 
     #[inline]
     fn is_upgrade(&self) -> bool {
-        match self {
-            VmmOwnershipModel::UpgradedTemporarily => true,
-            VmmOwnershipModel::UpgradedPermanently => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            VmmOwnershipModel::UpgradedTemporarily | VmmOwnershipModel::UpgradedPermanently
+        )
     }
 }
 
 /// An error that can occur when changing the owner to accommodate for [VmmOwnershipModel]s other
 /// than the shared model.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum ChangeOwnerError {
-    #[error("Spawning a \"chown\" process failed: {0}")]
     ProcessSpawnFailed(std::io::Error),
-    #[error("Waiting on the completion of the \"chown\" process failed: {0}")]
     ProcessWaitFailed(std::io::Error),
-    #[error("The \"chown\" process exited with a non-zero exit status: {0}")]
     ProcessExitedWithWrongStatus(ExitStatus),
-    #[error("An in-process recursive chown implementation failed: {0}")]
-    FilesystemError(std::io::Error),
-    #[error("A direct invocation of chown in-process failed: {0}")]
-    ChownError(std::io::Error),
+    RecursiveChownError(std::io::Error),
+    FlatChownError(std::io::Error),
+}
+
+impl std::error::Error for ChangeOwnerError {}
+
+impl std::fmt::Display for ChangeOwnerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ChangeOwnerError::ProcessSpawnFailed(err) => write!(f, "Spawning a chown process failed: {err}"),
+            ChangeOwnerError::ProcessWaitFailed(err) => {
+                write!(f, "Waiting on the completion of a chown process failed: {err}")
+            }
+            ChangeOwnerError::ProcessExitedWithWrongStatus(exit_status) => {
+                write!(f, "The chown process exited with a non-zero exit status: {exit_status}")
+            }
+            ChangeOwnerError::RecursiveChownError(err) => {
+                write!(f, "An recursive in-process chown failed: {err}")
+            }
+            ChangeOwnerError::FlatChownError(err) => write!(f, "A flat in-process chown failed: {err}"),
+        }
+    }
 }
 
 /// For implementors of custom executors: upgrades the owner of the given [Path] using the given [ProcessSpawner]
@@ -123,7 +137,7 @@ pub async fn downgrade_owner_recursively<R: Runtime>(
     if let Some((uid, gid)) = ownership_model.as_downgrade() {
         R::Filesystem::chownr(path, uid, gid)
             .await
-            .map_err(ChangeOwnerError::FilesystemError)
+            .map_err(ChangeOwnerError::RecursiveChownError)
     } else {
         Ok(())
     }
@@ -135,7 +149,7 @@ pub async fn downgrade_owner_recursively<R: Runtime>(
 pub fn downgrade_owner(path: &Path, ownership_model: VmmOwnershipModel) -> Result<(), ChangeOwnerError> {
     if let Some((uid, gid)) = ownership_model.as_downgrade() {
         if nix::unistd::chown(path, Some(uid), Some(gid)).is_err() {
-            Err(ChangeOwnerError::ChownError(std::io::Error::last_os_error()))
+            Err(ChangeOwnerError::FlatChownError(std::io::Error::last_os_error()))
         } else {
             Ok(())
         }

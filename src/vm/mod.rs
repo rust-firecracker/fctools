@@ -78,42 +78,79 @@ impl std::fmt::Display for VmState {
 }
 
 /// All errors that can be produced by a [Vm].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum VmError {
-    #[error("The underlying VMM process returned an error: {0}")]
     ProcessError(VmmProcessError),
-    #[error("An ownership change requested on the VM level failed: {0}")]
     ChangeOwnerError(ChangeOwnerError),
-    #[error("A filesystem operation backed by the runtime failed: {0}")]
     FilesystemError(std::io::Error),
-    #[error("Joining on an async task failed")]
     TaskJoinFailed,
-    #[error("Making a FIFO named pipe failed: {0}")]
     MkfifoError(std::io::Error),
-    #[error("A state check of the VM failed: {0}")]
     StateCheckError(VmStateCheckError),
-    #[error("A request issued to the API server internally failed: {0}")]
     ApiError(VmApiError),
-    #[error("Serialization of the transient JSON configuration failed: {0}")]
     ConfigurationSerdeError(serde_json::Error),
-    #[error("No shutdown methods were specified for a VM shutdown operation")]
-    NoShutdownMethodsSpecified,
-    #[error("A future timed out according to the given timeout duration")]
-    Timeout,
-    #[error("Attempted to use a VM configuration with a disabled API socket, which is not supported")]
+    SocketWaitTimeout,
     DisabledApiSocketIsUnsupported,
-    #[error("A path mapping was expected to be constructed by the executor, but was not returned")]
     MissingPathMapping,
 }
 
-#[derive(Debug, thiserror::Error)]
+impl std::error::Error for VmError {}
+
+impl std::fmt::Display for VmError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmError::ProcessError(err) => write!(f, "The underlying VMM process returned an error: {err}"),
+            VmError::ChangeOwnerError(err) => {
+                write!(f, "An ownership change failed: {err}")
+            }
+            VmError::FilesystemError(err) => {
+                write!(f, "A filesystem operation backed by the runtime failed: {err}")
+            }
+            VmError::TaskJoinFailed => write!(f, "Joining on an async task via the runtime failed"),
+            VmError::MkfifoError(err) => write!(f, "Making a FIFO named pipe failed: {err}"),
+            VmError::StateCheckError(err) => write!(f, "A state check of the VM failed: {err}"),
+            VmError::ApiError(err) => write!(f, "A request issued to the API server internally failed: {err}"),
+            VmError::ConfigurationSerdeError(err) => {
+                write!(f, "Serialization of the transient JSON configuration failed: {err}")
+            }
+            VmError::SocketWaitTimeout => write!(f, "The wait for the API socket to become available timed out"),
+            VmError::DisabledApiSocketIsUnsupported => write!(
+                f,
+                "Attempted to use a VM configuration with a disabled API socket, which is not supported"
+            ),
+            VmError::MissingPathMapping => write!(
+                f,
+                "A path mapping was expected to be constructed by the executor, but was not returned"
+            ),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum VmStateCheckError {
-    #[error("Expected the VM to have exited or crashed, but the actual state was {actual}")]
     ExitedOrCrashed { actual: VmState },
-    #[error("Expected the VM to be paused or running, but the actual state was {actual}")]
     PausedOrRunning { actual: VmState },
-    #[error("Expected the VM to be in the {expected} state, but the actual state was {actual}")]
     Other { expected: VmState, actual: VmState },
+}
+
+impl std::error::Error for VmStateCheckError {}
+
+impl std::fmt::Display for VmStateCheckError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmStateCheckError::ExitedOrCrashed { actual } => write!(
+                f,
+                "Expected the VM to have exited or crashed, but the actual state was {actual}"
+            ),
+            VmStateCheckError::PausedOrRunning { actual } => write!(
+                f,
+                "Expected the VM to be paused or running, but the actual state was {actual}"
+            ),
+            VmStateCheckError::Other { expected, actual } => write!(
+                f,
+                "Expected the VM to be in {expected} state, but it was in the {actual} state"
+            ),
+        }
+    }
 }
 
 /// A set of common absolute (outer) paths associated with a [Vm].
@@ -233,7 +270,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             if let Some(ref socket) = drive.socket {
                 accessible_paths
                     .drive_sockets
-                    .insert(drive.drive_id.clone(), vmm_process.inner_to_outer_path(&socket));
+                    .insert(drive.drive_id.clone(), vmm_process.inner_to_outer_path(socket));
             }
         }
 
@@ -302,21 +339,19 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
 
         let mut config_path = None;
         if let VmConfiguration::New {
-            ref init_method,
+            init_method: InitMethod::ViaJsonConfiguration(ref inner_path),
             ref data,
         } = configuration
         {
-            if let InitMethod::ViaJsonConfiguration(inner_path) = init_method {
-                let outer_path = self.vmm_process.inner_to_outer_path(inner_path);
-                config_path = Some(inner_path.clone());
-                prepare_file::<R>(outer_path.clone(), self.ownership_model, true).await?;
-                R::Filesystem::write_file(
-                    &outer_path,
-                    serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
-                )
-                .await
-                .map_err(VmError::FilesystemError)?;
-            }
+            let outer_path = self.vmm_process.inner_to_outer_path(inner_path);
+            config_path = Some(inner_path.clone());
+            prepare_file::<R>(outer_path.clone(), self.ownership_model, true).await?;
+            R::Filesystem::write_file(
+                &outer_path,
+                serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
+            )
+            .await
+            .map_err(VmError::FilesystemError)?;
         }
 
         self.vmm_process
@@ -335,7 +370,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             Ok(())
         })
         .await
-        .map_err(|_| VmError::Timeout)?
+        .map_err(|_| VmError::SocketWaitTimeout)?
         .map_err(VmError::FilesystemError)?;
 
         match configuration {
@@ -498,7 +533,7 @@ async fn prepare_file<R: Runtime>(
     }
 
     if !only_tree {
-        if path.extension().map(|ext| ext.to_str()).flatten() == Some("fifo") {
+        if path.extension().and_then(|ext| ext.to_str()) == Some("fifo") {
             if nix::unistd::mkfifo(&path, Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR).is_err() {
                 return Err(VmError::MkfifoError(std::io::Error::last_os_error()));
             }
@@ -512,7 +547,7 @@ async fn prepare_file<R: Runtime>(
             .await
             .map_err(VmError::ChangeOwnerError)?;
     } else if let Some(parent_path) = path.parent() {
-        downgrade_owner(&parent_path, ownership_model).map_err(VmError::ChangeOwnerError)?;
+        downgrade_owner(parent_path, ownership_model).map_err(VmError::ChangeOwnerError)?;
     }
 
     Ok(())

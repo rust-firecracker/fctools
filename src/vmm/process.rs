@@ -67,43 +67,72 @@ impl std::fmt::Display for VmmProcessState {
             VmmProcessState::AwaitingStart => write!(f, "Awaiting start"),
             VmmProcessState::Started => write!(f, "Started"),
             VmmProcessState::Exited => write!(f, "Exited"),
-            VmmProcessState::Crashed(exit_status) => write!(f, "Crashed with {exit_status}"),
+            VmmProcessState::Crashed(exit_status) => write!(f, "Crashed with exit status: {exit_status}"),
         }
     }
 }
 
 /// Error caused during a [VmmProcess] operation.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum VmmProcessError {
-    #[error("Expected the VMM process to have the {expected} state, but it actually had the {actual} state")]
     ExpectedState {
         expected: VmmProcessState,
         actual: VmmProcessState,
     },
-    #[error("Expected the VMM process to either have exited or crashed, but it actually had the {actual} state")]
-    ExpectedExitedOrCrashed { actual: VmmProcessState },
-    #[error("The VMM process's API socket had been disabled yet a request to the socket was attempted")]
-    SocketWasDisabled,
-    #[error("An ownership upgrade requested on VMM process level failed: {0}")]
+    ExpectedExitedOrCrashed {
+        actual: VmmProcessState,
+    },
+    ApiSocketDisabledError,
     ChangeOwnerError(ChangeOwnerError),
-    #[error("An error occurred in the internal hyper-util HTTP connection pool: {0}")]
-    HyperClientFailed(hyper_util::client::legacy::Error),
-    #[error("Transmitting SIGKILL to the process failed: {0}")]
+    ApiRequestError(hyper_util::client::legacy::Error),
+    ApiInvalidRouteError {
+        route: String,
+        error: http::uri::InvalidUri,
+    },
     SigkillFailed(std::io::Error),
-    #[error("Building the Ctrl+Alt+Del HTTP request failed: {0}")]
     CtrlAltDelRequestNotBuilt(hyper::http::Error),
-    #[error("The Ctrl+Alt+Del HTTP request returned an unsuccessful status code: {0}")]
     CtrlAltDelRequestFailed(StatusCode),
-    #[error("Awaiting the process' exit failed: {0}")]
-    WaitFailed(std::io::Error),
-    #[error("The given route to the API socket could not be transformed to a Unix socket URI")]
-    IncorrectSocketUri,
-    #[error("The underlying VMM executor returned an error: {0}")]
+    ProcessWaitFailed(std::io::Error),
     ExecutorError(VmmExecutorError),
-    #[error("Getting the pipes from the process handle failed: {0}")]
     ProcessHandlePipesError(ProcessHandlePipesError),
-    #[error("An I/O error occurred: {0}")]
-    IoError(std::io::Error),
+}
+
+impl std::error::Error for VmmProcessError {}
+
+impl std::fmt::Display for VmmProcessError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmmProcessError::ExpectedState { expected, actual } => write!(
+                f,
+                "Expected the process to be in the {expected} state, but it was in the {actual} state"
+            ),
+            VmmProcessError::ExpectedExitedOrCrashed { actual } => write!(
+                f,
+                "Expected the process to have exited or crashed, but it was in the {actual} state"
+            ),
+            VmmProcessError::ApiSocketDisabledError => write!(
+                f,
+                "Attempted to perform an API request despite having disabled the socket"
+            ),
+            VmmProcessError::ChangeOwnerError(err) => write!(f, "An ownership change failed: {err}"),
+            VmmProcessError::ApiRequestError(err) => write!(f, "An issued API HTTP request failed: {err}"),
+            VmmProcessError::ApiInvalidRouteError { route, error } => {
+                write!(f, "The \"{route}\" route for an API HTTP request is invalid: {error}")
+            }
+            VmmProcessError::SigkillFailed(err) => write!(f, "Sending SIGKILL via process handle failed: {err}"),
+            VmmProcessError::CtrlAltDelRequestNotBuilt(err) => {
+                write!(f, "The Ctrl+Alt+Del HTTP request could not be built: {err}")
+            }
+            VmmProcessError::CtrlAltDelRequestFailed(status_code) => {
+                write!(f, "The Ctrl+Alt+Del HTTP request failed with {status_code} status code")
+            }
+            VmmProcessError::ProcessWaitFailed(err) => write!(f, "Waiting on the exit of the process failed: {err}"),
+            VmmProcessError::ExecutorError(err) => write!(f, "The underlying VMM executor returned an error: {err}"),
+            VmmProcessError::ProcessHandlePipesError(err) => {
+                write!(f, "Getting the pipes from the process handle failed: {err}")
+            }
+        }
+    }
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
@@ -177,12 +206,31 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
         mut request: Request<Full<Bytes>>,
     ) -> Result<Response<Incoming>, VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
-        let (hyper_client, socket_path) = self.get_hyper_client().await?;
-        *request.uri_mut() = Uri::unix(socket_path, route).map_err(|_| VmmProcessError::IncorrectSocketUri)?;
+        let route = route.as_ref();
+        let socket_path = self.get_socket_path().ok_or(VmmProcessError::ApiSocketDisabledError)?;
+
+        let hyper_client = self
+            .hyper_client
+            .get_or_try_init(async {
+                upgrade_owner::<R>(&socket_path, self.ownership_model, self.process_spawner.as_ref())
+                    .await
+                    .map_err(VmmProcessError::ChangeOwnerError)?;
+
+                Ok(Client::builder(R::get_hyper_executor()).build(HyperUnixConnector {
+                    backend: R::get_hyper_client_sockets_backend(),
+                }))
+            })
+            .await?;
+
+        *request.uri_mut() = Uri::unix(socket_path, route).map_err(|error| VmmProcessError::ApiInvalidRouteError {
+            route: route.to_owned(),
+            error,
+        })?;
+
         hyper_client
             .request(request)
             .await
-            .map_err(VmmProcessError::HyperClientFailed)
+            .map_err(VmmProcessError::ApiRequestError)
     }
 
     /// Take out the stdout, stdin, stderr pipes of the underlying process. This can be only done once,
@@ -248,7 +296,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
             .expect("No child while running")
             .wait()
             .await
-            .map_err(VmmProcessError::WaitFailed)
+            .map_err(VmmProcessError::ProcessWaitFailed)
     }
 
     /// Returns the current [VmmProcessState] of the [VmmProcess]. Needs mutable access (as well as most other
@@ -303,26 +351,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
         }
 
         Err(VmmProcessError::ExpectedExitedOrCrashed { actual: state })
-    }
-
-    async fn get_hyper_client(
-        &mut self,
-    ) -> Result<(&Client<HyperUnixConnector, Full<Bytes>>, PathBuf), VmmProcessError> {
-        let socket_path = self.get_socket_path().ok_or(VmmProcessError::SocketWasDisabled)?;
-        let hyper_client = self
-            .hyper_client
-            .get_or_try_init(async {
-                upgrade_owner::<R>(&socket_path, self.ownership_model, self.process_spawner.as_ref())
-                    .await
-                    .map_err(VmmProcessError::ChangeOwnerError)?;
-
-                Ok(Client::builder(R::get_hyper_executor()).build(HyperUnixConnector {
-                    backend: R::get_hyper_client_sockets_backend(),
-                }))
-            })
-            .await?;
-
-        Ok((hyper_client, socket_path))
     }
 }
 

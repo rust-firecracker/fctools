@@ -51,7 +51,7 @@ impl VmShutdownMethod {
                 let mut pipes = vm.vmm_process.take_pipes().map_err(VmShutdownError::TakePipesError)?;
                 pipes
                     .stdin
-                    .write_all(&bytes)
+                    .write_all(bytes)
                     .await
                     .map_err(VmShutdownError::SerialError)?;
                 pipes.stdin.flush().await.map_err(VmShutdownError::SerialError)?
@@ -90,27 +90,46 @@ impl IntoIterator for VmShutdownAction {
     }
 }
 
-/// An error that can occur while applying a [VmShutdownAction] to a [Vm].
-#[derive(Debug, thiserror::Error)]
+/// An error that can occur while applying a sequence of [VmShutdownAction]s to a [Vm].
+#[derive(Debug)]
 pub enum VmShutdownError {
-    #[error("Ensuring the VM is paused or running failed: {0}")]
     StateCheckError(VmStateCheckError),
-    #[error("No shutdown actions were specified")]
     NoActionsSpecified,
-    #[error("The shutdown action future timed out according to the configured duration")]
     Timeout,
-    #[error("Waiting for the VMM process to exit failed: {0}")]
     WaitForExitError(VmmProcessError),
-    #[error("Sending a SIGKILL failed: {0}")]
     KillError(VmmProcessError),
-    #[error("Pausing the VM via the API failed: {0}")]
     PauseError(VmApiError),
-    #[error("Sending Ctrl+Alt+Del to the VM failed: {0}")]
     SendCtrlAltDelError(VmmProcessError),
-    #[error("Taking the pipes from the VM to perform a serial write failed: {0}")]
     TakePipesError(VmmProcessError),
-    #[error("Performing a serial write to stdin failed: {0}")]
     SerialError(std::io::Error),
+}
+
+impl std::error::Error for VmShutdownError {}
+
+impl std::fmt::Display for VmShutdownError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmShutdownError::StateCheckError(err) => {
+                write!(f, "Checking the state of the VM for shutdown failed: {err}")
+            }
+            VmShutdownError::NoActionsSpecified => write!(f, "No shutdown actions were specified"),
+            VmShutdownError::Timeout => write!(
+                f,
+                "The shutdown action future timed out according to the configured duration"
+            ),
+            VmShutdownError::WaitForExitError(err) => {
+                write!(f, "Waiting for the VMM process to exit failed: {err}")
+            }
+            VmShutdownError::KillError(err) => write!(f, "Sending a SIGKILL failed: {err}"),
+            VmShutdownError::PauseError(err) => write!(f, "Pausing the VM via the API server failed: {err}"),
+            VmShutdownError::SendCtrlAltDelError(err) => write!(f, "Sending Ctrl+Alt+Del to the VM failed: {err}"),
+            VmShutdownError::TakePipesError(err) => write!(
+                f,
+                "Taking the pipes from the VM to perform a serial write failed: {err}"
+            ),
+            VmShutdownError::SerialError(err) => write!(f, "Performing a serial write to stdin failed: {err}"),
+        }
+    }
 }
 
 /// A diagnostic outcome of a successful shutdown of a VM as a result of applying a sequence of
@@ -122,7 +141,7 @@ pub struct VmShutdownOutcome {
     /// Whether the action that performed the shutdown was marked as graceful.
     pub graceful: bool,
     /// The index of the action that performed the shutdown relative to the sequence of actions.
-    pub index: u8,
+    pub index: usize,
     /// The recording of all errors that occurred prior to the successful shutdown.
     pub errors: Vec<VmShutdownError>,
 }
@@ -142,9 +161,8 @@ pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
     vm.ensure_paused_or_running()
         .map_err(VmShutdownError::StateCheckError)?;
     let mut errors = Vec::new();
-    let mut index = 0;
 
-    for action in actions {
+    for (index, action) in actions.into_iter().enumerate() {
         let result = match action.timeout {
             Some(duration) => R::Executor::timeout(duration, action.method.run(vm))
                 .await
@@ -165,8 +183,6 @@ pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
                 errors.push(error);
             }
         }
-
-        index += 1;
     }
 
     match errors.into_iter().last() {

@@ -33,16 +33,32 @@ pub struct SnapshotEditor<'p, R: Runtime> {
 }
 
 /// An error that can be emitted by a "snapshot-editor" invocation.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum SnapshotEditorError {
-    #[error("Forking the snapshot-editor process failed: {0}")]
     ProcessSpawnFailed(std::io::Error),
-    #[error("Waiting on the exit of the snapshot-editor process failed: {0}")]
     ProcessWaitFailed(std::io::Error),
-    #[error("The snapshot-editor exited with a non-zero exit status: {0}")]
     ExitedWithNonZeroStatus(ExitStatus),
-    #[error("A given path was not in UTF-8. Non-UTF-8 paths are unsupported.")]
     NonUTF8Path,
+}
+
+impl std::error::Error for SnapshotEditorError {}
+
+impl std::fmt::Display for SnapshotEditorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SnapshotEditorError::ProcessSpawnFailed(err) => {
+                write!(f, "Spawning the snapshot-editor-process failed: {err}")
+            }
+            SnapshotEditorError::ProcessWaitFailed(err) => {
+                write!(f, "Waiting on the exit of the snapshot-editor process failed: {err}")
+            }
+            SnapshotEditorError::ExitedWithNonZeroStatus(exit_status) => write!(
+                f,
+                "The snapshot-editor process exited with a non-zero exit status: {exit_status}"
+            ),
+            SnapshotEditorError::NonUTF8Path => write!(f, "A given path was non-UTF-8, which is unsupported"),
+        }
+    }
 }
 
 impl<'p, R: Runtime> SnapshotEditor<'p, R> {

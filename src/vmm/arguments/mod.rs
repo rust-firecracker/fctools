@@ -203,17 +203,16 @@ pub enum VmmLogLevel {
     Error,
 }
 
-impl ToString for VmmLogLevel {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for VmmLogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VmmLogLevel::Off => "Off",
-            VmmLogLevel::Trace => "Trace",
-            VmmLogLevel::Debug => "Debug",
-            VmmLogLevel::Info => "Info",
-            VmmLogLevel::Warn => "Warn",
-            VmmLogLevel::Error => "Error",
+            VmmLogLevel::Off => write!(f, "Off"),
+            VmmLogLevel::Trace => write!(f, "Trace"),
+            VmmLogLevel::Debug => write!(f, "Debug"),
+            VmmLogLevel::Info => write!(f, "Info"),
+            VmmLogLevel::Warn => write!(f, "Warn"),
+            VmmLogLevel::Error => write!(f, "Error"),
         }
-        .into()
     }
 }
 

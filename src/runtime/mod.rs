@@ -147,6 +147,7 @@ pub trait RuntimeProcess: Sized + Send + Sync + std::fmt::Debug {
 }
 
 /// A utility join set of multiple [RuntimeTask]s that run concurrently and can be waited on to all complete.
+#[derive(Default)]
 pub struct RuntimeJoinSet<O: Send + 'static, E: RuntimeExecutor> {
     join_handles: Vec<E::Task<Result<(), O>>>,
 }

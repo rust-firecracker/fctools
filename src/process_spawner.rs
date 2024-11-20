@@ -122,7 +122,7 @@ impl ProcessSpawner for SuProcessSpawner {
 
 /// A [ProcessSpawner] that escalates the privileges of the process via the "sudo" CLI utility.
 #[cfg(feature = "elevation-process-spawners")]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SudoProcessSpawner {
     sudo_path: Option<PathBuf>,
     password: Option<String>,

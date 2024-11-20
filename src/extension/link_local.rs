@@ -16,18 +16,37 @@ const LINK_LOCAL_OCTET_2: u8 = 254;
 const LINK_LOCAL_IP_AMOUNT: u32 = 65536;
 
 /// An error that can be returned by operations with a LinkLocalSubnet.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkLocalSubnetError {
-    #[error("The given subnet is not link-local (fits into 169.254.0.0/16)")]
     NotLinkLocal,
-    #[error("The given network length is thinner than /30 or wider than /17")]
     NetworkLengthDoesNotFit,
-    #[error("The given subnet index does not fit into the link-local range (169.254.0.0/16)")]
     SubnetIndexDoesNotFit,
-    #[error("The given IP index does not fit into the subnet")]
     IpIndexDoesNotFit,
-    #[error("An unexpected unsigned integer overflow occurred. This should never happen")]
     UnexpectedOverflow,
+}
+
+impl std::error::Error for LinkLocalSubnetError {}
+
+impl std::fmt::Display for LinkLocalSubnetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LinkLocalSubnetError::NotLinkLocal => {
+                write!(f, "The given subnet is not link-local (fits into 169.254.0.0/16)")
+            }
+            LinkLocalSubnetError::NetworkLengthDoesNotFit => {
+                write!(f, "The given network length is thinner than /30 or wider than /17")
+            }
+            LinkLocalSubnetError::SubnetIndexDoesNotFit => write!(
+                f,
+                "The given subnet index does not fit into the link-local range (169.254.0.0/16)"
+            ),
+            LinkLocalSubnetError::IpIndexDoesNotFit => write!(f, "The given IP index does not fit into the subnet"),
+            LinkLocalSubnetError::UnexpectedOverflow => write!(
+                f,
+                "An unexpected unsigned integer overflow occurred. This is an internal error"
+            ),
+        }
+    }
 }
 
 #[inline(always)]
@@ -114,7 +133,7 @@ impl LinkLocalSubnet {
             return Err(LinkLocalSubnetError::IpIndexDoesNotFit);
         }
 
-        self.get_ip_imp(self.ip_amount() as u32 * self.subnet_index as u32 + ip_index)
+        self.get_ip_imp(self.ip_amount() * self.subnet_index as u32 + ip_index)
     }
 
     /// Get a host IPv4 address within this subnet that is offset by the given IP index.
@@ -124,7 +143,7 @@ impl LinkLocalSubnet {
             return Err(LinkLocalSubnetError::IpIndexDoesNotFit);
         }
 
-        self.get_ip_imp(self.ip_amount() as u32 * self.subnet_index as u32 + ip_index + 1)
+        self.get_ip_imp(self.ip_amount() * self.subnet_index as u32 + ip_index + 1)
     }
 
     #[inline(always)]

@@ -16,18 +16,35 @@ pub struct VmmInstallation {
 }
 
 /// Error caused during [VmmInstallation] verification.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum VmmInstallationError {
-    #[error("An I/O error was emitted by the filesystem: {0}")]
     FilesystemError(std::io::Error),
-    #[error("A binary inside the installation doesn't exist")]
     BinaryMissing,
-    #[error("A binary inside the installation does not have execution permissions")]
     BinaryNotExecutable,
-    #[error("A binary inside the installation is incorrectly labeled as something else")]
     BinaryIsOfIncorrectType,
-    #[error("A binary's version inside the installation does not match the version that was given")]
     BinaryDoesNotMatchExpectedVersion,
+}
+
+impl std::error::Error for VmmInstallationError {}
+
+impl std::fmt::Display for VmmInstallationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmmInstallationError::FilesystemError(err) => {
+                write!(f, "A filesystem operation backed by the runtime failed: {err}")
+            }
+            VmmInstallationError::BinaryMissing => write!(f, "A binary inside the installation doesn't exist"),
+            VmmInstallationError::BinaryNotExecutable => {
+                write!(f, "A binary inside the installation doesn't have execution permissions")
+            }
+            VmmInstallationError::BinaryIsOfIncorrectType => {
+                write!(f, "A binary inside the installation is incorrectly labeled")
+            }
+            VmmInstallationError::BinaryDoesNotMatchExpectedVersion => {
+                write!(f, "A binary inside the installation does not match the given version")
+            }
+        }
+    }
 }
 
 impl VmmInstallation {

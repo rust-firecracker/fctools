@@ -276,7 +276,7 @@ impl TokenBucket {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Default)]
 pub struct LoggerSystem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) log_path: Option<PathBuf>,
@@ -435,7 +435,7 @@ pub enum MmdsVersion {
     V2,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Default)]
 pub struct EntropyDevice {
     #[serde(skip_serializing_if = "Option::is_none")]
     rate_limiter: Option<RateLimiter>,
