@@ -30,27 +30,56 @@ use super::{
 };
 
 /// An error that can be emitted by the [VmApi] Firecracker Management API bindings.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum VmApiError {
-    #[error("Serializing or deserializing JSON data via serde-json failed: {0}")]
     SerdeError(serde_json::Error),
-    #[error("The API returned an unsuccessful HTTP response with the {status_code} status: {fault_message}")]
     ReceivedErrorResponse {
         status_code: StatusCode,
         fault_message: String,
     },
-    #[error("Building the HTTP request for the API failed: {0}")]
     RequestBuildError(http::Error),
-    #[error("Sending the HTTP process via the VMM process failed: {0}")]
     ConnectionError(VmmProcessError),
-    #[error("The HTTP response body from the API could not be received over the established connection: {0}")]
     ResponseBodyReceiveError(hyper::Error),
-    #[error("The HTTP response body from the API was presumed empty but actually contains data: {0}")]
     ResponseBodyContainsUnexpectedData(String),
-    #[error("A state check of the VM failed: {0}")]
     StateCheckError(VmStateCheckError),
-    #[error("Changing the owner of the snapshot failed: {0}")]
     SnapshotChangeOwnerError(ChangeOwnerError),
+}
+
+impl std::error::Error for VmApiError {}
+
+impl std::fmt::Display for VmApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmApiError::SerdeError(error) => write!(
+                f,
+                "Serializing or deserializing JSON data via serde-json failed: {error}"
+            ),
+            VmApiError::ReceivedErrorResponse {
+                status_code,
+                fault_message,
+            } => write!(
+                f,
+                "The API returned an unsuccessful HTTP response with the {status_code} status: {fault_message}"
+            ),
+            VmApiError::RequestBuildError(error) => {
+                write!(f, "The HTTP request for the API could not be built: {error}")
+            }
+            VmApiError::ConnectionError(error) => {
+                write!(f, "Sending the HTTP request over the connection failed: {error}")
+            }
+            VmApiError::ResponseBodyReceiveError(error) => write!(
+                f,
+                "The HTTP response body could not be received over the connection: {error}"
+            ),
+            VmApiError::ResponseBodyContainsUnexpectedData(data) => {
+                write!(f, "The HTTP response body was presumed empty but contains: {data}")
+            }
+            VmApiError::StateCheckError(error) => write!(f, "A state check of the VM failed: {error}"),
+            VmApiError::SnapshotChangeOwnerError(error) => {
+                write!(f, "Changing the owner of a snapshot failed: {error}")
+            }
+        }
+    }
 }
 
 /// An extension to [Vm] providing up-to-date, exhaustive and easy-to-use bindings to the Firecracker Management API.

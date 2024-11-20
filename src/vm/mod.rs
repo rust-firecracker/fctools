@@ -78,42 +78,79 @@ impl std::fmt::Display for VmState {
 }
 
 /// All errors that can be produced by a [Vm].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum VmError {
-    #[error("The underlying VMM process returned an error: {0}")]
     ProcessError(VmmProcessError),
-    #[error("An ownership change requested on the VM level failed: {0}")]
     ChangeOwnerError(ChangeOwnerError),
-    #[error("A filesystem operation backed by the runtime failed: {0}")]
     FilesystemError(std::io::Error),
-    #[error("Joining on an async task failed")]
     TaskJoinFailed,
-    #[error("Making a FIFO named pipe failed: {0}")]
     MkfifoError(std::io::Error),
-    #[error("A state check of the VM failed: {0}")]
     StateCheckError(VmStateCheckError),
-    #[error("A request issued to the API server internally failed: {0}")]
     ApiError(VmApiError),
-    #[error("Serialization of the transient JSON configuration failed: {0}")]
     ConfigurationSerdeError(serde_json::Error),
-    #[error("No shutdown methods were specified for a VM shutdown operation")]
-    NoShutdownMethodsSpecified,
-    #[error("A future timed out according to the given timeout duration")]
-    Timeout,
-    #[error("Attempted to use a VM configuration with a disabled API socket, which is not supported")]
+    SocketWaitTimeout,
     DisabledApiSocketIsUnsupported,
-    #[error("A path mapping was expected to be constructed by the executor, but was not returned")]
     MissingPathMapping,
 }
 
-#[derive(Debug, thiserror::Error)]
+impl std::error::Error for VmError {}
+
+impl std::fmt::Display for VmError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmError::ProcessError(error) => write!(f, "The underlying VMM process returned an error: {error}"),
+            VmError::ChangeOwnerError(error) => {
+                write!(f, "An ownership change requested on the VM level failed: {error}")
+            }
+            VmError::FilesystemError(error) => {
+                write!(f, "A filesystem operation backed by the runtime failed: {error}")
+            }
+            VmError::TaskJoinFailed => write!(f, "Joining on an async task failed"),
+            VmError::MkfifoError(error) => write!(f, "Making a FIFO named pipe failed: {error}"),
+            VmError::StateCheckError(error) => write!(f, "A state check of the VM failed: {error}"),
+            VmError::ApiError(error) => write!(f, "A request issued to the API server internally failed: {error}"),
+            VmError::ConfigurationSerdeError(error) => {
+                write!(f, "Serialization of the transient JSON configuration failed: {error}")
+            }
+            VmError::SocketWaitTimeout => write!(f, "The wait for the API socket to become available timed out"),
+            VmError::DisabledApiSocketIsUnsupported => write!(
+                f,
+                "Attempted to use a VM configuration with a disabled API socket, which is not supported"
+            ),
+            VmError::MissingPathMapping => write!(
+                f,
+                "A path mapping was expected to be constructed by the executor, but was not returned"
+            ),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum VmStateCheckError {
-    #[error("Expected the VM to have exited or crashed, but the actual state was {actual}")]
     ExitedOrCrashed { actual: VmState },
-    #[error("Expected the VM to be paused or running, but the actual state was {actual}")]
     PausedOrRunning { actual: VmState },
-    #[error("Expected the VM to be in the {expected} state, but the actual state was {actual}")]
     Other { expected: VmState, actual: VmState },
+}
+
+impl std::error::Error for VmStateCheckError {}
+
+impl std::fmt::Display for VmStateCheckError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmStateCheckError::ExitedOrCrashed { actual } => write!(
+                f,
+                "Expected the VM to have exited or crashed, but the actual state was {actual}"
+            ),
+            VmStateCheckError::PausedOrRunning { actual } => write!(
+                f,
+                "Expected the VM to be paused or running, but the actual state was {actual}"
+            ),
+            VmStateCheckError::Other { expected, actual } => write!(
+                f,
+                "Expected the VM to be in {expected} state, but it was in the {actual} state"
+            ),
+        }
+    }
 }
 
 /// A set of common absolute (outer) paths associated with a [Vm].
@@ -335,7 +372,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             Ok(())
         })
         .await
-        .map_err(|_| VmError::Timeout)?
+        .map_err(|_| VmError::SocketWaitTimeout)?
         .map_err(VmError::FilesystemError)?;
 
         match configuration {

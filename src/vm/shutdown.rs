@@ -90,27 +90,46 @@ impl IntoIterator for VmShutdownAction {
     }
 }
 
-/// An error that can occur while applying a [VmShutdownAction] to a [Vm].
-#[derive(Debug, thiserror::Error)]
+/// An error that can occur while applying a sequence of [VmShutdownAction]s to a [Vm].
+#[derive(Debug)]
 pub enum VmShutdownError {
-    #[error("Ensuring the VM is paused or running failed: {0}")]
     StateCheckError(VmStateCheckError),
-    #[error("No shutdown actions were specified")]
     NoActionsSpecified,
-    #[error("The shutdown action future timed out according to the configured duration")]
     Timeout,
-    #[error("Waiting for the VMM process to exit failed: {0}")]
     WaitForExitError(VmmProcessError),
-    #[error("Sending a SIGKILL failed: {0}")]
     KillError(VmmProcessError),
-    #[error("Pausing the VM via the API failed: {0}")]
     PauseError(VmApiError),
-    #[error("Sending Ctrl+Alt+Del to the VM failed: {0}")]
     SendCtrlAltDelError(VmmProcessError),
-    #[error("Taking the pipes from the VM to perform a serial write failed: {0}")]
     TakePipesError(VmmProcessError),
-    #[error("Performing a serial write to stdin failed: {0}")]
     SerialError(std::io::Error),
+}
+
+impl std::error::Error for VmShutdownError {}
+
+impl std::fmt::Display for VmShutdownError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmShutdownError::StateCheckError(error) => {
+                write!(f, "Checking the state of the VM for shutdown failed: {error}")
+            }
+            VmShutdownError::NoActionsSpecified => write!(f, "No shutdown actions were specified"),
+            VmShutdownError::Timeout => write!(
+                f,
+                "The shutdown action future timed out according to the configured duration"
+            ),
+            VmShutdownError::WaitForExitError(error) => {
+                write!(f, "Waiting for the VMM process to exit failed: {error}")
+            }
+            VmShutdownError::KillError(error) => write!(f, "Sending a SIGKILL failed: {error}"),
+            VmShutdownError::PauseError(error) => write!(f, "Pausing the VM via the API server failed: {error}"),
+            VmShutdownError::SendCtrlAltDelError(error) => write!(f, "Sending Ctrl+Alt+Del to the VM failed: {error}"),
+            VmShutdownError::TakePipesError(error) => write!(
+                f,
+                "Taking the pipes from the VM to perform a serial write failed: {error}"
+            ),
+            VmShutdownError::SerialError(error) => write!(f, "Performing a serial write to stdin failed: {error}"),
+        }
+    }
 }
 
 /// A diagnostic outcome of a successful shutdown of a VM as a result of applying a sequence of
