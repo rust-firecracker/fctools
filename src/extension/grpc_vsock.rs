@@ -7,14 +7,25 @@ use tonic::transport::{Channel, Endpoint};
 use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vm::Vm, vmm::executor::VmmExecutor};
 
 /// An error emitted by the gRPC-over-vsock extension.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum VsockGrpcError {
-    #[error("A vsock device was not configured for this VM")]
     VsockNotConfigured,
-    #[error("The provided address was rejected as an Endpoint by tonic: {0}")]
     ProvidedAddressRejected(tonic::transport::Error),
-    #[error("The connection process failed: {0}")]
     ConnectionFailed(tonic::transport::Error),
+}
+
+impl std::error::Error for VsockGrpcError {}
+
+impl std::fmt::Display for VsockGrpcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VsockGrpcError::VsockNotConfigured => write!(f, "A vsock device was not configured for this VM"),
+            VsockGrpcError::ProvidedAddressRejected(err) => {
+                write!(f, "The provided address was rejected as an Endpoint: {err}")
+            }
+            VsockGrpcError::ConnectionFailed(err) => write!(f, "The gRPC connection failed: {err}"),
+        }
+    }
 }
 
 /// An extension that allows connecting to guest applications that expose a gRPC server being tunneled over

@@ -25,14 +25,28 @@ pub struct ProcessHandlePipes<P: RuntimeProcess> {
 }
 
 /// An error that didn't allow the extraction of [ProcessHandlePipes] from a [ProcessHandle].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum ProcessHandlePipesError {
-    #[error("The handle points to a detached process outside the PID namespace of the current one")]
     ProcessIsDetached,
-    #[error("The pipes of the process were dropped")]
     PipesWereDropped,
-    #[error("The pipes were already taken (given ownership of)")]
     PipesWereAlreadyTaken,
+}
+
+impl std::error::Error for ProcessHandlePipesError {}
+
+impl std::fmt::Display for ProcessHandlePipesError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProcessHandlePipesError::ProcessIsDetached => write!(
+                f,
+                "The handle points to a detached process outside the PID namespace of the current one"
+            ),
+            ProcessHandlePipesError::PipesWereDropped => write!(f, "The pipes of the process were dropped"),
+            ProcessHandlePipesError::PipesWereAlreadyTaken => {
+                write!(f, "The pipes were already taken (given ownership of)")
+            }
+        }
+    }
 }
 
 #[derive(Debug)]

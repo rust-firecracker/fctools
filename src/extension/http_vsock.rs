@@ -16,23 +16,43 @@ use crate::{
 };
 
 /// An error that can be emitted by the HTTP-over-vsock extension.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum VsockHttpError {
-    #[error("A vsock device was not configured for this VM")]
     VsockNotConfigured,
-    #[error("Could not connect to the vsock socket: {0}")]
     CannotConnect(std::io::Error),
-    #[error("Could not perform an HTTP handshake with the vsock socket: {0}")]
     CannotHandshake(hyper::Error),
 }
 
-/// An error that can be emitted by the [VsockHttpPool] abstraction.
-#[derive(Debug, thiserror::Error)]
+impl std::error::Error for VsockHttpError {}
+
+impl std::fmt::Display for VsockHttpError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VsockHttpError::VsockNotConfigured => write!(f, "A vsock device was not configured for this VM"),
+            VsockHttpError::CannotConnect(err) => write!(f, "Could not connect to the vsock socket: {err}"),
+            VsockHttpError::CannotHandshake(err) => {
+                write!(f, "Could not perform an HTTP handshake with the vsock socket: {err}")
+            }
+        }
+    }
+}
+
+/// An error that can be emitted by the [VsockHttpPool] HTTP connection pool.
+#[derive(Debug)]
 pub enum VsockHttpPoolError {
-    #[error("A vsock URI cannot be constructed: {0}")]
-    UriCannotBeConstructed(Box<dyn std::error::Error>),
-    #[error("An error occurred in the hyper-util connection pool: {0}")]
-    ConnectionPoolError(hyper_util::client::legacy::Error),
+    InvalidUri { uri: String, error: http::uri::InvalidUri },
+    RequestError(hyper_util::client::legacy::Error),
+}
+
+impl std::error::Error for VsockHttpPoolError {}
+
+impl std::fmt::Display for VsockHttpPoolError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VsockHttpPoolError::InvalidUri { uri, error } => write!(f, "The vsock URI \"{uri}\" is invalid: {error}"),
+            VsockHttpPoolError::RequestError(err) => write!(f, "The connection to the vsock device failed: {err}"),
+        }
+    }
 }
 
 /// A managed HTTP connection pool using vsock. Currently the underlying implementation is backed by hyper-util,
@@ -51,13 +71,19 @@ impl VsockHttpPool {
         uri: impl AsRef<str> + Send,
         mut request: Request<Full<Bytes>>,
     ) -> Result<Response<Incoming>, VsockHttpPoolError> {
-        let actual_uri = Uri::firecracker(&self.socket_path, self.guest_port, uri)
-            .map_err(VsockHttpPoolError::UriCannotBeConstructed)?;
+        let uri = uri.as_ref();
+
+        let actual_uri = Uri::firecracker(&self.socket_path, self.guest_port, uri).map_err(|error| {
+            VsockHttpPoolError::InvalidUri {
+                uri: uri.to_owned(),
+                error,
+            }
+        })?;
         *request.uri_mut() = actual_uri;
         self.client
             .request(request)
             .await
-            .map_err(VsockHttpPoolError::ConnectionPoolError)
+            .map_err(VsockHttpPoolError::RequestError)
     }
 }
 

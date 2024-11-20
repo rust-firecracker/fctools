@@ -7,14 +7,23 @@
 pub struct VmmId(String);
 
 /// An error produced when constructing a [VmmId] from an unchecked [String].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum VmmIdError {
-    #[error("The provided ID was too short")]
     TooShort,
-    #[error("The provided ID was too long")]
     TooLong,
-    #[error("The provided ID contained an invalid character")]
     ContainsInvalidCharacter,
+}
+
+impl std::error::Error for VmmIdError {}
+
+impl std::fmt::Display for VmmIdError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmmIdError::TooShort => write!(f, "The provided ID was shorter than 5 characters"),
+            VmmIdError::TooLong => write!(f, "The provided ID was longer than 60 characters"),
+            VmmIdError::ContainsInvalidCharacter => write!(f, "The provided ID contained an invalid character"),
+        }
+    }
 }
 
 impl VmmId {

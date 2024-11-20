@@ -56,12 +56,6 @@ impl Runtime for SmolRuntime {
 
 pub struct SmolRuntimeExecutor;
 
-impl std::fmt::Display for TimeoutError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Timed out at {:?}", self.instant)
-    }
-}
-
 impl RuntimeExecutor for SmolRuntimeExecutor {
     type Task<O: Send + 'static> = SmolRuntimeTask<O>;
 
@@ -108,9 +102,17 @@ impl<O: Send + 'static> Drop for SmolRuntimeTask<O> {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub struct TimeoutError {
     pub instant: Instant,
+}
+
+impl std::error::Error for TimeoutError {}
+
+impl std::fmt::Display for TimeoutError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "A future timed out at instant: {:?}", self.instant)
+    }
 }
 
 pin_project! {
