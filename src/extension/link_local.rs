@@ -114,7 +114,7 @@ impl LinkLocalSubnet {
             return Err(LinkLocalSubnetError::IpIndexDoesNotFit);
         }
 
-        self.get_ip_imp(self.ip_amount() as u32 * self.subnet_index as u32 + ip_index)
+        self.get_ip_imp(self.ip_amount() * self.subnet_index as u32 + ip_index)
     }
 
     /// Get a host IPv4 address within this subnet that is offset by the given IP index.
@@ -124,7 +124,7 @@ impl LinkLocalSubnet {
             return Err(LinkLocalSubnetError::IpIndexDoesNotFit);
         }
 
-        self.get_ip_imp(self.ip_amount() as u32 * self.subnet_index as u32 + ip_index + 1)
+        self.get_ip_imp(self.ip_amount() * self.subnet_index as u32 + ip_index + 1)
     }
 
     #[inline(always)]

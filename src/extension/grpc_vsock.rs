@@ -45,13 +45,13 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockGrpcExt for Vm<E, S, R>
         guest_port: u32,
         configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
     ) -> impl Future<Output = Result<Channel, VsockGrpcError>> + Send {
-        let result = create_endpoint_and_service(&self, guest_port, configure_endpoint);
+        let result = create_endpoint_and_service(self, guest_port, configure_endpoint);
         async move {
             let (endpoint, service) = result?;
-            Ok(endpoint
+            endpoint
                 .connect_with_connector(service)
                 .await
-                .map_err(VsockGrpcError::ConnectionFailed)?)
+                .map_err(VsockGrpcError::ConnectionFailed)
         }
     }
 
@@ -60,7 +60,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockGrpcExt for Vm<E, S, R>
         guest_port: u32,
         configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
     ) -> Result<Channel, VsockGrpcError> {
-        let (endpoint, service) = create_endpoint_and_service(&self, guest_port, configure_endpoint)?;
+        let (endpoint, service) = create_endpoint_and_service(self, guest_port, configure_endpoint)?;
         Ok(endpoint.connect_with_connector_lazy(service))
     }
 }

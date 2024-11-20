@@ -51,7 +51,7 @@ impl VmShutdownMethod {
                 let mut pipes = vm.vmm_process.take_pipes().map_err(VmShutdownError::TakePipesError)?;
                 pipes
                     .stdin
-                    .write_all(&bytes)
+                    .write_all(bytes)
                     .await
                     .map_err(VmShutdownError::SerialError)?;
                 pipes.stdin.flush().await.map_err(VmShutdownError::SerialError)?
@@ -141,7 +141,7 @@ pub struct VmShutdownOutcome {
     /// Whether the action that performed the shutdown was marked as graceful.
     pub graceful: bool,
     /// The index of the action that performed the shutdown relative to the sequence of actions.
-    pub index: u8,
+    pub index: usize,
     /// The recording of all errors that occurred prior to the successful shutdown.
     pub errors: Vec<VmShutdownError>,
 }
@@ -161,9 +161,8 @@ pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
     vm.ensure_paused_or_running()
         .map_err(VmShutdownError::StateCheckError)?;
     let mut errors = Vec::new();
-    let mut index = 0;
 
-    for action in actions {
+    for (index, action) in actions.into_iter().enumerate() {
         let result = match action.timeout {
             Some(duration) => R::Executor::timeout(duration, action.method.run(vm))
                 .await
@@ -184,8 +183,6 @@ pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
                 errors.push(error);
             }
         }
-
-        index += 1;
     }
 
     match errors.into_iter().last() {

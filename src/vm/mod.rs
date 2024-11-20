@@ -270,7 +270,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             if let Some(ref socket) = drive.socket {
                 accessible_paths
                     .drive_sockets
-                    .insert(drive.drive_id.clone(), vmm_process.inner_to_outer_path(&socket));
+                    .insert(drive.drive_id.clone(), vmm_process.inner_to_outer_path(socket));
             }
         }
 
@@ -339,21 +339,19 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
 
         let mut config_path = None;
         if let VmConfiguration::New {
-            ref init_method,
+            init_method: InitMethod::ViaJsonConfiguration(ref inner_path),
             ref data,
         } = configuration
         {
-            if let InitMethod::ViaJsonConfiguration(inner_path) = init_method {
-                let outer_path = self.vmm_process.inner_to_outer_path(inner_path);
-                config_path = Some(inner_path.clone());
-                prepare_file::<R>(outer_path.clone(), self.ownership_model, true).await?;
-                R::Filesystem::write_file(
-                    &outer_path,
-                    serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
-                )
-                .await
-                .map_err(VmError::FilesystemError)?;
-            }
+            let outer_path = self.vmm_process.inner_to_outer_path(inner_path);
+            config_path = Some(inner_path.clone());
+            prepare_file::<R>(outer_path.clone(), self.ownership_model, true).await?;
+            R::Filesystem::write_file(
+                &outer_path,
+                serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
+            )
+            .await
+            .map_err(VmError::FilesystemError)?;
         }
 
         self.vmm_process
@@ -535,7 +533,7 @@ async fn prepare_file<R: Runtime>(
     }
 
     if !only_tree {
-        if path.extension().map(|ext| ext.to_str()).flatten() == Some("fifo") {
+        if path.extension().and_then(|ext| ext.to_str()) == Some("fifo") {
             if nix::unistd::mkfifo(&path, Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR).is_err() {
                 return Err(VmError::MkfifoError(std::io::Error::last_os_error()));
             }
@@ -549,7 +547,7 @@ async fn prepare_file<R: Runtime>(
             .await
             .map_err(VmError::ChangeOwnerError)?;
     } else if let Some(parent_path) = path.parent() {
-        downgrade_owner(&parent_path, ownership_model).map_err(VmError::ChangeOwnerError)?;
+        downgrade_owner(parent_path, ownership_model).map_err(VmError::ChangeOwnerError)?;
     }
 
     Ok(())

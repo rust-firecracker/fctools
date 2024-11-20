@@ -71,13 +71,7 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
                 let mut exit_status = ExitStatus::from_raw(0);
 
                 if let Ok(content) = R::Filesystem::read_to_string(&PathBuf::from(format!("/proc/{pid}/stat"))).await {
-                    if let Some(status_raw) = content
-                        .trim_end()
-                        .split_whitespace()
-                        .last()
-                        .map(|value| value.parse().ok())
-                        .flatten()
-                    {
+                    if let Some(status_raw) = content.split_whitespace().last().and_then(|value| value.parse().ok()) {
                         exit_status = ExitStatus::from_raw(status_raw);
                     }
                 }

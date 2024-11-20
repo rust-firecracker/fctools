@@ -118,7 +118,7 @@ async fn create_file_or_fifo<R: Runtime>(
             .map_err(VmmExecutorError::FilesystemError)?;
     }
 
-    if path.extension().map(|ext| ext.to_str()).flatten() == Some("fifo") {
+    if path.extension().and_then(|ext| ext.to_str()) == Some("fifo") {
         if nix::unistd::mkfifo(&path, Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR).is_err() {
             return Err(VmmExecutorError::MkfifoError(std::io::Error::last_os_error()));
         }

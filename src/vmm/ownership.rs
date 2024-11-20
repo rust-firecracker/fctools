@@ -12,8 +12,8 @@ use crate::{
     runtime::{Runtime, RuntimeFilesystem, RuntimeProcess},
 };
 
-pub(crate) static PROCESS_UID: LazyLock<Uid> = LazyLock::new(|| nix::unistd::geteuid());
-pub(crate) static PROCESS_GID: LazyLock<Gid> = LazyLock::new(|| nix::unistd::getegid());
+pub(crate) static PROCESS_UID: LazyLock<Uid> = LazyLock::new(nix::unistd::geteuid);
+pub(crate) static PROCESS_GID: LazyLock<Gid> = LazyLock::new(nix::unistd::getegid);
 
 /// The model used for managing the ownership of resources between the controlling process
 /// (the Rust application using fctools) and the VMM process ("firecracker").
@@ -54,11 +54,10 @@ impl VmmOwnershipModel {
 
     #[inline]
     fn is_upgrade(&self) -> bool {
-        match self {
-            VmmOwnershipModel::UpgradedTemporarily => true,
-            VmmOwnershipModel::UpgradedPermanently => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            VmmOwnershipModel::UpgradedTemporarily | VmmOwnershipModel::UpgradedPermanently
+        )
     }
 }
 
