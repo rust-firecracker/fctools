@@ -93,7 +93,7 @@ impl std::fmt::Display for ChangeOwnerError {
 }
 
 /// For implementors of custom executors: upgrades the owner of the given [Path] using the given [ProcessSpawner]
-/// and [FsBackend], if the [VmmOwnershipModel] requires the upgrade (otherwise, no-ops). This spawns an elevated
+/// and [Runtime], if the [VmmOwnershipModel] requires the upgrade (otherwise, no-ops). This spawns an elevated
 /// coreutils "chown" process via the [ProcessSpawner] and waits on it internally.
 pub async fn upgrade_owner<R: Runtime>(
     path: &Path,
@@ -129,7 +129,7 @@ pub async fn upgrade_owner<R: Runtime>(
 }
 
 /// For implementors of custom executors: downgrades the owner of the given [Path] recursively using the
-/// given [FsBackend]'s recursive implementation, if the [VmmOwnershipModel] requires the downgrade (otherwise, no-ops).
+/// given [Runtime]'s recursive implementation, if the [VmmOwnershipModel] requires the downgrade (otherwise, no-ops).
 pub async fn downgrade_owner_recursively<R: Runtime>(
     path: &Path,
     ownership_model: VmmOwnershipModel,

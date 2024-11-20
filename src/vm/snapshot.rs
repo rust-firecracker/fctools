@@ -16,7 +16,7 @@ pub struct SnapshotData {
 }
 
 impl SnapshotData {
-    /// Copy over the data of this snapshot to the given destinations using the given [FsBackend],
+    /// Copy over the data of this snapshot to the given destinations using the given [Runtime],
     /// also modifying the data to refer to these new destinations.
     pub async fn copy<R: Runtime>(
         &mut self,

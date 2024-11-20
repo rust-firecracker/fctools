@@ -320,8 +320,7 @@ pub struct MetricsTask<E: RuntimeExecutor> {
 }
 
 /// Spawn a dedicated async task that gathers Firecracker's metrics from the given metrics path with an
-/// asynchronous [mpsc] channel limited by the provided upper bound (buffer). Support for an agnostic
-/// [FsBackend](crate::fs_backend::FsBackend) is currently not implemented.
+/// asynchronous [mpsc] channel limited by the provided upper bound (buffer), using the provided [Runtime].
 pub fn spawn_metrics_task<R: Runtime>(
     metrics_path: impl AsRef<Path> + Send + 'static,
     buffer: usize,
