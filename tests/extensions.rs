@@ -1,20 +1,29 @@
 use std::{os::unix::fs::FileTypeExt, time::Duration};
 
+use bytes::Bytes;
 use fctools::{
-    extension::{metrics::spawn_metrics_task, snapshot_editor::SnapshotEditorExt},
+    extension::{
+        grpc_vsock::VsockGrpcExt, http_vsock::VsockHttpExt, metrics::spawn_metrics_task,
+        snapshot_editor::SnapshotEditorExt,
+    },
     runtime::tokio::TokioRuntime,
     vm::{
         api::VmApi,
         models::{CreateSnapshot, MetricsSystem, SnapshotType},
     },
+    vmm::process::HyperResponseExt,
 };
 use futures_util::StreamExt;
+use grpc_codegen::{guest_agent_service_client::GuestAgentServiceClient, Ping, Pong};
+use http_body_util::Full;
+use serde::{Deserialize, Serialize};
 use test_framework::{
     get_real_firecracker_installation, get_tmp_fifo_path, get_tmp_path, shutdown_test_vm, TestOptions, TestVm,
     VmBuilder,
 };
 use tokio::fs::metadata;
 
+mod grpc_codegen;
 mod test_framework;
 
 #[test]
@@ -151,4 +160,122 @@ fn metrics_task_can_be_cancelled_via_join_handle() {
             .unwrap();
             shutdown_test_vm(&mut vm).await;
         });
+}
+
+#[derive(Serialize)]
+struct PingRequest {
+    a: u32,
+    b: u32,
+}
+
+#[derive(Deserialize, Debug, PartialEq, Eq)]
+struct PingResponse {
+    c: u32,
+}
+
+const VSOCK_HTTP_GUEST_PORT: u32 = 8000;
+const VSOCK_GRPC_GUEST_PORT: u32 = 9000;
+
+#[test]
+fn vsock_can_make_plain_http_connection() {
+    VmBuilder::new().vsock_device().run(|mut vm| async move {
+        let mut connection = vm.vsock_connect_over_http(VSOCK_HTTP_GUEST_PORT).await.unwrap();
+        let response = connection.send_request(make_vsock_req()).await.unwrap();
+        assert_vsock_resp(response).await;
+        shutdown_test_vm(&mut vm).await;
+    });
+}
+
+#[test]
+fn vsock_can_make_pooled_http_connection() {
+    VmBuilder::new().vsock_device().run(|mut vm| async move {
+        let connection_pool = vm.vsock_create_http_connection_pool(VSOCK_HTTP_GUEST_PORT).unwrap();
+        let response = connection_pool.send_request("/ping", make_vsock_req()).await.unwrap();
+        assert_vsock_resp(response).await;
+        shutdown_test_vm(&mut vm).await;
+    });
+}
+
+#[test]
+fn vsock_can_perform_unary_grpc_request() {
+    VmBuilder::new().vsock_device().run(|mut vm| async move {
+        let channel = vm
+            .vsock_connect_over_grpc(VSOCK_GRPC_GUEST_PORT, |endpoint| endpoint)
+            .await
+            .unwrap();
+        let mut client = GuestAgentServiceClient::new(channel);
+        let response = client.unary(Ping { number: 5 }).await.unwrap();
+        assert_eq!(response.into_inner(), Pong { number: 25 });
+        shutdown_test_vm(&mut vm).await;
+    });
+}
+
+#[test]
+fn vsock_can_perform_client_streaming_grpc_request() {
+    VmBuilder::new().vsock_device().run(|mut vm| async move {
+        let channel = vm.vsock_connect_over_grpc(VSOCK_GRPC_GUEST_PORT, |e| e).await.unwrap();
+        let mut client = GuestAgentServiceClient::new(channel);
+        let stream = futures_util::stream::repeat(Ping { number: 2 }).take(4);
+        let response = client.client_streaming(stream).await.unwrap();
+        assert_eq!(response.into_inner(), Pong { number: 16 });
+        shutdown_test_vm(&mut vm).await;
+    });
+}
+
+#[test]
+fn vsock_can_perform_server_streaming_grpc_request() {
+    VmBuilder::new().vsock_device().run(|mut vm| async move {
+        let mut client =
+            GuestAgentServiceClient::new(vm.vsock_connect_over_grpc(VSOCK_GRPC_GUEST_PORT, |e| e).await.unwrap());
+        let mut streaming = client.server_streaming(Ping { number: 5 }).await.unwrap().into_inner();
+        let mut count = 0;
+
+        while let Ok(Some(message)) = streaming.message().await {
+            assert_eq!(message, Pong { number: 5 });
+            count += 1;
+        }
+
+        assert_eq!(count, 5);
+        shutdown_test_vm(&mut vm).await;
+    });
+}
+
+#[test]
+fn vsock_can_perform_duplex_streaming_grpc_request() {
+    VmBuilder::new().vsock_device().run(|mut vm| async move {
+        let mut client =
+            GuestAgentServiceClient::new(vm.vsock_connect_over_grpc(VSOCK_GRPC_GUEST_PORT, |e| e).await.unwrap());
+        let request_stream =
+            futures_util::stream::iter(vec![Ping { number: 1 }, Ping { number: 2 }, Ping { number: 3 }]);
+        let mut response_stream = client.duplex_streaming(request_stream).await.unwrap().into_inner();
+        let mut responses = Vec::new();
+
+        while let Ok(Some(response)) = response_stream.message().await {
+            responses.push(response);
+        }
+
+        assert_eq!(
+            responses,
+            vec![Pong { number: 1 }, Pong { number: 2 }, Pong { number: 3 }]
+        );
+        shutdown_test_vm(&mut vm).await;
+    });
+}
+
+fn make_vsock_req() -> http::Request<Full<Bytes>> {
+    let request_json = serde_json::to_string(&PingRequest { a: 4, b: 5 }).unwrap();
+    http::Request::builder()
+        .uri("/ping")
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(Full::new(Bytes::from(request_json)))
+        .unwrap()
+}
+
+async fn assert_vsock_resp(mut response: http::Response<hyper::body::Incoming>) {
+    let response_json = response.recv_to_string().await.unwrap();
+    assert_eq!(
+        serde_json::from_str::<PingResponse>(&response_json).unwrap(),
+        PingResponse { c: 20 }
+    );
 }
