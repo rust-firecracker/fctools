@@ -3,7 +3,7 @@ type = "Ext4"
 size_mib = 250
 
 [container]
-engine = "Docker"
+engine = "Podman"
 rootful = true
 wait_timeout_s = 1
 image = { name = "docker.io/library/debian", tag = "bookworm-slim" }
@@ -13,7 +13,7 @@ script_inline = """
 #!/bin/bash
 
 apt update
-apt install -y udev systemd-sysv iputils-ping curl openssh-server iproute2 ca-certificates
+apt install -y udev systemd-sysv
 
 rm -f /etc/systemd/system/multi-user.target.wants/systemd-resolved.service
 rm -f /etc/systemd/system/dbus-org.freedesktop.resolve1.service
@@ -40,6 +40,35 @@ cat >> /etc/sysctl.conf <<EOF
 # This avoids a SPECTRE vuln
 kernel.unprivileged_bpf_disabled=1
 EOF
+
+cat >> /etc/systemd/system/grpc-guest-agent.service <<EOF
+[Unit]
+Description=gRPC guest agent
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/opt/grpc-guest-agent
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat >> /etc/systemd/system/http-guest-agent.service <<EOF
+[Unit]
+Description=HTTP guest agent
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/opt/http-guest-agent
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+ln -s /etc/systemd/system/grpc-guest-agent.service /etc/systemd/system/multi-user.target.wants/grpc-guest-agent.service
+ln -s /etc/systemd/system/http-guest-agent.service /etc/systemd/system/multi-user.target.wants/http-guest-agent.service
 """
 
 [[overlays]]
@@ -49,6 +78,14 @@ nameserver 8.8.4.4
 nameserver 1.1.1.1
 """
 destination = "/etc/resolv.conf"
+
+[[overlays]]
+source = "/http-guest-agent"
+destination = "/opt/http-guest-agent"
+
+[[overlays]]
+source = "/grpc-guest-agent"
+destination = "/opt/grpc-guest-agent"
 
 [export.directories]
 include = ["/bin", "/etc", "/home", "/lib", "/lib64", "/root", "/sbin", "/usr"]
