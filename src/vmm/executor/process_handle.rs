@@ -70,7 +70,7 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
 
     /// Try to create a [ProcessHandle] by allocating a pidfd for the given PID.
     pub fn with_pidfd<R: Runtime>(pid: i32) -> Result<Self, std::io::Error> {
-        let raw_pidfd = unsafe { nix::libc::syscall(nix::libc::SYS_pidfd_open, pid, 0) };
+        let raw_pidfd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
 
         if raw_pidfd == -1 {
             return Err(std::io::Error::last_os_error());
@@ -117,9 +117,7 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
                     return Err(std::io::Error::other("Trying to send SIGKILL to exited process"));
                 }
 
-                let ret = unsafe {
-                    nix::libc::syscall(nix::libc::SYS_pidfd_send_signal, raw_pidfd, nix::libc::SIGKILL, 0, 0)
-                };
+                let ret = unsafe { libc::syscall(libc::SYS_pidfd_send_signal, raw_pidfd, libc::SIGKILL, 0, 0) };
 
                 if ret == -1 {
                     return Err(std::io::Error::last_os_error());

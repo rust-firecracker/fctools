@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    jailed::{JailRenamer, JailedVmmExecutor},
+    jailed::{renamer::JailRenamer, JailedVmmExecutor},
     process_handle::ProcessHandle,
     unrestricted::UnrestrictedVmmExecutor,
     VmmExecutor, VmmExecutorError,

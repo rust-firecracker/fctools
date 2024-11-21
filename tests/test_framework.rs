@@ -28,7 +28,7 @@ use fctools::{
         },
         executor::{
             either::EitherVmmExecutor,
-            jailed::{FlatJailRenamer, JailedVmmExecutor},
+            jailed::{renamer::FlatJailRenamer, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
         },
         installation::VmmInstallation,

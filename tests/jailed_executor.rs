@@ -6,7 +6,10 @@ use fctools::{
     vmm::{
         arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
         executor::{
-            jailed::{FlatJailRenamer, JailMoveMethod, JailRenamer, JailedVmmExecutor},
+            jailed::{
+                renamer::{FlatJailRenamer, JailRenamer},
+                JailMoveMethod, JailedVmmExecutor,
+            },
             VmmExecutor, VmmExecutorError,
         },
         id::VmmId,

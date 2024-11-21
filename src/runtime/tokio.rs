@@ -2,7 +2,6 @@
 
 use std::{future::Future, os::fd::OwnedFd, path::Path, process::Stdio, time::Duration};
 
-use nix::unistd::{Gid, Uid};
 use tokio::{
     io::unix::AsyncFd,
     process::{Child, ChildStderr, ChildStdin, ChildStdout},
@@ -123,7 +122,7 @@ impl RuntimeFilesystem for TokioRuntimeFilesystem {
         tokio::fs::copy(source_path, destination_path).await.map(|_| ())
     }
 
-    async fn chownr(path: &Path, uid: Uid, gid: Gid) -> Result<(), std::io::Error> {
+    async fn chownr(path: &Path, uid: u32, gid: u32) -> Result<(), std::io::Error> {
         let path = path.to_owned();
         match tokio::task::spawn_blocking(move || chownr_recursive(&path, uid, gid)).await {
             Ok(result) => result,

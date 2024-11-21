@@ -8,8 +8,7 @@ use std::{
 };
 
 #[cfg(feature = "jailed-vmm-executor")]
-use jailed::JailRenamerError;
-use nix::sys::stat::Mode;
+use jailed::renamer::JailRenamerError;
 use process_handle::ProcessHandle;
 
 use crate::{
@@ -20,6 +19,7 @@ use crate::{
 use super::{
     installation::VmmInstallation,
     ownership::{downgrade_owner, upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
+    with_c_path_ptr,
 };
 
 #[cfg(feature = "either-vmm-executor")]
@@ -146,7 +146,8 @@ async fn create_file_or_fifo<R: Runtime>(
     }
 
     if path.extension().and_then(|ext| ext.to_str()) == Some("fifo") {
-        if nix::unistd::mkfifo(&path, Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR).is_err() {
+        let ret = with_c_path_ptr(&path, |ptr| unsafe { libc::mkfifo(ptr, 0) });
+        if ret != 0 {
             return Err(VmmExecutorError::MkfifoError(std::io::Error::last_os_error()));
         }
     } else {

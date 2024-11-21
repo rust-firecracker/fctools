@@ -5,15 +5,15 @@ use std::{
     sync::LazyLock,
 };
 
-use nix::unistd::{Gid, Uid};
-
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::{Runtime, RuntimeFilesystem, RuntimeProcess},
 };
 
-pub(crate) static PROCESS_UID: LazyLock<Uid> = LazyLock::new(nix::unistd::geteuid);
-pub(crate) static PROCESS_GID: LazyLock<Gid> = LazyLock::new(nix::unistd::getegid);
+use super::with_c_path_ptr;
+
+pub(crate) static PROCESS_UID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::geteuid() });
+pub(crate) static PROCESS_GID: LazyLock<u32> = LazyLock::new(|| unsafe { libc::getegid() });
 
 /// The model used for managing the ownership of resources between the controlling process
 /// (the Rust application using fctools) and the VMM process ("firecracker").
@@ -36,15 +36,15 @@ pub enum VmmOwnershipModel {
     /// be made accessible to the VMM process.
     Downgraded {
         /// The UID of the VMM process.
-        uid: Uid,
+        uid: u32,
         /// The GID of the VMM process.
-        gid: Gid,
+        gid: u32,
     },
 }
 
 impl VmmOwnershipModel {
     #[inline]
-    pub(crate) fn as_downgrade(&self) -> Option<(Uid, Gid)> {
+    pub(crate) fn as_downgrade(&self) -> Option<(u32, u32)> {
         match self {
             VmmOwnershipModel::UpgradedTemporarily => Some((*PROCESS_UID, *PROCESS_GID)),
             VmmOwnershipModel::Downgraded { uid, gid } => Some((*uid, *gid)),
@@ -148,7 +148,8 @@ pub async fn downgrade_owner_recursively<R: Runtime>(
 /// no-ops).
 pub fn downgrade_owner(path: &Path, ownership_model: VmmOwnershipModel) -> Result<(), ChangeOwnerError> {
     if let Some((uid, gid)) = ownership_model.as_downgrade() {
-        if nix::unistd::chown(path, Some(uid), Some(gid)).is_err() {
+        let ret = with_c_path_ptr(path, |ptr| unsafe { libc::chown(ptr, uid, gid) });
+        if ret != 0 {
             Err(ChangeOwnerError::FlatChownError(std::io::Error::last_os_error()))
         } else {
             Ok(())

@@ -3,8 +3,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use nix::unistd::{Gid, Uid};
-
 use crate::vmm::id::VmmId;
 
 /// Arguments that can be passed into the "jailer" binary.
@@ -91,7 +89,7 @@ impl JailerArguments {
 
     /// Join these arguments into a [Vec] of process arguments, using the given jailer target UID and GID as
     /// well as a [Path] to the "firecracker" binary.
-    pub fn join(&self, uid: Uid, gid: Gid, firecracker_binary_path: &Path) -> Vec<String> {
+    pub fn join(&self, uid: u32, gid: u32, firecracker_binary_path: &Path) -> Vec<String> {
         let mut args = Vec::with_capacity(8);
         args.push("--exec-file".to_string());
         args.push(firecracker_binary_path.to_string_lossy().into_owned());
@@ -167,8 +165,6 @@ pub enum JailerCgroupVersion {
 mod tests {
     use std::path::PathBuf;
 
-    use nix::unistd::{Gid, Uid};
-
     use crate::vmm::id::VmmId;
 
     use super::{JailerArguments, JailerCgroupVersion};
@@ -239,7 +235,7 @@ mod tests {
     }
 
     fn check<const AMOUNT: usize>(args: JailerArguments, matchers: [&str; AMOUNT]) {
-        let joined_args = args.join(Uid::from_raw(1), Gid::from_raw(1), &PathBuf::from("/tmp/firecracker"));
+        let joined_args = args.join(1, 1, &PathBuf::from("/tmp/firecracker"));
         assert!(joined_args.contains(&String::from("--exec-file")));
         assert!(joined_args.contains(&String::from("/tmp/firecracker")));
 

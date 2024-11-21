@@ -15,14 +15,13 @@ use fctools::{
         arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
         executor::{
             either::EitherVmmExecutor,
-            jailed::{FlatJailRenamer, JailedVmmExecutor},
+            jailed::{renamer::FlatJailRenamer, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
         },
         ownership::VmmOwnershipModel,
     },
 };
 use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};
-use nix::unistd::{getegid, geteuid};
 use rand::RngCore;
 use test_framework::{
     get_real_firecracker_installation, get_tmp_fifo_path, get_tmp_path, shutdown_test_vm, TestOptions, TestVm,
@@ -279,8 +278,8 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
     let mut vm = TestVm::prepare(
         executor,
         VmmOwnershipModel::Downgraded {
-            uid: geteuid(),
-            gid: getegid(),
+            uid: unsafe { libc::geteuid() },
+            gid: unsafe { libc::getegid() },
         },
         DirectProcessSpawner,
         get_real_firecracker_installation(),

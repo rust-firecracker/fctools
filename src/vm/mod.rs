@@ -16,12 +16,12 @@ use crate::{
         installation::VmmInstallation,
         ownership::{downgrade_owner, downgrade_owner_recursively, upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
         process::{VmmProcess, VmmProcessError, VmmProcessState},
+        with_c_path_ptr,
     },
 };
 use api::VmApiError;
 use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
 use models::LoadSnapshot;
-use nix::sys::stat::Mode;
 use shutdown::{VmShutdownAction, VmShutdownError, VmShutdownOutcome};
 
 pub mod api;
@@ -534,7 +534,8 @@ async fn prepare_file<R: Runtime>(
 
     if !only_tree {
         if path.extension().and_then(|ext| ext.to_str()) == Some("fifo") {
-            if nix::unistd::mkfifo(&path, Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR).is_err() {
+            let ret = with_c_path_ptr(&path, |ptr| unsafe { libc::mkfifo(ptr, 0) });
+            if ret != 0 {
                 return Err(VmError::MkfifoError(std::io::Error::last_os_error()));
             }
         } else {
