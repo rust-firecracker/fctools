@@ -262,6 +262,17 @@ fn vsock_can_perform_duplex_streaming_grpc_request() {
     });
 }
 
+#[test]
+fn vsock_can_connect_to_grpc_lazily() {
+    VmBuilder::new().vsock_device().run(|mut vm| async move {
+        let channel = vm.vsock_lazily_connect_over_grpc(VSOCK_GRPC_GUEST_PORT, |e| e).unwrap();
+        let mut client = GuestAgentServiceClient::new(channel);
+        let response = client.unary(Ping { number: 5 }).await.unwrap();
+        assert_eq!(response.into_inner(), Pong { number: 25 });
+        shutdown_test_vm(&mut vm).await;
+    });
+}
+
 fn make_vsock_req() -> http::Request<Full<Bytes>> {
     let request_json = serde_json::to_string(&PingRequest { a: 4, b: 5 }).unwrap();
     http::Request::builder()
