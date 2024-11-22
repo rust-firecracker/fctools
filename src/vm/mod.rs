@@ -19,7 +19,11 @@ use crate::{
     },
 };
 use api::VmApiError;
+use bytes::Bytes;
 use configuration::{InitMethod, VmConfiguration, VmConfigurationData};
+use http::Uri;
+use http_body_util::Full;
+use hyper_client_sockets::unix::{connector::HyperUnixConnector, UnixUriExt};
 use models::LoadSnapshot;
 use nix::sys::stat::Mode;
 use shutdown::{VmShutdownAction, VmShutdownError, VmShutdownOutcome};
@@ -359,19 +363,25 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             .await
             .map_err(VmError::ProcessError)?;
 
+        let client = hyper_util::client::legacy::Builder::new(R::get_hyper_executor()).build::<_, Full<Bytes>>(
+            HyperUnixConnector {
+                backend: R::get_hyper_client_sockets_backend(),
+            },
+        );
+
         R::Executor::timeout(socket_wait_timeout, async move {
-            // wait until socket exists
             loop {
-                if let Ok(true) = R::Filesystem::check_exists(&socket_path).await {
+                if client
+                    .get(Uri::unix(&socket_path, "/").expect("/ route was invalid for the socket path"))
+                    .await
+                    .is_ok()
+                {
                     break;
                 }
             }
-
-            Ok(())
         })
         .await
-        .map_err(|_| VmError::SocketWaitTimeout)?
-        .map_err(VmError::FilesystemError)?;
+        .map_err(|_| VmError::SocketWaitTimeout)?;
 
         match configuration {
             VmConfiguration::New { init_method, data } => {
