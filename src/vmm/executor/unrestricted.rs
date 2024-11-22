@@ -140,11 +140,11 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         // Ensure argument paths exist
-        if let Some(log_path) = self.vmm_arguments.log_path.clone() {
+        if let Some(log_path) = self.vmm_arguments.logs.clone() {
             join_set.spawn(create_file_or_fifo::<R>(ownership_model, log_path));
         }
 
-        if let Some(metrics_path) = self.vmm_arguments.metrics_path.clone() {
+        if let Some(metrics_path) = self.vmm_arguments.metrics.clone() {
             join_set.spawn(create_file_or_fifo::<R>(ownership_model, metrics_path));
         }
 
@@ -208,7 +208,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         if self.remove_logs_on_cleanup {
-            if let Some(log_path) = self.vmm_arguments.log_path.clone() {
+            if let Some(log_path) = self.vmm_arguments.logs.clone() {
                 let process_spawner = process_spawner.clone();
 
                 join_set.spawn(async move {
@@ -224,7 +224,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         if self.remove_metrics_on_cleanup {
-            if let Some(metrics_path) = self.vmm_arguments.metrics_path.clone() {
+            if let Some(metrics_path) = self.vmm_arguments.metrics.clone() {
                 join_set.spawn(async move {
                     upgrade_owner::<R>(&metrics_path, ownership_model, process_spawner.as_ref())
                         .await

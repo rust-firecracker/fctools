@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-use super::{create_file_or_fifo, process_handle::ProcessHandle, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
+use super::{process_handle::ProcessHandle, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
@@ -23,7 +23,6 @@ use super::{create_file_or_fifo, process_handle::ProcessHandle, VmmExecutor, Vmm
 pub struct JailedVmmExecutor<J: JailRenamer + 'static> {
     vmm_arguments: VmmArguments,
     jailer_arguments: JailerArguments,
-    jail_move_method: JailMoveMethod,
     jail_renamer: J,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
 }
@@ -33,15 +32,9 @@ impl<J: JailRenamer + 'static> JailedVmmExecutor<J> {
         Self {
             vmm_arguments,
             jailer_arguments,
-            jail_move_method: JailMoveMethod::Copy,
             jail_renamer,
             command_modifier_chain: Vec::new(),
         }
-    }
-
-    pub fn jail_move_method(mut self, jail_move_method: JailMoveMethod) -> Self {
-        self.jail_move_method = jail_move_method;
-        self
     }
 
     pub fn command_modifier(mut self, command_modifier: impl CommandModifier + 'static) -> Self {
@@ -128,15 +121,13 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         }
 
         // Ensure argument paths exist
-        if let Some(ref log_path) = self.vmm_arguments.log_path.clone() {
-            join_set.spawn(create_file_or_fifo::<R>(ownership_model, jail_path.jail_join(log_path)));
+        if let Some(ref logs) = self.vmm_arguments.logs.clone() {
+            let effective_path = jail_path.jail_join(logs.local_path());
+            join_set.spawn(logs.apply(effective_path, ownership_model));
         }
 
-        if let Some(ref metrics_path) = self.vmm_arguments.metrics_path.clone() {
-            join_set.spawn(create_file_or_fifo::<R>(
-                ownership_model,
-                jail_path.jail_join(metrics_path),
-            ));
+        if let Some(ref metrics_path) = self.vmm_arguments.metrics.clone() {
+            join_set.spawn();
         }
 
         // Apply jail renamer and move in the resources in parallel (via a join set)

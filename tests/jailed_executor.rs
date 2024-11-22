@@ -254,10 +254,10 @@ fn setup_executor(
     }
     let mut vmm_arguments = VmmArguments::new(socket_path.map_or(VmmApiSocket::Disabled, VmmApiSocket::Enabled));
     if let Some(log_path) = log_path {
-        vmm_arguments = vmm_arguments.log_path(log_path);
+        vmm_arguments = vmm_arguments.logs(log_path);
     }
     if let Some(metrics_path) = metrics_path {
-        vmm_arguments = vmm_arguments.metrics_path(metrics_path);
+        vmm_arguments = vmm_arguments.metrics(metrics_path);
     }
 
     let executor = JailedVmmExecutor::new(vmm_arguments, jailer_arguments, FlatJailRenamer::default())

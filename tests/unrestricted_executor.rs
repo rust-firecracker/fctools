@@ -91,7 +91,7 @@ async fn unrestricted_executor_prepare_removes_pre_existing_api_socket() {
 #[tokio::test]
 async fn unrestricted_executor_prepare_creates_log_file() {
     let log_path = get_tmp_path();
-    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled).log_path(&log_path));
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled).logs(&log_path));
     executor
         .prepare::<TokioRuntime>(
             &get_fake_firecracker_installation(),
@@ -108,7 +108,7 @@ async fn unrestricted_executor_prepare_creates_log_file() {
 #[tokio::test]
 async fn unrestricted_executor_prepare_creates_metrics_file() {
     let metrics_path = get_tmp_path();
-    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled).metrics_path(&metrics_path));
+    let executor = UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Disabled).metrics(&metrics_path));
     executor
         .prepare::<TokioRuntime>(
             &get_fake_firecracker_installation(),
@@ -178,8 +178,8 @@ async fn unrestricted_executor_cleanup_removes_log_and_metrics_file() {
 
     let executor = UnrestrictedVmmExecutor::new(
         VmmArguments::new(VmmApiSocket::Disabled)
-            .log_path(&log_path)
-            .metrics_path(&metrics_path),
+            .logs(&log_path)
+            .metrics(&metrics_path),
     )
     .remove_logs_on_cleanup()
     .remove_metrics_on_cleanup();
@@ -204,8 +204,8 @@ async fn unrestricted_executor_cleanup_does_not_remove_log_and_metrics_files() {
 
     let executor = UnrestrictedVmmExecutor::new(
         VmmArguments::new(VmmApiSocket::Disabled)
-            .log_path(&log_path)
-            .metrics_path(&metrics_path),
+            .logs(&log_path)
+            .metrics(&metrics_path),
     );
     executor
         .cleanup::<TokioRuntime>(
