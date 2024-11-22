@@ -4,6 +4,7 @@ use nix::sys::stat::Mode;
 
 use crate::runtime::{Runtime, RuntimeFilesystem};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreatedVmmResource {
     effective_path: Option<PathBuf>,
     local_path: PathBuf,
@@ -49,7 +50,9 @@ impl CreatedVmmResource {
     }
 
     pub fn effective_path(&self) -> &Path {
-        self.effective_path.as_deref().unwrap()
+        self.effective_path
+            .as_deref()
+            .expect("effective_path was None, use effective_path_checked instead")
     }
 
     pub fn creation_strategy(&self) -> VmmResourceCreationStrategy {
@@ -57,6 +60,7 @@ impl CreatedVmmResource {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExistingVmmResource {
     source_path: PathBuf,
     effective_path: Option<PathBuf>,
@@ -86,7 +90,9 @@ impl ExistingVmmResource {
     }
 
     pub fn effective_path(&self) -> &Path {
-        self.effective_path.as_deref().unwrap()
+        self.effective_path
+            .as_deref()
+            .expect("effective_path was None, use effective_path_checked instead")
     }
 
     pub fn local_path_checked(&self) -> Option<&Path> {
@@ -94,7 +100,9 @@ impl ExistingVmmResource {
     }
 
     pub fn local_path(&self) -> &Path {
-        self.local_path.as_deref().unwrap()
+        self.local_path
+            .as_deref()
+            .expect("local_path was None, use local_path_checked instead")
     }
 }
 
