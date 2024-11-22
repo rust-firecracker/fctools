@@ -1,12 +1,115 @@
 use std::path::{Path, PathBuf};
 
+use nix::sys::stat::Mode;
+
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::{Runtime, RuntimeFilesystem},
-    vmm::ownership::{upgrade_owner, VmmOwnershipModel},
+    vmm::ownership::{downgrade_owner, VmmOwnershipModel},
 };
 
-use super::VmmResourceError;
+use super::ownership::{upgrade_owner, ChangeOwnerError};
+
+#[derive(Debug)]
+pub enum VmmResourceError {
+    FilesystemError(std::io::Error),
+    MkfifoError(std::io::Error),
+    ChangeOwnerError(ChangeOwnerError),
+    SourcePathMissing(PathBuf),
+}
+
+impl std::error::Error for VmmResourceError {}
+
+impl std::fmt::Display for VmmResourceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmmResourceError::FilesystemError(err) => {
+                write!(f, "A filesystem operation backed by the runtime failed: {err}")
+            }
+            VmmResourceError::MkfifoError(err) => write!(f, "Creating a named pipe via mkfifo failed: {err}"),
+            VmmResourceError::ChangeOwnerError(err) => write!(f, "An ownership change failed: {err}"),
+            VmmResourceError::SourcePathMissing(path) => {
+                write!(f, "The source path of a resource is missing: {}", path.display())
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatedVmmResource {
+    effective_path: Option<PathBuf>,
+    local_path: PathBuf,
+    r#type: CreatedVmmResourceType,
+}
+
+impl CreatedVmmResource {
+    pub fn new(path: impl Into<PathBuf>, r#type: CreatedVmmResourceType) -> Self {
+        Self {
+            effective_path: None,
+            local_path: path.into(),
+            r#type,
+        }
+    }
+
+    pub async fn apply<R: Runtime>(
+        &mut self,
+        effective_path: PathBuf,
+        ownership_model: VmmOwnershipModel,
+    ) -> Result<(), VmmResourceError> {
+        if let Some(parent_path) = effective_path.parent() {
+            R::Filesystem::create_dir_all(&parent_path)
+                .await
+                .map_err(VmmResourceError::FilesystemError)?;
+        }
+
+        match self.r#type {
+            CreatedVmmResourceType::File => {
+                R::Filesystem::create_file(&effective_path)
+                    .await
+                    .map_err(VmmResourceError::FilesystemError)?;
+            }
+            CreatedVmmResourceType::Fifo => {
+                if nix::unistd::mkfifo(
+                    &effective_path,
+                    Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR,
+                )
+                .is_err()
+                {
+                    return Err(VmmResourceError::MkfifoError(std::io::Error::last_os_error()));
+                }
+            }
+        };
+
+        downgrade_owner(&effective_path, ownership_model).map_err(VmmResourceError::ChangeOwnerError)?;
+
+        self.effective_path = Some(effective_path);
+        Ok(())
+    }
+
+    pub fn local_path(&self) -> &Path {
+        self.local_path.as_path()
+    }
+
+    pub fn effective_path_checked(&self) -> Option<&Path> {
+        self.effective_path.as_deref()
+    }
+
+    pub fn effective_path(&self) -> &Path {
+        self.effective_path
+            .as_deref()
+            .expect("effective_path was None, use effective_path_checked instead")
+    }
+
+    pub fn r#type(&self) -> CreatedVmmResourceType {
+        self.r#type
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreatedVmmResourceType {
+    File,
+    Fifo,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MovedVmmResource {
