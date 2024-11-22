@@ -1,9 +1,13 @@
-//! Provides a wide variety of VMM-related APIs that cover VMM arguments, IDs, ownership, installations
-//! and processes, gated behind various features.
+//! Provides a wide variety of VMM-related APIs that cover VMM arguments, IDs, ownership, installations,
+//! resources and processes, gated behind various features.
 
 #[cfg(feature = "vmm-arguments")]
 #[cfg_attr(docsrs, doc(cfg(feature = "vmm-arguments")))]
 pub mod arguments;
+
+#[cfg(feature = "vmm-arguments")]
+#[cfg_attr(docsrs, doc(cfg(feature = "vmm-executor")))]
+pub mod resource;
 
 #[cfg(feature = "vmm-arguments")]
 #[cfg_attr(docsrs, doc(cfg(feature = "vmm-arguments")))]
