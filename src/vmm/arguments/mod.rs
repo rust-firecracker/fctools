@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::resource::created::CreatedVmmResource;
+use super::resource::CreatedVmmResource;
 
 pub mod command_modifier;
 pub mod jailer;

@@ -1,8 +1,9 @@
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
+
+use futures_util::TryFutureExt;
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -11,6 +12,7 @@ use crate::{
         arguments::{command_modifier::CommandModifier, jailer::JailerArguments, VmmApiSocket, VmmArguments},
         installation::VmmInstallation,
         ownership::{downgrade_owner_recursively, upgrade_owner, PROCESS_GID, PROCESS_UID},
+        resource::MovedVmmResource,
     },
 };
 
@@ -80,9 +82,9 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        outer_paths: Vec<PathBuf>,
+        moved_resources: Vec<&mut MovedVmmResource>,
         ownership_model: VmmOwnershipModel,
-    ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
+    ) -> Result<(), VmmExecutorError> {
         // Create jail and delete previous one if necessary
         let (chroot_base_dir, jail_path) = self.get_paths(installation);
         upgrade_owner::<R>(&chroot_base_dir, ownership_model, process_spawner.as_ref())
@@ -121,72 +123,37 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         }
 
         // Ensure argument paths exist
-        if let Some(ref logs) = self.vmm_arguments.logs.clone() {
+        if let Some(ref mut logs) = self.vmm_arguments.logs.clone() {
             let effective_path = jail_path.jail_join(logs.local_path());
-            join_set.spawn(logs.apply(effective_path, ownership_model));
+            join_set.spawn(
+                logs.apply::<R>(effective_path, ownership_model)
+                    .map_err(VmmExecutorError::ResourceError),
+            );
         }
 
-        if let Some(ref metrics_path) = self.vmm_arguments.metrics.clone() {
-            join_set.spawn();
+        if let Some(ref mut metrics) = self.vmm_arguments.metrics.clone() {
+            let effective_path = jail_path.jail_join(metrics.local_path());
+            join_set.spawn(
+                metrics
+                    .apply::<R>(effective_path, ownership_model)
+                    .map_err(VmmExecutorError::ResourceError),
+            );
         }
 
-        // Apply jail renamer and move in the resources in parallel (via a join set)
-        let mut path_mappings = HashMap::with_capacity(outer_paths.len());
+        // Apply moved resources
+        for moved_resource in moved_resources {
+            let local_path = self
+                .jail_renamer
+                .rename_for_jail(moved_resource.source_path())
+                .map_err(VmmExecutorError::JailRenamerFailed)?;
+            let effective_path = jail_path.jail_join(&local_path);
 
-        for outer_path in outer_paths {
-            let expanded_inner_path = {
-                let inner_path = self
-                    .jail_renamer
-                    .rename_for_jail(&outer_path)
-                    .map_err(VmmExecutorError::JailRenamerFailed)?;
-                let expanded_inner_path = jail_path.jail_join(&inner_path);
-                path_mappings.insert(outer_path.clone(), inner_path);
-
-                expanded_inner_path
-            };
-
-            let jail_move_method = self.jail_move_method;
             let process_spawner = process_spawner.clone();
-
-            join_set.spawn(async move {
-                upgrade_owner::<R>(&outer_path, ownership_model, process_spawner.as_ref())
-                    .await
-                    .map_err(VmmExecutorError::ChangeOwnerError)?;
-
-                if !R::Filesystem::check_exists(&outer_path)
-                    .await
-                    .map_err(VmmExecutorError::FilesystemError)?
-                {
-                    return Err(VmmExecutorError::ExpectedResourceMissing(outer_path.clone()));
-                }
-
-                if let Some(new_path_parent_dir) = expanded_inner_path.parent() {
-                    R::Filesystem::create_dir_all(new_path_parent_dir)
-                        .await
-                        .map_err(VmmExecutorError::FilesystemError)?;
-                }
-
-                match jail_move_method {
-                    JailMoveMethod::Copy => R::Filesystem::copy(&outer_path, &expanded_inner_path)
-                        .await
-                        .map_err(VmmExecutorError::FilesystemError),
-                    JailMoveMethod::HardLink => R::Filesystem::hard_link(&outer_path, &expanded_inner_path)
-                        .await
-                        .map_err(VmmExecutorError::FilesystemError),
-                    JailMoveMethod::HardLinkWithCopyFallback => {
-                        let hardlink_result = R::Filesystem::hard_link(&outer_path, &expanded_inner_path)
-                            .await
-                            .map_err(VmmExecutorError::FilesystemError);
-                        if hardlink_result.is_err() {
-                            R::Filesystem::copy(&outer_path, &expanded_inner_path)
-                                .await
-                                .map_err(VmmExecutorError::FilesystemError)
-                        } else {
-                            hardlink_result
-                        }
-                    }
-                }
-            });
+            join_set.spawn(
+                moved_resource
+                    .apply::<R>(effective_path, local_path, ownership_model, process_spawner)
+                    .map_err(VmmExecutorError::ResourceError),
+            );
         }
 
         join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))?;
@@ -195,7 +162,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             .await
             .map_err(VmmExecutorError::ChangeOwnerError)?;
 
-        Ok(path_mappings)
+        Ok(())
     }
 
     async fn invoke<R: Runtime>(
@@ -274,9 +241,10 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             .await
             .map_err(VmmExecutorError::ChangeOwnerError)?;
 
-        let jail_parent_path = jail_path
-            .parent()
-            .ok_or(VmmExecutorError::ExpectedDirectoryParentMissing)?;
+        let Some(jail_parent_path) = jail_path.parent() else {
+            return Err(VmmExecutorError::ExpectedDirectoryParentMissing(jail_path));
+        };
+
         R::Filesystem::remove_dir_all(jail_parent_path)
             .await
             .map_err(VmmExecutorError::FilesystemError)

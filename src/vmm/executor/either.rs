@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -7,7 +6,7 @@ use std::{
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
-    vmm::{installation::VmmInstallation, ownership::VmmOwnershipModel},
+    vmm::{installation::VmmInstallation, ownership::VmmOwnershipModel, resource::MovedVmmResource},
 };
 
 use super::{
@@ -64,18 +63,18 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
         &self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        outer_paths: Vec<PathBuf>,
+        moved_resources: Vec<&mut MovedVmmResource>,
         ownership_model: VmmOwnershipModel,
-    ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
+    ) -> Result<(), VmmExecutorError> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => {
                 executor
-                    .prepare::<R>(installation, process_spawner, outer_paths, ownership_model)
+                    .prepare(installation, process_spawner, moved_resources, ownership_model)
                     .await
             }
             EitherVmmExecutor::Jailed(executor) => {
                 executor
-                    .prepare::<R>(installation, process_spawner, outer_paths, ownership_model)
+                    .prepare(installation, process_spawner, moved_resources, ownership_model)
                     .await
             }
         }

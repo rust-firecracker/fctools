@@ -1,4 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::{
+    future::Future,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use nix::sys::stat::Mode;
 
@@ -40,50 +44,84 @@ pub struct CreatedVmmResource {
     effective_path: Option<PathBuf>,
     local_path: PathBuf,
     r#type: CreatedVmmResourceType,
+    disposed: bool,
 }
 
 impl CreatedVmmResource {
-    pub fn new(path: impl Into<PathBuf>, r#type: CreatedVmmResourceType) -> Self {
+    pub fn new(path: impl Into<PathBuf>, r#type: CreatedVmmResourceType, disposed: bool) -> Self {
         Self {
             effective_path: None,
             local_path: path.into(),
             r#type,
+            disposed,
         }
     }
 
-    pub async fn apply<R: Runtime>(
+    pub fn apply<R: Runtime>(
         &mut self,
         effective_path: PathBuf,
         ownership_model: VmmOwnershipModel,
-    ) -> Result<(), VmmResourceError> {
-        if let Some(parent_path) = effective_path.parent() {
-            R::Filesystem::create_dir_all(&parent_path)
-                .await
-                .map_err(VmmResourceError::FilesystemError)?;
-        }
+    ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
+        self.effective_path = Some(effective_path.clone());
 
-        match self.r#type {
-            CreatedVmmResourceType::File => {
-                R::Filesystem::create_file(&effective_path)
+        let r#type = self.r#type;
+        async move {
+            if let Some(parent_path) = effective_path.parent() {
+                R::Filesystem::create_dir_all(&parent_path)
                     .await
                     .map_err(VmmResourceError::FilesystemError)?;
             }
-            CreatedVmmResourceType::Fifo => {
-                if nix::unistd::mkfifo(
-                    &effective_path,
-                    Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR,
-                )
-                .is_err()
-                {
-                    return Err(VmmResourceError::MkfifoError(std::io::Error::last_os_error()));
+
+            match r#type {
+                CreatedVmmResourceType::File => {
+                    R::Filesystem::create_file(&effective_path)
+                        .await
+                        .map_err(VmmResourceError::FilesystemError)?;
                 }
-            }
-        };
+                CreatedVmmResourceType::Fifo => {
+                    if nix::unistd::mkfifo(
+                        &effective_path,
+                        Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR,
+                    )
+                    .is_err()
+                    {
+                        return Err(VmmResourceError::MkfifoError(std::io::Error::last_os_error()));
+                    }
+                }
+            };
 
-        downgrade_owner(&effective_path, ownership_model).map_err(VmmResourceError::ChangeOwnerError)?;
+            downgrade_owner(&effective_path, ownership_model).map_err(VmmResourceError::ChangeOwnerError)?;
 
-        self.effective_path = Some(effective_path);
-        Ok(())
+            Ok(())
+        }
+    }
+
+    pub fn apply_with_same_path<R: Runtime>(
+        &mut self,
+        ownership_model: VmmOwnershipModel,
+    ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
+        self.apply::<R>(self.local_path.clone(), ownership_model)
+    }
+
+    pub fn dispose<R: Runtime>(
+        &self,
+        ownership_model: VmmOwnershipModel,
+        process_spawner: Arc<impl ProcessSpawner>,
+    ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
+        let effective_path = self
+            .effective_path
+            .clone()
+            .expect("effective_path is None when calling dispose");
+
+        async move {
+            upgrade_owner::<R>(&effective_path, ownership_model, process_spawner.as_ref())
+                .await
+                .map_err(VmmResourceError::ChangeOwnerError)?;
+
+            R::Filesystem::remove_file(&effective_path)
+                .await
+                .map_err(VmmResourceError::FilesystemError)
+        }
     }
 
     pub fn local_path(&self) -> &Path {
@@ -102,6 +140,10 @@ impl CreatedVmmResource {
 
     pub fn r#type(&self) -> CreatedVmmResourceType {
         self.r#type
+    }
+
+    pub fn disposed(&self) -> bool {
+        self.disposed
     }
 }
 
@@ -129,67 +171,95 @@ impl MovedVmmResource {
         }
     }
 
-    pub async fn apply<R: Runtime>(
+    pub fn apply<R: Runtime>(
         &mut self,
         effective_path: PathBuf,
         local_path: PathBuf,
         ownership_model: VmmOwnershipModel,
-        process_spawner: &impl ProcessSpawner,
-    ) -> Result<(), VmmResourceError> {
-        if effective_path == self.source_path {
-            return Ok(());
-        }
-
-        upgrade_owner::<R>(&self.source_path, ownership_model, process_spawner)
-            .await
-            .map_err(VmmResourceError::ChangeOwnerError)?;
-
-        if !R::Filesystem::check_exists(&self.source_path)
-            .await
-            .map_err(VmmResourceError::FilesystemError)?
-        {
-            return Err(VmmResourceError::SourcePathMissing(self.source_path.clone()));
-        }
-
-        if let Some(parent_path) = effective_path.parent() {
-            R::Filesystem::create_dir_all(parent_path)
-                .await
-                .map_err(VmmResourceError::FilesystemError)?;
-        }
-
-        match self.move_method {
-            VmmResourceMoveMethod::Copy => {
-                R::Filesystem::copy(&self.source_path, &effective_path)
-                    .await
-                    .map_err(VmmResourceError::FilesystemError)?;
-            }
-            VmmResourceMoveMethod::HardLink => {
-                R::Filesystem::hard_link(&self.source_path, &effective_path)
-                    .await
-                    .map_err(VmmResourceError::FilesystemError)?;
-            }
-            VmmResourceMoveMethod::CopyOrHardLink => {
-                if R::Filesystem::copy(&self.source_path, &effective_path).await.is_err() {
-                    R::Filesystem::hard_link(&self.source_path, &effective_path)
-                        .await
-                        .map_err(VmmResourceError::FilesystemError)?;
-                }
-            }
-            VmmResourceMoveMethod::HardLinkOrCopy => {
-                if R::Filesystem::hard_link(&self.source_path, &effective_path)
-                    .await
-                    .is_err()
-                {
-                    R::Filesystem::copy(&self.source_path, &effective_path)
-                        .await
-                        .map_err(VmmResourceError::FilesystemError)?;
-                }
-            }
-        };
-
-        self.effective_path = Some(effective_path);
+        process_spawner: Arc<impl ProcessSpawner>,
+    ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
+        self.effective_path = Some(effective_path.clone());
         self.local_path = Some(local_path);
-        Ok(())
+
+        let source_path = self.source_path.clone();
+        let move_method = self.move_method;
+
+        async move {
+            if effective_path == source_path {
+                return Ok(());
+            }
+
+            upgrade_owner::<R>(&source_path, ownership_model, process_spawner.as_ref())
+                .await
+                .map_err(VmmResourceError::ChangeOwnerError)?;
+
+            if !R::Filesystem::check_exists(&source_path)
+                .await
+                .map_err(VmmResourceError::FilesystemError)?
+            {
+                return Err(VmmResourceError::SourcePathMissing(source_path));
+            }
+
+            if let Some(parent_path) = effective_path.parent() {
+                R::Filesystem::create_dir_all(parent_path)
+                    .await
+                    .map_err(VmmResourceError::FilesystemError)?;
+            }
+
+            match move_method {
+                VmmResourceMoveMethod::Copy => {
+                    R::Filesystem::copy(&source_path, &effective_path)
+                        .await
+                        .map_err(VmmResourceError::FilesystemError)?;
+                }
+                VmmResourceMoveMethod::HardLink => {
+                    R::Filesystem::hard_link(&source_path, &effective_path)
+                        .await
+                        .map_err(VmmResourceError::FilesystemError)?;
+                }
+                VmmResourceMoveMethod::CopyOrHardLink => {
+                    if R::Filesystem::copy(&source_path, &effective_path).await.is_err() {
+                        R::Filesystem::hard_link(&source_path, &effective_path)
+                            .await
+                            .map_err(VmmResourceError::FilesystemError)?;
+                    }
+                }
+                VmmResourceMoveMethod::HardLinkOrCopy => {
+                    if R::Filesystem::hard_link(&source_path, &effective_path).await.is_err() {
+                        R::Filesystem::copy(&source_path, &effective_path)
+                            .await
+                            .map_err(VmmResourceError::FilesystemError)?;
+                    }
+                }
+            };
+
+            Ok(())
+        }
+    }
+
+    pub fn apply_with_same_path<R: Runtime>(
+        &mut self,
+        ownership_model: VmmOwnershipModel,
+        process_spawner: Arc<impl ProcessSpawner>,
+    ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
+        self.effective_path = Some(self.source_path.clone());
+        self.local_path = Some(self.source_path.clone());
+
+        let source_path = self.source_path.clone();
+        async move {
+            upgrade_owner::<R>(&source_path, ownership_model, process_spawner.as_ref())
+                .await
+                .map_err(VmmResourceError::ChangeOwnerError)?;
+
+            if !R::Filesystem::check_exists(&source_path)
+                .await
+                .map_err(VmmResourceError::FilesystemError)?
+            {
+                return Err(VmmResourceError::SourcePathMissing(source_path));
+            }
+
+            Ok(())
+        }
     }
 
     pub fn source_path(&self) -> &Path {
