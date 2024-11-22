@@ -2,7 +2,37 @@ use std::path::{Path, PathBuf};
 
 use nix::sys::stat::Mode;
 
-use crate::runtime::{Runtime, RuntimeFilesystem};
+use crate::{
+    process_spawner::ProcessSpawner,
+    runtime::{Runtime, RuntimeFilesystem},
+};
+
+use super::ownership::{downgrade_owner, upgrade_owner, ChangeOwnerError, VmmOwnershipModel};
+
+#[derive(Debug)]
+pub enum VmmResourceError {
+    FilesystemError(std::io::Error),
+    MkfifoError(std::io::Error),
+    ChangeOwnerError(ChangeOwnerError),
+    SourcePathMissing(PathBuf),
+}
+
+impl std::error::Error for VmmResourceError {}
+
+impl std::fmt::Display for VmmResourceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmmResourceError::FilesystemError(err) => {
+                write!(f, "A filesystem operation backed by the runtime failed: {err}")
+            }
+            VmmResourceError::MkfifoError(err) => write!(f, "Creating a named pipe via mkfifo failed: {err}"),
+            VmmResourceError::ChangeOwnerError(err) => write!(f, "An ownership change failed: {err}"),
+            VmmResourceError::SourcePathMissing(path) => {
+                write!(f, "The source path of a resource is missing: {}", path.display())
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreatedVmmResource {
@@ -20,10 +50,22 @@ impl CreatedVmmResource {
         }
     }
 
-    pub async fn apply<R: Runtime>(&mut self, effective_path: PathBuf) -> Result<(), std::io::Error> {
+    pub async fn apply<R: Runtime>(
+        &mut self,
+        effective_path: PathBuf,
+        ownership_model: VmmOwnershipModel,
+    ) -> Result<(), VmmResourceError> {
+        if let Some(parent_path) = effective_path.parent() {
+            R::Filesystem::create_dir_all(&parent_path)
+                .await
+                .map_err(VmmResourceError::FilesystemError)?;
+        }
+
         match self.r#type {
             VmmResourceType::File => {
-                R::Filesystem::create_file(&effective_path).await?;
+                R::Filesystem::create_file(&effective_path)
+                    .await
+                    .map_err(VmmResourceError::FilesystemError)?;
             }
             VmmResourceType::Fifo => {
                 if nix::unistd::mkfifo(
@@ -32,10 +74,12 @@ impl CreatedVmmResource {
                 )
                 .is_err()
                 {
-                    return Err(std::io::Error::last_os_error());
+                    return Err(VmmResourceError::MkfifoError(std::io::Error::last_os_error()));
                 }
             }
         };
+
+        downgrade_owner(&effective_path, ownership_model).map_err(VmmResourceError::ChangeOwnerError)?;
 
         self.effective_path = Some(effective_path);
         Ok(())
@@ -82,17 +126,46 @@ impl MovedVmmResource {
         &mut self,
         effective_path: PathBuf,
         local_path: PathBuf,
-    ) -> Result<(), std::io::Error> {
+        ownership_model: VmmOwnershipModel,
+        process_spawner: &impl ProcessSpawner,
+    ) -> Result<(), VmmResourceError> {
+        if effective_path == self.source_path {
+            return Ok(());
+        }
+
+        upgrade_owner::<R>(&self.source_path, ownership_model, process_spawner)
+            .await
+            .map_err(VmmResourceError::ChangeOwnerError)?;
+
+        if !R::Filesystem::check_exists(&self.source_path)
+            .await
+            .map_err(VmmResourceError::FilesystemError)?
+        {
+            return Err(VmmResourceError::SourcePathMissing(self.source_path.clone()));
+        }
+
+        if let Some(parent_path) = effective_path.parent() {
+            R::Filesystem::create_dir_all(parent_path)
+                .await
+                .map_err(VmmResourceError::FilesystemError)?;
+        }
+
         match self.move_method {
             VmmResourceMoveMethod::Copy => {
-                R::Filesystem::copy(&self.source_path, &effective_path).await?;
+                R::Filesystem::copy(&self.source_path, &effective_path)
+                    .await
+                    .map_err(VmmResourceError::FilesystemError)?;
             }
             VmmResourceMoveMethod::HardLink => {
-                R::Filesystem::hard_link(&self.source_path, &effective_path).await?;
+                R::Filesystem::hard_link(&self.source_path, &effective_path)
+                    .await
+                    .map_err(VmmResourceError::FilesystemError)?;
             }
             VmmResourceMoveMethod::CopyOrHardLink => {
                 if R::Filesystem::copy(&self.source_path, &effective_path).await.is_err() {
-                    R::Filesystem::hard_link(&self.source_path, &effective_path).await?;
+                    R::Filesystem::hard_link(&self.source_path, &effective_path)
+                        .await
+                        .map_err(VmmResourceError::FilesystemError)?;
                 }
             }
             VmmResourceMoveMethod::HardLinkOrCopy => {
@@ -100,7 +173,9 @@ impl MovedVmmResource {
                     .await
                     .is_err()
                 {
-                    R::Filesystem::copy(&self.source_path, &effective_path).await?;
+                    R::Filesystem::copy(&self.source_path, &effective_path)
+                        .await
+                        .map_err(VmmResourceError::FilesystemError)?;
                 }
             }
         };
