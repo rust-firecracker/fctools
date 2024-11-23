@@ -147,6 +147,17 @@ pub enum CreatedVmmResourceType {
     Fifo,
 }
 
+#[cfg(feature = "vm")]
+#[cfg_attr(docsrs, doc(cfg(feature = "vm")))]
+impl serde::Serialize for CreatedVmmResource {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.local_path.serialize(serializer)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MovedVmmResource {
     source_path: PathBuf,
@@ -225,6 +236,11 @@ impl MovedVmmResource {
                             .map_err(VmmResourceError::FilesystemError)?;
                     }
                 }
+                VmmResourceMoveMethod::Rename => {
+                    R::Filesystem::rename_file(&source_path, &effective_path)
+                        .await
+                        .map_err(VmmResourceError::FilesystemError)?;
+                }
             };
 
             Ok(())
@@ -281,25 +297,66 @@ impl MovedVmmResource {
     }
 }
 
+#[cfg(feature = "vm")]
+#[cfg_attr(docsrs, doc(cfg(feature = "vm")))]
+impl serde::Serialize for MovedVmmResource {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.local_path().serialize(serializer)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmmResourceMoveMethod {
     Copy,
     HardLink,
     CopyOrHardLink,
     HardLinkOrCopy,
+    Rename,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProducedVmmResource {
-    path: PathBuf,
+    local_path: PathBuf,
+    effective_path: Option<PathBuf>,
 }
 
 impl ProducedVmmResource {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            local_path: path.into(),
+            effective_path: None,
+        }
     }
 
-    pub fn path(&self) -> &Path {
-        self.path.as_path()
+    pub fn apply(&mut self, effective_path: PathBuf) {
+        self.effective_path = Some(effective_path);
+    }
+
+    pub fn local_path(&self) -> &Path {
+        self.local_path.as_path()
+    }
+
+    pub fn effective_path_checked(&self) -> Option<&Path> {
+        self.effective_path.as_deref()
+    }
+
+    pub fn effective_path(&self) -> &Path {
+        self.effective_path
+            .as_deref()
+            .expect("effective_path was None, use effective_path_checked instead")
+    }
+}
+
+#[cfg(feature = "vm")]
+#[cfg_attr(docsrs, doc(cfg(feature = "vm")))]
+impl serde::Serialize for ProducedVmmResource {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.local_path.serialize(serializer)
     }
 }

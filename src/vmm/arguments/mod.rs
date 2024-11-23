@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::resource::CreatedVmmResource;
+use super::resource::{CreatedVmmResource, MovedVmmResource};
 
 pub mod command_modifier;
 pub mod jailer;
@@ -19,7 +19,7 @@ pub struct VmmArguments {
     // misc
     enable_boot_timer: bool,
     api_max_payload_bytes: Option<u32>,
-    metadata_path: Option<PathBuf>,
+    metadata: Option<MovedVmmResource>,
     pub(crate) metrics: Option<CreatedVmmResource>,
     mmds_size_limit: Option<u32>,
     disable_seccomp: bool,
@@ -37,7 +37,7 @@ impl VmmArguments {
             show_log_level: false,
             enable_boot_timer: false,
             api_max_payload_bytes: None,
-            metadata_path: None,
+            metadata: None,
             metrics: None,
             mmds_size_limit: None,
             disable_seccomp: false,
@@ -80,8 +80,8 @@ impl VmmArguments {
         self
     }
 
-    pub fn metadata_path(mut self, metadata_path: impl Into<PathBuf>) -> Self {
-        self.metadata_path = Some(metadata_path.into());
+    pub fn metadata(mut self, metadata: MovedVmmResource) -> Self {
+        self.metadata = Some(metadata);
         self
     }
 
@@ -156,9 +156,9 @@ impl VmmArguments {
             args.push(max_payload.to_string());
         }
 
-        if let Some(ref metadata_path) = self.metadata_path {
+        if let Some(ref metadata) = self.metadata {
             args.push("--metadata".to_string());
-            args.push(metadata_path.to_string_lossy().into_owned());
+            args.push(metadata.local_path().to_string_lossy().into_owned());
         }
 
         if let Some(ref metrics_path) = self.metrics {
@@ -278,10 +278,7 @@ mod tests {
 
     #[test]
     fn metadata_path_can_be_set() {
-        check_without_config(
-            new().metadata_path("/tmp/metadata.txt"),
-            ["--metadata", "/tmp/metadata.txt"],
-        );
+        check_without_config(new().metadata("/tmp/metadata.txt"), ["--metadata", "/tmp/metadata.txt"]);
     }
 
     #[test]

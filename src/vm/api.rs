@@ -20,10 +20,9 @@ use crate::{
 use super::{
     configuration::VmConfigurationData,
     models::{
-        BalloonDevice, BalloonStatistics, CreateSnapshot, EffectiveConfiguration, Info, LoadSnapshot,
-        MachineConfiguration, ReprAction, ReprActionType, ReprApiError, ReprFirecrackerVersion, ReprInfo, ReprIsPaused,
-        ReprUpdateState, ReprUpdatedState, UpdateBalloonDevice, UpdateBalloonStatistics, UpdateDrive,
-        UpdateNetworkInterface,
+        BalloonDevice, BalloonStatistics, CreateSnapshot, Info, LoadSnapshot, MachineConfiguration, ReprAction,
+        ReprActionType, ReprApiError, ReprFirecrackerVersion, ReprInfo, ReprIsPaused, ReprUpdateState,
+        ReprUpdatedState, UpdateBalloonDevice, UpdateBalloonStatistics, UpdateDrive, UpdateNetworkInterface,
     },
     snapshot::SnapshotData,
     Vm, VmState, VmStateCheckError,
@@ -127,10 +126,6 @@ pub trait VmApi {
     ) -> impl Future<Output = Result<SnapshotData, VmApiError>> + Send;
 
     fn api_get_firecracker_version(&mut self) -> impl Future<Output = Result<String, VmApiError>> + Send;
-
-    fn api_get_effective_configuration(
-        &mut self,
-    ) -> impl Future<Output = Result<EffectiveConfiguration, VmApiError>> + Send;
 
     fn api_pause(&mut self) -> impl Future<Output = Result<(), VmApiError>> + Send;
 
@@ -286,11 +281,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
                 .await?
                 .firecracker_version,
         )
-    }
-
-    async fn api_get_effective_configuration(&mut self) -> Result<EffectiveConfiguration, VmApiError> {
-        self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
-        send_api_request_with_response(self, "/vm/config", "GET", None::<i32>).await
     }
 
     async fn api_pause(&mut self) -> Result<(), VmApiError> {

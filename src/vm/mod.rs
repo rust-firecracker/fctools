@@ -186,14 +186,14 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         fn get_outer_paths(data: &VmConfigurationData, load_snapshot: Option<&LoadSnapshot>) -> Vec<PathBuf> {
             let mut outer_paths = Vec::new();
 
-            outer_paths.push(data.boot_source.kernel_image_path.clone());
+            outer_paths.push(data.boot_source.kernel_image.clone());
 
-            if let Some(ref path) = data.boot_source.initrd_path {
+            if let Some(ref path) = data.boot_source.initrd {
                 outer_paths.push(path.clone());
             }
 
             for drive in &data.drives {
-                if let Some(ref path) = drive.path_on_host {
+                if let Some(ref path) = drive.block {
                     outer_paths.push(path.clone());
                 }
             }
@@ -233,17 +233,17 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         // transform data according to returned mappings
         let original_configuration_data = configuration.data().clone();
 
-        configuration.data_mut().boot_source.kernel_image_path = path_mappings
-            .remove(&configuration.data().boot_source.kernel_image_path)
+        configuration.data_mut().boot_source.kernel_image = path_mappings
+            .remove(&configuration.data().boot_source.kernel_image)
             .ok_or(VmError::MissingPathMapping)?;
 
-        if let Some(ref mut path) = configuration.data_mut().boot_source.initrd_path {
-            configuration.data_mut().boot_source.initrd_path =
+        if let Some(ref mut path) = configuration.data_mut().boot_source.initrd {
+            configuration.data_mut().boot_source.initrd =
                 Some(path_mappings.remove(path).ok_or(VmError::MissingPathMapping)?);
         }
 
         for drive in &mut configuration.data_mut().drives {
-            if let Some(ref mut path) = drive.path_on_host {
+            if let Some(ref mut path) = drive.block {
                 *path = path_mappings.remove(path).ok_or(VmError::MissingPathMapping)?;
             }
         }
@@ -281,7 +281,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         let mut join_set: RuntimeJoinSet<_, R::Executor> = RuntimeJoinSet::new();
 
         if let Some(ref logger) = configuration.data().logger_system {
-            if let Some(ref log_path) = logger.log_path {
+            if let Some(ref log_path) = logger.logs {
                 let new_log_path = vmm_process.inner_to_outer_path(log_path);
                 join_set.spawn(prepare_file::<R>(new_log_path.clone(), ownership_model, false));
                 accessible_paths.log_path = Some(new_log_path);
@@ -289,7 +289,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         }
 
         if let Some(ref metrics_system) = configuration.data().metrics_system {
-            let new_metrics_path = vmm_process.inner_to_outer_path(&metrics_system.metrics_path);
+            let new_metrics_path = vmm_process.inner_to_outer_path(&metrics_system.metrics);
             join_set.spawn(prepare_file::<R>(new_metrics_path.clone(), ownership_model, false));
             accessible_paths.metrics_path = Some(new_metrics_path);
         }
