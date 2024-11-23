@@ -1,12 +1,13 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{path::PathBuf, sync::Arc};
 
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
-    vmm::{installation::VmmInstallation, ownership::VmmOwnershipModel, resource::MovedVmmResource},
+    vmm::{
+        installation::VmmInstallation,
+        ownership::VmmOwnershipModel,
+        resource::{CreatedVmmResource, MovedVmmResource, ProducedVmmResource},
+    },
 };
 
 use super::{
@@ -45,43 +46,42 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
         }
     }
 
-    fn inner_to_outer_path(&self, installation: &VmmInstallation, inner_path: &Path) -> PathBuf {
-        match self {
-            EitherVmmExecutor::Unrestricted(executor) => executor.inner_to_outer_path(installation, inner_path),
-            EitherVmmExecutor::Jailed(executor) => executor.inner_to_outer_path(installation, inner_path),
-        }
-    }
-
-    fn is_traceless(&self) -> bool {
-        match self {
-            EitherVmmExecutor::Unrestricted(executor) => executor.is_traceless(),
-            EitherVmmExecutor::Jailed(executor) => executor.is_traceless(),
-        }
-    }
-
     async fn prepare<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        moved_resources: Vec<&mut MovedVmmResource>,
         ownership_model: VmmOwnershipModel,
+        moved_resources: Vec<&mut MovedVmmResource>,
+        created_resources: Vec<&mut CreatedVmmResource>,
     ) -> Result<(), VmmExecutorError> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => {
                 executor
-                    .prepare(installation, process_spawner, moved_resources, ownership_model)
+                    .prepare::<R>(
+                        installation,
+                        process_spawner,
+                        ownership_model,
+                        moved_resources,
+                        created_resources,
+                    )
                     .await
             }
             EitherVmmExecutor::Jailed(executor) => {
                 executor
-                    .prepare(installation, process_spawner, moved_resources, ownership_model)
+                    .prepare::<R>(
+                        installation,
+                        process_spawner,
+                        ownership_model,
+                        moved_resources,
+                        created_resources,
+                    )
                     .await
             }
         }
     }
 
     async fn invoke<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         config_path: Option<PathBuf>,
@@ -102,20 +102,34 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
     }
 
     async fn cleanup<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
+        created_resources: Vec<&mut CreatedVmmResource>,
+        produced_resources: Vec<&mut ProducedVmmResource>,
     ) -> Result<(), VmmExecutorError> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => {
                 executor
-                    .cleanup::<R>(installation, process_spawner, ownership_model)
+                    .cleanup::<R>(
+                        installation,
+                        process_spawner,
+                        ownership_model,
+                        created_resources,
+                        produced_resources,
+                    )
                     .await
             }
             EitherVmmExecutor::Jailed(executor) => {
                 executor
-                    .cleanup::<R>(installation, process_spawner, ownership_model)
+                    .cleanup::<R>(
+                        installation,
+                        process_spawner,
+                        ownership_model,
+                        created_resources,
+                        produced_resources,
+                    )
                     .await
             }
         }

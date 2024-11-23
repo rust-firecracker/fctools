@@ -1,10 +1,4 @@
-use std::{
-    future::Future,
-    num::ParseIntError,
-    path::{Path, PathBuf},
-    process::ExitStatus,
-    sync::Arc,
-};
+use std::{future::Future, num::ParseIntError, path::PathBuf, process::ExitStatus, sync::Arc};
 
 #[cfg(feature = "jailed-vmm-executor")]
 use jailed::JailRenamerError;
@@ -15,7 +9,7 @@ use crate::{process_spawner::ProcessSpawner, runtime::Runtime};
 use super::{
     installation::VmmInstallation,
     ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
-    resource::{MovedVmmResource, VmmResourceError},
+    resource::{CreatedVmmResource, MovedVmmResource, ProducedVmmResource, VmmResourceError},
 };
 
 #[cfg(feature = "either-vmm-executor")]
@@ -88,26 +82,21 @@ pub trait VmmExecutor: Send + Sync {
     /// Get the host location of the VMM socket, if one exists.
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf>;
 
-    /// Resolves an inner path into an outer path.
-    fn inner_to_outer_path(&self, installation: &VmmInstallation, inner_path: &Path) -> PathBuf;
-
-    // Returns a boolean determining whether this executor leaves any traces on the host filesystem after cleanup.
-    fn is_traceless(&self) -> bool;
-
     /// Prepare all transient resources for the VMM invocation.
     fn prepare<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        moved_resources: Vec<&mut MovedVmmResource>,
         ownership_model: VmmOwnershipModel,
+        moved_resources: Vec<&mut MovedVmmResource>,
+        created_resources: Vec<&mut CreatedVmmResource>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 
     /// Invoke the VMM on the given [VmmInstallation] and return the [ProcessHandle] that performs a connection to
     /// the created process, regardless of it possibly being not a child and rather having been unshare()-d into
     /// a separate PID namespace.
     fn invoke<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         config_path: Option<PathBuf>,
@@ -116,9 +105,11 @@ pub trait VmmExecutor: Send + Sync {
 
     /// Clean up all transient resources of the VMM invocation.
     fn cleanup<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
+        created_resources: Vec<&mut CreatedVmmResource>,
+        produced_resources: Vec<&mut ProducedVmmResource>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }

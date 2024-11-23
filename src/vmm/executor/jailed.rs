@@ -12,7 +12,7 @@ use crate::{
         arguments::{command_modifier::CommandModifier, jailer::JailerArguments, VmmApiSocket, VmmArguments},
         installation::VmmInstallation,
         ownership::{downgrade_owner_recursively, upgrade_owner, PROCESS_GID, PROCESS_UID},
-        resource::MovedVmmResource,
+        resource::{CreatedVmmResource, MovedVmmResource, ProducedVmmResource},
     },
 };
 
@@ -70,20 +70,13 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         }
     }
 
-    fn inner_to_outer_path(&self, installation: &VmmInstallation, inner_path: &Path) -> PathBuf {
-        self.get_paths(installation).1.jail_join(inner_path)
-    }
-
-    fn is_traceless(&self) -> bool {
-        true
-    }
-
     async fn prepare<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        moved_resources: Vec<&mut MovedVmmResource>,
         ownership_model: VmmOwnershipModel,
+        moved_resources: Vec<&mut MovedVmmResource>,
+        mut created_resources: Vec<&mut CreatedVmmResource>,
     ) -> Result<(), VmmExecutorError> {
         // Create jail and delete previous one if necessary
         let (chroot_base_dir, jail_path) = self.get_paths(installation);
@@ -122,20 +115,19 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             }
         }
 
-        // Ensure argument paths exist
-        if let Some(ref mut logs) = self.vmm_arguments.logs.clone() {
-            let effective_path = jail_path.jail_join(logs.local_path());
-            join_set.spawn(
-                logs.apply::<R>(effective_path, ownership_model)
-                    .map_err(VmmExecutorError::ResourceError),
-            );
+        // Apply created resources
+        if let Some(ref mut logs) = self.vmm_arguments.logs {
+            created_resources.push(logs);
         }
 
-        if let Some(ref mut metrics) = self.vmm_arguments.metrics.clone() {
-            let effective_path = jail_path.jail_join(metrics.local_path());
+        if let Some(ref mut metrics) = self.vmm_arguments.metrics {
+            created_resources.push(metrics);
+        }
+
+        for created_resource in created_resources {
             join_set.spawn(
-                metrics
-                    .apply::<R>(effective_path, ownership_model)
+                created_resource
+                    .apply::<R>(jail_path.jail_join(created_resource.local_path()), ownership_model)
                     .map_err(VmmExecutorError::ResourceError),
             );
         }
@@ -147,11 +139,9 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                 .rename_for_jail(moved_resource.source_path())
                 .map_err(VmmExecutorError::JailRenamerFailed)?;
             let effective_path = jail_path.jail_join(&local_path);
-
-            let process_spawner = process_spawner.clone();
             join_set.spawn(
                 moved_resource
-                    .apply::<R>(effective_path, local_path, ownership_model, process_spawner)
+                    .apply::<R>(effective_path, local_path, ownership_model, process_spawner.clone())
                     .map_err(VmmExecutorError::ResourceError),
             );
         }
@@ -166,7 +156,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
     }
 
     async fn invoke<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         config_path: Option<PathBuf>,
@@ -230,10 +220,12 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
     }
 
     async fn cleanup<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
+        _created_resources: Vec<&mut CreatedVmmResource>,
+        _produced_resources: Vec<&mut ProducedVmmResource>,
     ) -> Result<(), VmmExecutorError> {
         let (_, jail_path) = self.get_paths(installation);
 

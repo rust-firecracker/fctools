@@ -44,16 +44,14 @@ pub struct CreatedVmmResource {
     effective_path: Option<PathBuf>,
     local_path: PathBuf,
     r#type: CreatedVmmResourceType,
-    disposed: bool,
 }
 
 impl CreatedVmmResource {
-    pub fn new(path: impl Into<PathBuf>, r#type: CreatedVmmResourceType, disposed: bool) -> Self {
+    pub fn new(path: impl Into<PathBuf>, r#type: CreatedVmmResourceType) -> Self {
         Self {
             effective_path: None,
             local_path: path.into(),
             r#type,
-            disposed,
         }
     }
 
@@ -140,10 +138,6 @@ impl CreatedVmmResource {
 
     pub fn r#type(&self) -> CreatedVmmResourceType {
         self.r#type
-    }
-
-    pub fn disposed(&self) -> bool {
-        self.disposed
     }
 }
 
@@ -293,4 +287,33 @@ pub enum VmmResourceMoveMethod {
     HardLink,
     CopyOrHardLink,
     HardLinkOrCopy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProducedVmmResource {
+    path: PathBuf,
+}
+
+impl ProducedVmmResource {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    pub fn dispose<R: Runtime>(
+        &self,
+        ownership_model: VmmOwnershipModel,
+        process_spawner: Arc<impl ProcessSpawner>,
+    ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
+        let path = self.path.clone();
+
+        async move {
+            upgrade_owner::<R>(&path, ownership_model, process_spawner.as_ref())
+                .await
+                .map_err(VmmResourceError::ChangeOwnerError)?;
+
+            R::Filesystem::remove_file(&path)
+                .await
+                .map_err(VmmResourceError::FilesystemError)
+        }
+    }
 }

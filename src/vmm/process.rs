@@ -26,13 +26,14 @@ use crate::{
 use super::{
     executor::process_handle::{ProcessHandle, ProcessHandlePipes, ProcessHandlePipesError},
     ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
+    resource::MovedVmmResource,
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
 /// tied to the given [VmmExecutor] E, [ProcessSpawner] S and [Runtime] R.
 #[derive(Debug)]
 pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
-    executor: Arc<E>,
+    executor: E,
     ownership_model: VmmOwnershipModel,
     process_spawner: Arc<S>,
     installation: Arc<VmmInstallation>,
@@ -140,13 +141,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     /// former case it will be put into an [Arc], otherwise the [Arc] will be kept. This allows for performant non-clone-based
     /// sharing of [VmmProcess] components between multiple [VmmProcess]-es.
     pub fn new(
-        executor: impl Into<Arc<E>>,
+        executor: E,
         ownership_model: VmmOwnershipModel,
         process_spawner: impl Into<Arc<S>>,
         installation: impl Into<Arc<VmmInstallation>>,
-        outer_paths: Vec<PathBuf>,
+        moved_resources: Vec<MovedVmmResource>,
     ) -> Self {
-        let executor = executor.into();
         let installation = installation.into();
         Self {
             executor,
