@@ -520,7 +520,7 @@ impl VmBuilder {
                     vcpu_count: 1,
                     mem_size_mib: 128,
                     smt: None,
-                    track_dirty_pages: None,
+                    track_dirty_pages: Some(true),
                     huge_pages: None,
                 },
                 cpu_template: None,
