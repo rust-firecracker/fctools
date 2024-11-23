@@ -241,7 +241,7 @@ fn vm_can_snapshot_while_original_is_running() {
         restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm).await;
-        snapshot.remove::<TokioRuntime>().await.unwrap();
+        snapshot.remove::<TokioRuntime>().await;
     });
 }
 
@@ -258,7 +258,7 @@ fn vm_can_snapshot_after_original_has_exited() {
         shutdown_test_vm(&mut vm).await;
 
         restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
-        snapshot.remove::<TokioRuntime>().await.unwrap();
+        snapshot.remove::<TokioRuntime>().await;
     });
 }
 

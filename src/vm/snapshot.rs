@@ -31,10 +31,20 @@ impl VmSnapshot {
         .map(|_| ())
     }
 
-    pub async fn remove<R: Runtime>(self) -> Result<(), std::io::Error> {
-        futures_util::try_join!(self.snapshot.remove::<R>(), self.mem_file.remove::<R>())
-            .map(|_| ())
-            .map_err(|errs| errs.0)
+    pub async fn rename<R: Runtime>(
+        &mut self,
+        new_snapshot_path: impl Into<PathBuf>,
+        new_mem_file_path: impl Into<PathBuf>,
+    ) -> Result<(), std::io::Error> {
+        futures_util::try_join!(
+            self.snapshot.rename::<R>(new_snapshot_path),
+            self.mem_file.rename::<R>(new_mem_file_path)
+        )
+        .map(|_| ())
+    }
+
+    pub async fn remove<R: Runtime>(self) {
+        let _ = futures_util::try_join!(self.snapshot.remove::<R>(), self.mem_file.remove::<R>());
     }
 
     pub fn into_configuration(

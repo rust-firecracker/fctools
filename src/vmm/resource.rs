@@ -379,6 +379,13 @@ impl ProducedVmmResource {
         Ok(())
     }
 
+    pub async fn rename<R: Runtime>(&mut self, new_effective_path: impl Into<PathBuf>) -> Result<(), std::io::Error> {
+        let new_effective_path = new_effective_path.into();
+        R::Filesystem::rename_file(self.effective_path(), &new_effective_path).await?;
+        self.effective_path = Some(new_effective_path);
+        Ok(())
+    }
+
     pub async fn remove<R: Runtime>(self) -> Result<(), (std::io::Error, Self)> {
         if let Err(err) = R::Filesystem::remove_file(self.effective_path()).await {
             return Err((err, self));
