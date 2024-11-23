@@ -60,7 +60,6 @@ pub struct CreatedVmmResource {
     effective_path: Option<PathBuf>,
     local_path: PathBuf,
     r#type: CreatedVmmResourceType,
-    linked: bool,
 }
 
 impl CreatedVmmResource {
@@ -69,12 +68,7 @@ impl CreatedVmmResource {
             effective_path: None,
             local_path: path.into(),
             r#type,
-            linked: true,
         }
-    }
-
-    pub fn unlink(&mut self) {
-        self.linked = false;
     }
 
     pub fn apply<R: Runtime>(
@@ -128,12 +122,17 @@ impl CreatedVmmResource {
         ownership_model: VmmOwnershipModel,
         process_spawner: Arc<impl ProcessSpawner>,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
-        dispose_future::<R>(
-            self.effective_path().to_owned(),
-            self.linked,
-            ownership_model,
-            process_spawner,
-        )
+        let path = self.effective_path().to_owned();
+
+        async move {
+            upgrade_owner::<R>(&path, ownership_model, process_spawner.as_ref())
+                .await
+                .map_err(VmmResourceError::ChangeOwnerError)?;
+
+            R::Filesystem::remove_file(&path)
+                .await
+                .map_err(VmmResourceError::FilesystemError)
+        }
     }
 
     pub fn local_path(&self) -> &Path {
@@ -364,18 +363,29 @@ impl ProducedVmmResource {
         ownership_model: VmmOwnershipModel,
         process_spawner: Arc<impl ProcessSpawner>,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
-        dispose_future::<R>(
-            self.effective_path().to_owned(),
-            self.linked,
-            ownership_model,
-            process_spawner,
-        )
+        let linked = self.linked;
+        let path = self.effective_path().to_owned();
+
+        async move {
+            if linked {
+                upgrade_owner::<R>(&path, ownership_model, process_spawner.as_ref())
+                    .await
+                    .map_err(VmmResourceError::ChangeOwnerError)?;
+
+                R::Filesystem::remove_file(&path)
+                    .await
+                    .map_err(VmmResourceError::FilesystemError)?;
+            }
+
+            Ok(())
+        }
     }
 
     pub async fn copy<R: Runtime>(&mut self, new_effective_path: impl Into<PathBuf>) -> Result<(), std::io::Error> {
         let new_effective_path = new_effective_path.into();
         R::Filesystem::copy(self.effective_path(), &new_effective_path).await?;
         self.effective_path = Some(new_effective_path);
+        self.unlink();
         Ok(())
     }
 
@@ -383,10 +393,11 @@ impl ProducedVmmResource {
         let new_effective_path = new_effective_path.into();
         R::Filesystem::rename_file(self.effective_path(), &new_effective_path).await?;
         self.effective_path = Some(new_effective_path);
+        self.unlink();
         Ok(())
     }
 
-    pub async fn remove<R: Runtime>(self) -> Result<(), (std::io::Error, Self)> {
+    pub async fn delete<R: Runtime>(self) -> Result<(), (std::io::Error, Self)> {
         if let Err(err) = R::Filesystem::remove_file(self.effective_path()).await {
             return Err((err, self));
         }
@@ -407,6 +418,10 @@ impl ProducedVmmResource {
             .as_deref()
             .expect("effective_path was None, use effective_path_checked instead")
     }
+
+    pub fn linked(&self) -> bool {
+        self.linked
+    }
 }
 
 #[cfg(feature = "vm")]
@@ -418,23 +433,4 @@ impl serde::Serialize for ProducedVmmResource {
     {
         self.local_path.serialize(serializer)
     }
-}
-
-async fn dispose_future<R: Runtime>(
-    path: PathBuf,
-    linked: bool,
-    ownership_model: VmmOwnershipModel,
-    process_spawner: Arc<impl ProcessSpawner>,
-) -> Result<(), VmmResourceError> {
-    if linked {
-        upgrade_owner::<R>(&path, ownership_model, process_spawner.as_ref())
-            .await
-            .map_err(VmmResourceError::ChangeOwnerError)?;
-
-        R::Filesystem::remove_file(&path)
-            .await
-            .map_err(VmmResourceError::FilesystemError)?;
-    }
-
-    Ok(())
 }

@@ -44,7 +44,7 @@ impl VmSnapshot {
     }
 
     pub async fn remove<R: Runtime>(self) {
-        let _ = futures_util::try_join!(self.snapshot.remove::<R>(), self.mem_file.remove::<R>());
+        let _ = futures_util::try_join!(self.snapshot.delete::<R>(), self.mem_file.delete::<R>());
     }
 
     pub fn into_configuration(
