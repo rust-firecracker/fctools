@@ -367,8 +367,12 @@ impl VmBuilder {
         self
     }
 
-    pub fn balloon_device(mut self, balloon_device: BalloonDevice) -> Self {
-        self.balloon_device = Some(balloon_device);
+    pub fn balloon_device(mut self, polling_interval_s: Option<i32>) -> Self {
+        self.balloon_device = Some(BalloonDevice {
+            amount_mib: 64,
+            deflate_on_oom: false,
+            stats_polling_interval_s: polling_interval_s,
+        });
         self
     }
 
