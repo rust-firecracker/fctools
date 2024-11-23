@@ -236,7 +236,7 @@ pub struct LoadSnapshot {
     #[serde(rename = "snapshot_path")]
     pub snapshot: MovedVmmResource,
     #[serde(skip_serializing_if = "Option::is_none")]
-    resume_vm: Option<bool>,
+    pub resume_vm: Option<bool>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]

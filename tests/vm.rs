@@ -8,7 +8,7 @@ use fctools::{
         configuration::InitMethod,
         models::{CreateSnapshot, LoggerSystem, MetricsSystem},
         shutdown::{VmShutdownAction, VmShutdownMethod},
-        snapshot::SnapshotData,
+        snapshot::VmSnapshot,
         VmState,
     },
     vmm::{
@@ -216,8 +216,8 @@ fn vm_can_snapshot_while_original_is_running() {
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm).await;
 
-        assert!(!tokio::fs::try_exists(snapshot.snapshot_path).await.unwrap());
-        assert!(!tokio::fs::try_exists(snapshot.mem_file_path).await.unwrap());
+        assert!(!tokio::fs::try_exists(snapshot.snapshot).await.unwrap());
+        assert!(!tokio::fs::try_exists(snapshot.mem_file).await.unwrap());
     });
 }
 
@@ -264,7 +264,7 @@ async fn verify_networking(mut vm: TestVm) {
     shutdown_test_vm(&mut vm).await;
 }
 
-async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
+async fn restore_vm_from_snapshot(snapshot: VmSnapshot, is_jailed: bool) {
     let executor = match is_jailed {
         true => EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),

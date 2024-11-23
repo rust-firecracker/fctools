@@ -313,6 +313,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
         Ok(())
     }
 
+    /// Transforms a given local resource path into an effective resource path using the executor. This should be used
+    /// with care and only in cases where the resource system is insufficient.
+    pub fn local_to_effective_path(&self, local_path: PathBuf) -> PathBuf {
+        self.executor.local_to_effective_path(&self.installation, local_path)
+    }
+
     fn ensure_state(&mut self, expected: VmmProcessState) -> Result<(), VmmProcessError> {
         if self.state() != expected {
             return Err(VmmProcessError::ExpectedState {

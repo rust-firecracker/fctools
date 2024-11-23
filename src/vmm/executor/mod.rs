@@ -82,6 +82,9 @@ pub trait VmmExecutor: Send + Sync {
     /// Get the host location of the VMM socket, if one exists.
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf>;
 
+    /// Transform a given local resource path to an effective resource path.
+    fn local_to_effective_path(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf;
+
     /// Prepare all transient resources for the VMM invocation.
     fn prepare<R: Runtime>(
         &mut self,

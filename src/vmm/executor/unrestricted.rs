@@ -65,6 +65,10 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
     }
 
+    fn local_to_effective_path(&self, _installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
+        local_path
+    }
+
     async fn prepare<R: Runtime>(
         &mut self,
         _installation: &VmmInstallation,

@@ -14,6 +14,7 @@ use crate::{
         executor::VmmExecutor,
         ownership::ChangeOwnerError,
         process::{HyperResponseExt, VmmProcessError},
+        resource::ProducedVmmResource,
     },
 };
 
@@ -24,7 +25,6 @@ use super::{
         ReprActionType, ReprApiError, ReprFirecrackerVersion, ReprInfo, ReprIsPaused, ReprUpdateState,
         ReprUpdatedState, UpdateBalloonDevice, UpdateBalloonStatistics, UpdateDrive, UpdateNetworkInterface,
     },
-    snapshot::SnapshotData,
     Vm, VmState, VmStateCheckError,
 };
 
@@ -80,6 +80,14 @@ impl std::fmt::Display for VmApiError {
     }
 }
 
+/// The data associated with a snapshot created for a [Vm](crate::vm::Vm).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmSnapshot {
+    pub snapshot: ProducedVmmResource,
+    pub mem_file: ProducedVmmResource,
+    pub configuration_data: VmConfigurationData,
+}
+
 /// An extension to [Vm] providing up-to-date, exhaustive and easy-to-use bindings to the Firecracker Management API.
 /// If the bindings here prove to be in some way inadequate, [VmApi::api_custom_request] allows you to also call the Management
 /// API with an arbitrary HTTP request, though while bypassing some safeguards imposed by the provided bindings.
@@ -123,7 +131,7 @@ pub trait VmApi {
     fn api_create_snapshot(
         &mut self,
         create_snapshot: CreateSnapshot,
-    ) -> impl Future<Output = Result<SnapshotData, VmApiError>> + Send;
+    ) -> impl Future<Output = Result<VmSnapshot, VmApiError>> + Send;
 
     fn api_get_firecracker_version(&mut self) -> impl Future<Output = Result<String, VmApiError>> + Send;
 
@@ -250,27 +258,38 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         send_api_request_with_response(self, "/machine-config", "GET", None::<i32>).await
     }
 
-    async fn api_create_snapshot(&mut self, create_snapshot: CreateSnapshot) -> Result<SnapshotData, VmApiError> {
+    async fn api_create_snapshot(&mut self, mut create_snapshot: CreateSnapshot) -> Result<VmSnapshot, VmApiError> {
         self.ensure_state(VmState::Paused)
             .map_err(VmApiError::StateCheckError)?;
         send_api_request(self, "/snapshot/create", "PUT", Some(&create_snapshot)).await?;
-        let snapshot_path = self.vmm_process.inner_to_outer_path(create_snapshot.snapshot_path);
-        let mem_file_path = self.vmm_process.inner_to_outer_path(create_snapshot.mem_file_path);
-        if !self.executor.is_traceless() {
-            self.snapshot_traces.push(snapshot_path.clone());
-            self.snapshot_traces.push(mem_file_path.clone());
-        }
+        let snapshot_effective_path = self
+            .vmm_process
+            .local_to_effective_path(create_snapshot.snapshot.local_path().to_owned());
+        let mem_file_effective_path = self
+            .vmm_process
+            .local_to_effective_path(create_snapshot.mem_file.local_path().to_owned());
 
         futures_util::try_join!(
-            upgrade_owner::<R>(&snapshot_path, self.ownership_model, self.process_spawner.as_ref()),
-            upgrade_owner::<R>(&mem_file_path, self.ownership_model, self.process_spawner.as_ref()),
+            upgrade_owner::<R>(
+                &snapshot_effective_path,
+                self.ownership_model,
+                self.process_spawner.as_ref()
+            ),
+            upgrade_owner::<R>(
+                &mem_file_effective_path,
+                self.ownership_model,
+                self.process_spawner.as_ref()
+            ),
         )
         .map_err(VmApiError::SnapshotChangeOwnerError)?;
 
-        Ok(SnapshotData {
-            snapshot_path,
-            mem_file_path,
-            configuration_data: self.original_configuration_data.clone(),
+        create_snapshot.snapshot.apply(snapshot_effective_path);
+        create_snapshot.mem_file.apply(mem_file_effective_path);
+
+        Ok(VmSnapshot {
+            snapshot: create_snapshot.snapshot,
+            mem_file: create_snapshot.mem_file,
+            configuration_data: self.configuration.data().clone(),
         })
     }
 
