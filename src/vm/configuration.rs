@@ -80,11 +80,7 @@ pub struct VmConfigurationData {
 
 impl VmConfigurationData {
     pub fn resource_references(&mut self) -> VmmResourceReferences<'_> {
-        let mut references = VmmResourceReferences {
-            moved_resources: Vec::with_capacity(1),
-            created_resources: Vec::new(),
-            produced_resources: Vec::new(),
-        };
+        let mut references = VmmResourceReferences::new();
 
         references.moved_resources.push(&mut self.boot_source.kernel_image);
 

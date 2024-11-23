@@ -45,6 +45,16 @@ pub struct VmmResourceReferences<'r> {
     pub produced_resources: Vec<&'r mut ProducedVmmResource>,
 }
 
+impl<'r> VmmResourceReferences<'r> {
+    pub fn new() -> Self {
+        Self {
+            moved_resources: Vec::new(),
+            created_resources: Vec::new(),
+            produced_resources: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreatedVmmResource {
     effective_path: Option<PathBuf>,

@@ -50,18 +50,6 @@ impl<J: JailRenamer + 'static> JailedVmmExecutor<J> {
     }
 }
 
-/// The method of moving resources into the jail
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum JailMoveMethod {
-    /// Copy the file/directory
-    Copy,
-    /// Hard-link the file/directory (symlinking is incompatible with chroot, thus is not supported)
-    HardLink,
-    /// First try to hard link the file/directory, then resort to copying as a fallback and
-    /// ignore the error that occurred when hard-linking
-    HardLinkWithCopyFallback,
-}
-
 impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
         match &self.vmm_arguments.api_socket {
