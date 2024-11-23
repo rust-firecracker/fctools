@@ -102,12 +102,16 @@ pub trait VsockHttpExt {
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R> {
     async fn vsock_connect_over_http(&self, guest_port: u32) -> Result<SendRequest<Full<Bytes>>, VsockHttpError> {
-        let uds_path = self
-            .get_accessible_paths()
-            .vsock_multiplexer_path
+        let socket_path = self
+            .configuration()
+            .data()
+            .vsock_device
             .as_ref()
-            .ok_or(VsockHttpError::VsockNotConfigured)?;
-        let stream = HyperFirecrackerStream::connect(uds_path, guest_port, R::get_hyper_client_sockets_backend())
+            .ok_or(VsockHttpError::VsockNotConfigured)?
+            .uds
+            .effective_path()
+            .to_owned();
+        let stream = HyperFirecrackerStream::connect(socket_path, guest_port, R::get_hyper_client_sockets_backend())
             .await
             .map_err(VsockHttpError::CannotConnect)?;
         let (send_request, connection) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(stream)
@@ -124,10 +128,14 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
                 backend: R::get_hyper_client_sockets_backend(),
             });
         let socket_path = self
-            .get_accessible_paths()
-            .vsock_multiplexer_path
-            .clone()
-            .ok_or(VsockHttpError::VsockNotConfigured)?;
+            .configuration()
+            .data()
+            .vsock_device
+            .as_ref()
+            .ok_or(VsockHttpError::VsockNotConfigured)?
+            .uds
+            .effective_path()
+            .to_owned();
         Ok(VsockHttpPool {
             client,
             socket_path,

@@ -83,10 +83,14 @@ fn create_endpoint_and_service<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
     configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
 ) -> Result<(Endpoint, FirecrackerTowerService), VsockGrpcError> {
     let uds_path = vm
-        .get_accessible_paths()
-        .vsock_multiplexer_path
-        .clone()
-        .ok_or(VsockGrpcError::VsockNotConfigured)?;
+        .configuration()
+        .data()
+        .vsock_device
+        .as_ref()
+        .ok_or(VsockGrpcError::VsockNotConfigured)?
+        .uds
+        .effective_path()
+        .to_owned();
 
     let mut endpoint =
         Endpoint::try_from(format!("http://[::1]:{guest_port}")).map_err(VsockGrpcError::ProvidedAddressRejected)?;

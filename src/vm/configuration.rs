@@ -103,7 +103,7 @@ impl VmConfigurationData {
         }
 
         if let Some(ref mut vsock_device) = self.vsock_device {
-            references.produced_resources.push(&mut vsock_device.uds_path);
+            references.produced_resources.push(&mut vsock_device.uds);
         }
 
         if let Some(ref mut logger_system) = self.logger_system {

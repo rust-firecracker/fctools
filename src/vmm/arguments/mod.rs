@@ -220,7 +220,16 @@ impl std::fmt::Display for VmmLogLevel {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{path::PathBuf, sync::Arc};
+
+    use crate::{
+        process_spawner::DirectProcessSpawner,
+        runtime::tokio::TokioRuntime,
+        vmm::{
+            ownership::VmmOwnershipModel,
+            resource::{CreatedVmmResource, CreatedVmmResourceType, MovedVmmResource, VmmResourceMoveMethod},
+        },
+    };
 
     use super::{VmmApiSocket, VmmArguments, VmmLogLevel};
 
@@ -245,7 +254,13 @@ mod tests {
 
     #[test]
     fn log_path_can_be_set() {
-        check_without_config(new().logs("/tmp/some_logs.txt"), ["--log-path", "/tmp/some_logs.txt"]);
+        check_without_config(
+            new().logs(CreatedVmmResource::new(
+                "/tmp/some_logs.txt",
+                CreatedVmmResourceType::File,
+            )),
+            ["--log-path", "/tmp/some_logs.txt"],
+        );
     }
 
     #[test]
@@ -278,13 +293,19 @@ mod tests {
 
     #[test]
     fn metadata_path_can_be_set() {
-        check_without_config(new().metadata("/tmp/metadata.txt"), ["--metadata", "/tmp/metadata.txt"]);
+        let mut resource = MovedVmmResource::new("/tmp/metadata.txt", VmmResourceMoveMethod::Rename);
+        let _ =
+            resource.apply_with_same_path::<TokioRuntime>(VmmOwnershipModel::Shared, Arc::new(DirectProcessSpawner));
+        check_without_config(new().metadata(resource), ["--metadata", "/tmp/metadata.txt"]);
     }
 
     #[test]
     fn metrics_path_can_be_set() {
         check_without_config(
-            new().metrics("/tmp/metrics.txt"),
+            new().metrics(CreatedVmmResource::new(
+                "/tmp/metrics.txt",
+                CreatedVmmResourceType::File,
+            )),
             ["--metrics-path", "/tmp/metrics.txt"],
         );
     }

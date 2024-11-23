@@ -271,7 +271,8 @@ pub(crate) enum ReprUpdatedState {
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct VsockDevice {
     pub guest_cid: u32,
-    pub uds_path: ProducedVmmResource,
+    #[serde(rename = "uds_path")]
+    pub uds: ProducedVmmResource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
