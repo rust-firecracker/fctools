@@ -20,7 +20,7 @@ use crate::{
 use super::{
     executor::process_handle::{ProcessHandle, ProcessHandlePipes, ProcessHandlePipesError},
     ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
-    resource::{CreatedVmmResource, MovedVmmResource},
+    resource::VmmResourceReferences,
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
@@ -152,19 +152,14 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     }
 
     /// Prepare the [VmmProcess] environment. Allowed in [VmmProcessState::AwaitingPrepare], will result in [VmmProcessState::AwaitingStart].
-    pub async fn prepare(
-        &mut self,
-        moved_resources: Vec<&mut MovedVmmResource>,
-        created_resources: Vec<&mut CreatedVmmResource>,
-    ) -> Result<(), VmmProcessError> {
+    pub async fn prepare(&mut self, resource_references: VmmResourceReferences<'_>) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingPrepare)?;
         self.executor
             .prepare::<R>(
                 self.installation.as_ref(),
                 self.process_spawner.clone(),
                 self.ownership_model,
-                moved_resources,
-                created_resources,
+                resource_references,
             )
             .await
             .map_err(VmmProcessError::ExecutorError)?;
@@ -304,14 +299,14 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
 
     /// Cleans up the [VmmProcess]'s environment. Always call this as a sort of async [Drop] mechanism! Allowed in
     /// [VmmProcessState::Exited] or [VmmProcessState::Crashed].
-    pub async fn cleanup(&mut self, created_resources: Vec<&mut CreatedVmmResource>) -> Result<(), VmmProcessError> {
+    pub async fn cleanup(&mut self, resource_references: VmmResourceReferences<'_>) -> Result<(), VmmProcessError> {
         self.ensure_exited_or_crashed()?;
         self.executor
             .cleanup::<R>(
                 self.installation.as_ref(),
                 self.process_spawner.clone(),
                 self.ownership_model,
-                created_resources,
+                resource_references,
             )
             .await
             .map_err(VmmProcessError::ExecutorError)?;

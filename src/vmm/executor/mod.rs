@@ -9,7 +9,7 @@ use crate::{process_spawner::ProcessSpawner, runtime::Runtime};
 use super::{
     installation::VmmInstallation,
     ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
-    resource::{CreatedVmmResource, MovedVmmResource, VmmResourceError},
+    resource::{VmmResourceError, VmmResourceReferences},
 };
 
 #[cfg(feature = "either-vmm-executor")]
@@ -88,8 +88,7 @@ pub trait VmmExecutor: Send + Sync {
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
-        moved_resources: Vec<&mut MovedVmmResource>,
-        created_resources: Vec<&mut CreatedVmmResource>,
+        resource_references: VmmResourceReferences,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 
     /// Invoke the VMM on the given [VmmInstallation] and return the [ProcessHandle] that performs a connection to
@@ -109,6 +108,6 @@ pub trait VmmExecutor: Send + Sync {
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
-        created_resources: Vec<&mut CreatedVmmResource>,
+        resource_references: VmmResourceReferences,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }

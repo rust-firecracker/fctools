@@ -9,7 +9,7 @@ use crate::{
         arguments::{command_modifier::CommandModifier, VmmApiSocket, VmmArguments},
         id::VmmId,
         installation::VmmInstallation,
-        resource::{CreatedVmmResource, MovedVmmResource},
+        resource::VmmResourceReferences,
     },
 };
 
@@ -70,13 +70,12 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         _installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
-        moved_resources: Vec<&mut MovedVmmResource>,
-        mut created_resources: Vec<&mut CreatedVmmResource>,
+        mut resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
         let mut join_set: RuntimeJoinSet<_, R::Executor> = RuntimeJoinSet::new();
 
         // Apply moved resources
-        for moved_resource in moved_resources {
+        for moved_resource in resource_references.moved_resources {
             join_set.spawn(
                 moved_resource
                     .apply_with_same_path::<R>(ownership_model, process_spawner.clone())
@@ -107,19 +106,23 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
         // Apply created resources
         if let Some(ref mut logs) = self.vmm_arguments.logs {
-            created_resources.push(logs);
+            resource_references.created_resources.push(logs);
         }
 
         if let Some(ref mut metrics) = self.vmm_arguments.metrics {
-            created_resources.push(metrics);
+            resource_references.created_resources.push(metrics);
         }
 
-        for created_resource in created_resources {
+        for created_resource in resource_references.created_resources {
             join_set.spawn(
                 created_resource
                     .apply_with_same_path::<R>(ownership_model)
                     .map_err(VmmExecutorError::ResourceError),
             );
+        }
+
+        for produced_resource in resource_references.produced_resources {
+            produced_resource.apply_with_same_path();
         }
 
         join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))?;
@@ -157,7 +160,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         _installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
-        mut created_resources: Vec<&mut CreatedVmmResource>,
+        mut resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
         let mut join_set: RuntimeJoinSet<_, R::Executor> = RuntimeJoinSet::new();
 
@@ -183,14 +186,14 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         if let Some(ref mut logs) = self.vmm_arguments.logs {
-            created_resources.push(logs);
+            resource_references.created_resources.push(logs);
         }
 
         if let Some(ref mut metrics) = self.vmm_arguments.metrics {
-            created_resources.push(metrics);
+            resource_references.created_resources.push(metrics);
         }
 
-        for created_resource in created_resources {
+        for created_resource in resource_references.created_resources {
             join_set.spawn(
                 created_resource
                     .dispose::<R>(ownership_model, process_spawner.clone())

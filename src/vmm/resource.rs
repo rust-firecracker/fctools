@@ -39,6 +39,12 @@ impl std::fmt::Display for VmmResourceError {
     }
 }
 
+pub struct VmmResourceReferences<'r> {
+    pub moved_resources: Vec<&'r mut MovedVmmResource>,
+    pub created_resources: Vec<&'r mut CreatedVmmResource>,
+    pub produced_resources: Vec<&'r mut ProducedVmmResource>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreatedVmmResource {
     effective_path: Option<PathBuf>,
@@ -333,6 +339,10 @@ impl ProducedVmmResource {
 
     pub fn apply(&mut self, effective_path: PathBuf) {
         self.effective_path = Some(effective_path);
+    }
+
+    pub fn apply_with_same_path(&mut self) {
+        self.effective_path = Some(self.local_path.clone());
     }
 
     pub fn local_path(&self) -> &Path {

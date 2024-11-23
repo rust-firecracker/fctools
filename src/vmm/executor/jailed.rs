@@ -12,7 +12,7 @@ use crate::{
         arguments::{command_modifier::CommandModifier, jailer::JailerArguments, VmmApiSocket, VmmArguments},
         installation::VmmInstallation,
         ownership::{downgrade_owner_recursively, upgrade_owner, PROCESS_GID, PROCESS_UID},
-        resource::{CreatedVmmResource, MovedVmmResource},
+        resource::VmmResourceReferences,
     },
 };
 
@@ -75,8 +75,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
-        moved_resources: Vec<&mut MovedVmmResource>,
-        mut created_resources: Vec<&mut CreatedVmmResource>,
+        mut resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
         // Create jail and delete previous one if necessary
         let (chroot_base_dir, jail_path) = self.get_paths(installation);
@@ -117,14 +116,14 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
 
         // Apply created resources
         if let Some(ref mut logs) = self.vmm_arguments.logs {
-            created_resources.push(logs);
+            resource_references.created_resources.push(logs);
         }
 
         if let Some(ref mut metrics) = self.vmm_arguments.metrics {
-            created_resources.push(metrics);
+            resource_references.created_resources.push(metrics);
         }
 
-        for created_resource in created_resources {
+        for created_resource in resource_references.created_resources {
             join_set.spawn(
                 created_resource
                     .apply::<R>(jail_path.jail_join(created_resource.local_path()), ownership_model)
@@ -133,7 +132,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         }
 
         // Apply moved resources
-        for moved_resource in moved_resources {
+        for moved_resource in resource_references.moved_resources {
             let local_path = self
                 .jail_renamer
                 .rename_for_jail(moved_resource.source_path())
@@ -144,6 +143,11 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                     .apply::<R>(effective_path, local_path, ownership_model, process_spawner.clone())
                     .map_err(VmmExecutorError::ResourceError),
             );
+        }
+
+        // Apply produced resources
+        for produced_resource in resource_references.produced_resources {
+            produced_resource.apply(jail_path.jail_join(produced_resource.local_path()));
         }
 
         join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))?;
@@ -224,7 +228,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
-        _created_resources: Vec<&mut CreatedVmmResource>,
+        _resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
         let (_, jail_path) = self.get_paths(installation);
 
