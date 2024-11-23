@@ -9,7 +9,7 @@ use crate::{
         arguments::{command_modifier::CommandModifier, VmmApiSocket, VmmArguments},
         id::VmmId,
         installation::VmmInstallation,
-        resource::{CreatedVmmResource, MovedVmmResource, ProducedVmmResource},
+        resource::{CreatedVmmResource, MovedVmmResource},
     },
 };
 
@@ -158,7 +158,6 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
         mut created_resources: Vec<&mut CreatedVmmResource>,
-        produced_resources: Vec<&mut ProducedVmmResource>,
     ) -> Result<(), VmmExecutorError> {
         let mut join_set: RuntimeJoinSet<_, R::Executor> = RuntimeJoinSet::new();
 
@@ -194,14 +193,6 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         for created_resource in created_resources {
             join_set.spawn(
                 created_resource
-                    .dispose::<R>(ownership_model, process_spawner.clone())
-                    .map_err(VmmExecutorError::ResourceError),
-            );
-        }
-
-        for produced_resource in produced_resources {
-            join_set.spawn(
-                produced_resource
                     .dispose::<R>(ownership_model, process_spawner.clone())
                     .map_err(VmmExecutorError::ResourceError),
             );

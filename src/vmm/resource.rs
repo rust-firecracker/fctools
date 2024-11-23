@@ -299,21 +299,7 @@ impl ProducedVmmResource {
         Self { path: path.into() }
     }
 
-    pub fn dispose<R: Runtime>(
-        &self,
-        ownership_model: VmmOwnershipModel,
-        process_spawner: Arc<impl ProcessSpawner>,
-    ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
-        let path = self.path.clone();
-
-        async move {
-            upgrade_owner::<R>(&path, ownership_model, process_spawner.as_ref())
-                .await
-                .map_err(VmmResourceError::ChangeOwnerError)?;
-
-            R::Filesystem::remove_file(&path)
-                .await
-                .map_err(VmmResourceError::FilesystemError)
-        }
+    pub fn path(&self) -> &Path {
+        self.path.as_path()
     }
 }

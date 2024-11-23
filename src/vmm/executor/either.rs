@@ -6,7 +6,7 @@ use crate::{
     vmm::{
         installation::VmmInstallation,
         ownership::VmmOwnershipModel,
-        resource::{CreatedVmmResource, MovedVmmResource, ProducedVmmResource},
+        resource::{CreatedVmmResource, MovedVmmResource},
     },
 };
 
@@ -107,29 +107,16 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
         created_resources: Vec<&mut CreatedVmmResource>,
-        produced_resources: Vec<&mut ProducedVmmResource>,
     ) -> Result<(), VmmExecutorError> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => {
                 executor
-                    .cleanup::<R>(
-                        installation,
-                        process_spawner,
-                        ownership_model,
-                        created_resources,
-                        produced_resources,
-                    )
+                    .cleanup::<R>(installation, process_spawner, ownership_model, created_resources)
                     .await
             }
             EitherVmmExecutor::Jailed(executor) => {
                 executor
-                    .cleanup::<R>(
-                        installation,
-                        process_spawner,
-                        ownership_model,
-                        created_resources,
-                        produced_resources,
-                    )
+                    .cleanup::<R>(installation, process_spawner, ownership_model, created_resources)
                     .await
             }
         }

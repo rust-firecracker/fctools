@@ -12,7 +12,7 @@ use crate::{
         arguments::{command_modifier::CommandModifier, jailer::JailerArguments, VmmApiSocket, VmmArguments},
         installation::VmmInstallation,
         ownership::{downgrade_owner_recursively, upgrade_owner, PROCESS_GID, PROCESS_UID},
-        resource::{CreatedVmmResource, MovedVmmResource, ProducedVmmResource},
+        resource::{CreatedVmmResource, MovedVmmResource},
     },
 };
 
@@ -225,7 +225,6 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
         _created_resources: Vec<&mut CreatedVmmResource>,
-        _produced_resources: Vec<&mut ProducedVmmResource>,
     ) -> Result<(), VmmExecutorError> {
         let (_, jail_path) = self.get_paths(installation);
 

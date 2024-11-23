@@ -1,10 +1,4 @@
-use std::{
-    collections::HashMap,
-    future::Future,
-    path::{Path, PathBuf},
-    process::ExitStatus,
-    sync::Arc,
-};
+use std::{future::Future, path::PathBuf, process::ExitStatus, sync::Arc};
 
 use async_once_cell::OnceCell;
 use bytes::{Bytes, BytesMut};
@@ -26,7 +20,7 @@ use crate::{
 use super::{
     executor::process_handle::{ProcessHandle, ProcessHandlePipes, ProcessHandlePipesError},
     ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
-    resource::MovedVmmResource,
+    resource::{CreatedVmmResource, MovedVmmResource},
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
@@ -40,7 +34,6 @@ pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     process_handle: Option<ProcessHandle<R::Process>>,
     state: VmmProcessState,
     hyper_client: OnceCell<Client<HyperUnixConnector, Full<Bytes>>>,
-    outer_paths: Option<Vec<PathBuf>>,
 }
 
 /// The state of a [VmmProcess].
@@ -145,7 +138,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
         ownership_model: VmmOwnershipModel,
         process_spawner: impl Into<Arc<S>>,
         installation: impl Into<Arc<VmmInstallation>>,
-        moved_resources: Vec<MovedVmmResource>,
     ) -> Self {
         let installation = installation.into();
         Self {
@@ -156,27 +148,28 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
             process_handle: None,
             state: VmmProcessState::AwaitingPrepare,
             hyper_client: OnceCell::new(),
-            outer_paths: Some(outer_paths),
         }
     }
 
     /// Prepare the [VmmProcess] environment. Allowed in [VmmProcessState::AwaitingPrepare], will result in [VmmProcessState::AwaitingStart].
-    pub async fn prepare(&mut self) -> Result<HashMap<PathBuf, PathBuf>, VmmProcessError> {
+    pub async fn prepare(
+        &mut self,
+        moved_resources: Vec<&mut MovedVmmResource>,
+        created_resources: Vec<&mut CreatedVmmResource>,
+    ) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingPrepare)?;
-        let path_mappings = self
-            .executor
+        self.executor
             .prepare::<R>(
                 self.installation.as_ref(),
                 self.process_spawner.clone(),
-                self.outer_paths
-                    .take()
-                    .expect("Outer paths cannot ever be none, unreachable"),
                 self.ownership_model,
+                moved_resources,
+                created_resources,
             )
             .await
             .map_err(VmmProcessError::ExecutorError)?;
         self.state = VmmProcessState::AwaitingStart;
-        Ok(path_mappings)
+        Ok(())
     }
 
     /// Invoke the [VmmProcess] with the given configuration [PathBuf] for the VMM. Allowed in [VmmProcessState::AwaitingStart],
@@ -250,12 +243,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
         self.executor.get_socket_path(self.installation.as_ref())
     }
 
-    /// Converts a given inner path to an outer path via the executor.
-    pub fn inner_to_outer_path(&self, inner_path: impl AsRef<Path>) -> PathBuf {
-        self.executor
-            .inner_to_outer_path(self.installation.as_ref(), inner_path.as_ref())
-    }
-
     /// Send a graceful shutdown request via Ctrl+Alt+Del to the [VmmProcess]. Allowed on x86_64 as per Firecracker docs,
     /// on ARM either try to write "reboot\n" to stdin or pause the VM and SIGKILL it for a comparable effect.
     /// Allowed in [VmmProcessState::Started], will result in [VmmProcessState::Exited].
@@ -317,13 +304,14 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
 
     /// Cleans up the [VmmProcess]'s environment. Always call this as a sort of async [Drop] mechanism! Allowed in
     /// [VmmProcessState::Exited] or [VmmProcessState::Crashed].
-    pub async fn cleanup(&mut self) -> Result<(), VmmProcessError> {
+    pub async fn cleanup(&mut self, created_resources: Vec<&mut CreatedVmmResource>) -> Result<(), VmmProcessError> {
         self.ensure_exited_or_crashed()?;
         self.executor
             .cleanup::<R>(
                 self.installation.as_ref(),
                 self.process_spawner.clone(),
                 self.ownership_model,
+                created_resources,
             )
             .await
             .map_err(VmmProcessError::ExecutorError)?;
