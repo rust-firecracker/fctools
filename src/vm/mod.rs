@@ -1,6 +1,6 @@
 //! Provides a managed and high-level VM abstraction.
 
-use std::{process::ExitStatus, sync::Arc, time::Duration};
+use std::{path::PathBuf, process::ExitStatus, sync::Arc, time::Duration};
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -24,6 +24,7 @@ pub mod api;
 pub mod configuration;
 pub mod models;
 pub mod shutdown;
+pub mod snapshot;
 
 /// A [Vm] is an abstraction over a [VmmProcess], and automates away tasks not handled by a VMM process in an opinionated
 /// fashion, such as: moving resources in and out, transforming resource paths from inner to outer and vice versa,
@@ -288,8 +289,14 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         self.vmm_process.take_pipes().map_err(VmError::ProcessError)
     }
 
+    /// Get a shared reference to the [Vm]'s [VmConfiguration].
     pub fn configuration(&self) -> &VmConfiguration {
         &self.configuration
+    }
+
+    /// Translates the given local resource path to an effective resource path.
+    pub fn local_to_effective_path(&self, local_path: impl Into<PathBuf>) -> PathBuf {
+        self.vmm_process.local_to_effective_path(local_path)
     }
 
     pub(super) fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmStateCheckError> {

@@ -14,7 +14,6 @@ use crate::{
         executor::VmmExecutor,
         ownership::ChangeOwnerError,
         process::{HyperResponseExt, VmmProcessError},
-        resource::ProducedVmmResource,
     },
 };
 
@@ -25,6 +24,7 @@ use super::{
         ReprActionType, ReprApiError, ReprFirecrackerVersion, ReprInfo, ReprIsPaused, ReprUpdateState,
         ReprUpdatedState, UpdateBalloonDevice, UpdateBalloonStatistics, UpdateDrive, UpdateNetworkInterface,
     },
+    snapshot::VmSnapshot,
     Vm, VmState, VmStateCheckError,
 };
 
@@ -78,14 +78,6 @@ impl std::fmt::Display for VmApiError {
             }
         }
     }
-}
-
-/// The data associated with a snapshot created for a [Vm](crate::vm::Vm).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VmSnapshot {
-    pub snapshot: ProducedVmmResource,
-    pub mem_file: ProducedVmmResource,
-    pub configuration_data: VmConfigurationData,
 }
 
 /// An extension to [Vm] providing up-to-date, exhaustive and easy-to-use bindings to the Firecracker Management API.

@@ -15,8 +15,8 @@ use fctools::{
     vm::{
         configuration::{InitMethod, VmConfiguration, VmConfigurationData},
         models::{
-            BalloonDevice, BootSource, Drive, LoggerSystem, MachineConfiguration, MetricsSystem, MmdsConfiguration,
-            MmdsVersion, NetworkInterface, VsockDevice,
+            BalloonDevice, BootSource, CreateSnapshot, Drive, LoggerSystem, MachineConfiguration, MetricsSystem,
+            MmdsConfiguration, MmdsVersion, NetworkInterface, SnapshotType, VsockDevice,
         },
         shutdown::{VmShutdownAction, VmShutdownMethod},
     },
@@ -120,15 +120,19 @@ pub fn get_tmp_path() -> PathBuf {
 }
 
 #[allow(unused)]
-pub fn get_tmp_fifo_path() -> PathBuf {
-    PathBuf::from(format!("/tmp/{}.fifo", Uuid::new_v4()))
-}
-
-#[allow(unused)]
 pub fn jail_join(path1: impl AsRef<Path>, path2: impl Into<PathBuf>) -> PathBuf {
     path1
         .as_ref()
         .join(path2.into().to_string_lossy().trim_start_matches("/"))
+}
+
+#[allow(unused)]
+pub fn get_create_snapshot() -> CreateSnapshot {
+    CreateSnapshot {
+        snapshot_type: Some(SnapshotType::Full),
+        snapshot: ProducedVmmResource::new(get_tmp_path()),
+        mem_file: ProducedVmmResource::new(get_tmp_path()),
+    }
 }
 
 #[allow(unused)]

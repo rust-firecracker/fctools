@@ -355,6 +355,21 @@ impl ProducedVmmResource {
         self.effective_path = Some(self.local_path.clone());
     }
 
+    pub async fn copy<R: Runtime>(&mut self, new_effective_path: impl Into<PathBuf>) -> Result<(), std::io::Error> {
+        let new_effective_path = new_effective_path.into();
+        R::Filesystem::copy(self.effective_path(), &new_effective_path).await?;
+        self.effective_path = Some(new_effective_path);
+        Ok(())
+    }
+
+    pub async fn remove<R: Runtime>(self) -> Result<(), (std::io::Error, Self)> {
+        if let Err(err) = R::Filesystem::remove_file(self.effective_path()).await {
+            return Err((err, self));
+        }
+
+        Ok(())
+    }
+
     pub fn local_path(&self) -> &Path {
         self.local_path.as_path()
     }
