@@ -82,7 +82,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         for moved_resource in resource_references.moved_resources {
             join_set.spawn(
                 moved_resource
-                    .apply_with_same_path::<R>(ownership_model, process_spawner.clone())
+                    .initialize_with_same_path::<R>(ownership_model, process_spawner.clone())
                     .map_err(VmmExecutorError::ResourceError),
             );
         }
@@ -120,13 +120,13 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         for created_resource in resource_references.created_resources {
             join_set.spawn(
                 created_resource
-                    .apply_with_same_path::<R>(ownership_model)
+                    .initialize_with_same_path::<R>(ownership_model)
                     .map_err(VmmExecutorError::ResourceError),
             );
         }
 
         for produced_resource in resource_references.produced_resources {
-            produced_resource.apply_with_same_path();
+            produced_resource.initialize_with_same_path();
         }
 
         join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))?;

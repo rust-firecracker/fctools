@@ -118,7 +118,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         for created_resource in resource_references.created_resources {
             join_set.spawn(
                 created_resource
-                    .apply::<R>(jail_path.jail_join(created_resource.local_path()), ownership_model)
+                    .initialize::<R>(jail_path.jail_join(created_resource.local_path()), ownership_model)
                     .map_err(VmmExecutorError::ResourceError),
             );
         }
@@ -132,14 +132,14 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             let effective_path = jail_path.jail_join(&local_path);
             join_set.spawn(
                 moved_resource
-                    .apply::<R>(effective_path, local_path, ownership_model, process_spawner.clone())
+                    .initialize::<R>(effective_path, local_path, ownership_model, process_spawner.clone())
                     .map_err(VmmExecutorError::ResourceError),
             );
         }
 
         // Apply produced resources
         for produced_resource in resource_references.produced_resources {
-            produced_resource.apply(jail_path.jail_join(produced_resource.local_path()));
+            produced_resource.initialize(jail_path.jail_join(produced_resource.local_path()));
         }
 
         join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))?;

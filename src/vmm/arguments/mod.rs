@@ -294,8 +294,8 @@ mod tests {
     #[test]
     fn metadata_path_can_be_set() {
         let mut resource = MovedVmmResource::new("/tmp/metadata.txt", VmmResourceMoveMethod::Rename);
-        let _ =
-            resource.apply_with_same_path::<TokioRuntime>(VmmOwnershipModel::Shared, Arc::new(DirectProcessSpawner));
+        let _ = resource
+            .initialize_with_same_path::<TokioRuntime>(VmmOwnershipModel::Shared, Arc::new(DirectProcessSpawner));
         check_without_config(new().metadata(resource), ["--metadata", "/tmp/metadata.txt"]);
     }
 

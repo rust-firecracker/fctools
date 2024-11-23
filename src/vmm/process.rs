@@ -284,8 +284,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     /// Returns the current [VmmProcessState] of the [VmmProcess]. Needs mutable access (as well as most other
     /// [VmmProcess] methods relying on it) in order to query the process Allowed in any [VmmProcessState].
     pub fn state(&mut self) -> VmmProcessState {
-        if let Some(ref mut child) = self.process_handle {
-            if let Ok(Some(exit_status)) = child.try_wait() {
+        if let Some(ref mut process_handle) = self.process_handle {
+            if let Ok(Some(exit_status)) = process_handle.try_wait() {
                 if exit_status.success() {
                     self.state = VmmProcessState::Exited;
                 } else {
@@ -309,8 +309,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
                 resource_references,
             )
             .await
-            .map_err(VmmProcessError::ExecutorError)?;
-        Ok(())
+            .map_err(VmmProcessError::ExecutorError)
     }
 
     /// Transforms a given local resource path into an effective resource path using the executor. This should be used

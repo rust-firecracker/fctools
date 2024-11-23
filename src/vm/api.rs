@@ -275,8 +275,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         )
         .map_err(VmApiError::SnapshotChangeOwnerError)?;
 
-        create_snapshot.snapshot.apply(snapshot_effective_path);
-        create_snapshot.mem_file.apply(mem_file_effective_path);
+        create_snapshot.snapshot.initialize(snapshot_effective_path);
+        create_snapshot.mem_file.initialize(mem_file_effective_path);
 
         Ok(VmSnapshot {
             snapshot: create_snapshot.snapshot,

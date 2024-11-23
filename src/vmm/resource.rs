@@ -14,6 +14,7 @@ use crate::{
 
 use super::ownership::{upgrade_owner, ChangeOwnerError};
 
+/// An error that can be produced by an operation on a VMM resource.
 #[derive(Debug)]
 pub enum VmmResourceError {
     FilesystemError(std::io::Error),
@@ -39,6 +40,8 @@ impl std::fmt::Display for VmmResourceError {
     }
 }
 
+/// A set of mutable references to VMM resources of all three types. Through these references, the resources
+/// should be initialized by a VMM executor.
 pub struct VmmResourceReferences<'r> {
     pub moved_resources: Vec<&'r mut MovedVmmResource>,
     pub created_resources: Vec<&'r mut CreatedVmmResource>,
@@ -55,6 +58,8 @@ impl<'r> VmmResourceReferences<'r> {
     }
 }
 
+/// A VMM resource that is created by the control process for the VMM to use, for example a log or metrics file.
+/// The type of file that the resource should be is defined by the [CreatedVmmResourceType].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreatedVmmResource {
     effective_path: Option<PathBuf>,
@@ -63,6 +68,7 @@ pub struct CreatedVmmResource {
 }
 
 impl CreatedVmmResource {
+    /// Construct an uninitialized created resource of the given local path and [CreatedVmmResourceType].
     pub fn new(path: impl Into<PathBuf>, r#type: CreatedVmmResourceType) -> Self {
         Self {
             effective_path: None,
@@ -71,7 +77,10 @@ impl CreatedVmmResource {
         }
     }
 
-    pub fn apply<R: Runtime>(
+    /// Initialize the created resource to the given effective path using the specified [VmmOwnershipModel]. The
+    /// mutation will be performed immediately, and the returned future can be spawned onto a [Runtime] to apply
+    /// the changes to the filesystem.
+    pub fn initialize<R: Runtime>(
         &mut self,
         effective_path: PathBuf,
         ownership_model: VmmOwnershipModel,
@@ -110,13 +119,16 @@ impl CreatedVmmResource {
         }
     }
 
-    pub fn apply_with_same_path<R: Runtime>(
+    /// A shorthand to initialize to an effective path that is the local path.
+    pub fn initialize_with_same_path<R: Runtime>(
         &mut self,
         ownership_model: VmmOwnershipModel,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
-        self.apply::<R>(self.local_path.clone(), ownership_model)
+        self.initialize::<R>(self.local_path.clone(), ownership_model)
     }
 
+    /// Dispose of the resource by deleting it according to ownership constraints via [VmmOwnershipModel] and
+    /// [ProcessSpawner].
     pub fn dispose<R: Runtime>(
         &self,
         ownership_model: VmmOwnershipModel,
@@ -154,9 +166,12 @@ impl CreatedVmmResource {
     }
 }
 
+/// The type of file that a [CreatedVmmResource] is backed by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CreatedVmmResourceType {
+    /// A plain-text file created normally.
     File,
+    /// A FIFO named pipe created using mkfifo.
     Fifo,
 }
 
@@ -171,6 +186,10 @@ impl serde::Serialize for CreatedVmmResource {
     }
 }
 
+/// A VMM resource that represents an already-existing file accessible by the control process that is
+/// moved for use by the VMM. The filesystem method to move the file is defined by the
+/// [VmmResourceMoveMethod]. A kernel image, an initrd and a block device for a VM are all examples of
+/// moved resources.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MovedVmmResource {
     source_path: PathBuf,
@@ -180,6 +199,7 @@ pub struct MovedVmmResource {
 }
 
 impl MovedVmmResource {
+    /// Construct an uninitialized moved resource with the given source path and [VmmResourceMoveMethod].
     pub fn new(path: impl Into<PathBuf>, move_method: VmmResourceMoveMethod) -> Self {
         Self {
             source_path: path.into(),
@@ -189,7 +209,10 @@ impl MovedVmmResource {
         }
     }
 
-    pub fn apply<R: Runtime>(
+    /// Initialize the resource at the given effective and local paths according to the ownership constraints
+    /// defined by [VmmOwnershipModel] and [ProcessSpawner]. The mutation will be performed immediately, and
+    /// the returned futrue can be spawned onto the [Runtime] to apply the changes to the filesystem.
+    pub fn initialize<R: Runtime>(
         &mut self,
         effective_path: PathBuf,
         local_path: PathBuf,
@@ -260,7 +283,9 @@ impl MovedVmmResource {
         }
     }
 
-    pub fn apply_with_same_path<R: Runtime>(
+    /// A shorthand to initialize the resource with local and effective paths being equal to the source path, i.e. with the
+    /// underlying file being unmoved.
+    pub fn initialize_with_same_path<R: Runtime>(
         &mut self,
         ownership_model: VmmOwnershipModel,
         process_spawner: Arc<impl ProcessSpawner>,
@@ -321,15 +346,25 @@ impl serde::Serialize for MovedVmmResource {
     }
 }
 
+/// A set of methods of moving [MovedVmmResource] paths.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmmResourceMoveMethod {
+    /// Copy, costly.
     Copy,
+    /// Hard link, doesn't work with cross-device links.
     HardLink,
+    /// Copy or hard link if copying failed.
     CopyOrHardLink,
+    /// Hard link or copy if hard linking failed.
     HardLinkOrCopy,
+    /// Fully move by renaming.
     Rename,
 }
 
+/// A produced VMM resource represents a file created by the VMM process that is to be used by the
+/// control process, for example a snapshot of a VM. By default, a produced resource is linked, meaning
+/// that it will be disposed of by the executor upon VMM cleanup. In cases when the resource can be used
+/// after its VMM process has exited (a snapshot), the resource can be unlinked and further used.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProducedVmmResource {
     local_path: PathBuf,
@@ -338,6 +373,7 @@ pub struct ProducedVmmResource {
 }
 
 impl ProducedVmmResource {
+    /// Construct an uninitialized produced resource with the given local path.
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             local_path: path.into(),
@@ -346,18 +382,24 @@ impl ProducedVmmResource {
         }
     }
 
+    /// Unlink the resource for it to be used beyond the scope of its original VMM.
     pub fn unlink(&mut self) {
         self.linked = false;
     }
 
-    pub fn apply(&mut self, effective_path: PathBuf) {
+    /// Initialize the produced resource with the given effective path.
+    pub fn initialize(&mut self, effective_path: PathBuf) {
         self.effective_path = Some(effective_path);
     }
 
-    pub fn apply_with_same_path(&mut self) {
+    /// A shorthand to initialize the resource with the same effective path as its local path.
+    pub fn initialize_with_same_path(&mut self) {
         self.effective_path = Some(self.local_path.clone());
     }
 
+    /// Dispose of the resource unless it has been unlinked, according to the given [VmmOwnershipModel]
+    /// and [ProcessSpawner]. The returned future doesn't depend on &self and can be spawned on the
+    /// [Runtime] to be persisted to the filesystem.
     pub fn dispose<R: Runtime>(
         &self,
         ownership_model: VmmOwnershipModel,
@@ -381,6 +423,7 @@ impl ProducedVmmResource {
         }
     }
 
+    /// Unlink and copy the resource to the given new effective path. The local path remains unchanged.
     pub async fn copy<R: Runtime>(&mut self, new_effective_path: impl Into<PathBuf>) -> Result<(), std::io::Error> {
         let new_effective_path = new_effective_path.into();
         R::Filesystem::copy(self.effective_path(), &new_effective_path).await?;
@@ -389,6 +432,7 @@ impl ProducedVmmResource {
         Ok(())
     }
 
+    /// Unlink and move/rename the resource to the given new effective path. The local path remains unchanged.
     pub async fn rename<R: Runtime>(&mut self, new_effective_path: impl Into<PathBuf>) -> Result<(), std::io::Error> {
         let new_effective_path = new_effective_path.into();
         R::Filesystem::rename_file(self.effective_path(), &new_effective_path).await?;
@@ -397,6 +441,7 @@ impl ProducedVmmResource {
         Ok(())
     }
 
+    /// Attempt to delete the resource, giving back ownership alongside the error if the operation fails.
     pub async fn delete<R: Runtime>(self) -> Result<(), (std::io::Error, Self)> {
         if let Err(err) = R::Filesystem::remove_file(self.effective_path()).await {
             return Err((err, self));
@@ -421,6 +466,17 @@ impl ProducedVmmResource {
 
     pub fn linked(&self) -> bool {
         self.linked
+    }
+
+    /// Convert this initialized [ProducedVmmResource] into an uninitialized [MovedVmmResource] with the given
+    /// [VmmResourceMoveMethod]. For example: a produced snapshot resource from VM 1 becomes a moved snapshot resource
+    /// for VM 2 to use within its configuration.
+    pub fn into_moved(self, move_method: VmmResourceMoveMethod) -> MovedVmmResource {
+        MovedVmmResource::new(
+            self.effective_path
+                .expect("effective_path is None when calling into_moved"),
+            move_method,
+        )
     }
 }
 
