@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+
+use crate::vmm::resource::VmmResourceReferences;
 
 use super::models::{
     BalloonDevice, BootSource, CpuTemplate, Drive, EntropyDevice, LoadSnapshot, LoggerSystem, MachineConfiguration,
@@ -52,28 +54,74 @@ impl VmConfiguration {
             } => data,
         }
     }
+
+    pub fn resource_references(&mut self) -> VmmResourceReferences<'_> {
+        let mut references = VmmResourceReferences::new();
+
+        let data = match self {
+            VmConfiguration::RestoredFromSnapshot { load_snapshot, data } => {
+                references.moved_resources.push(&mut load_snapshot.snapshot);
+                references.moved_resources.push(&mut load_snapshot.mem_backend.backend);
+
+                data
+            }
+            VmConfiguration::New { init_method: _, data } => data,
+        };
+
+        references.moved_resources.push(&mut data.boot_source.kernel_image);
+
+        if let Some(ref mut initrd) = data.boot_source.initrd {
+            references.moved_resources.push(initrd);
+        }
+
+        for drive in &mut data.drives {
+            if let Some(ref mut block) = drive.block {
+                references.moved_resources.push(block);
+            }
+
+            if let Some(ref mut socket) = drive.socket {
+                references.moved_resources.push(socket);
+            }
+        }
+
+        if let Some(ref mut vsock_device) = data.vsock_device {
+            references.produced_resources.push(&mut vsock_device.uds);
+        }
+
+        if let Some(ref mut logger_system) = data.logger_system {
+            if let Some(ref mut logs) = logger_system.logs {
+                references.created_resources.push(logs);
+            }
+        }
+
+        if let Some(ref mut metrics_system) = data.metrics_system {
+            references.created_resources.push(&mut metrics_system.metrics);
+        }
+
+        references
+    }
 }
 
 /// The full data of various devices associated with a VM. Even when restoring from a snapshot, this information
 /// is required for initialization to proceed.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct VmConfigurationData {
     #[serde(rename = "boot-source")]
-    pub(crate) boot_source: BootSource,
-    pub(crate) drives: Vec<Drive>,
+    pub boot_source: BootSource,
+    pub drives: Vec<Drive>,
     #[serde(rename = "machine-config")]
-    pub(crate) machine_configuration: MachineConfiguration,
+    pub machine_configuration: MachineConfiguration,
     #[serde(rename = "cpu-config")]
-    pub(crate) cpu_template: Option<CpuTemplate>,
+    pub cpu_template: Option<CpuTemplate>,
     #[serde(rename = "network-interfaces")]
-    pub(crate) network_interfaces: Vec<NetworkInterface>,
-    pub(crate) balloon_device: Option<BalloonDevice>,
-    pub(crate) vsock_device: Option<VsockDevice>,
-    pub(crate) logger_system: Option<LoggerSystem>,
-    pub(crate) metrics_system: Option<MetricsSystem>,
+    pub network_interfaces: Vec<NetworkInterface>,
+    pub balloon_device: Option<BalloonDevice>,
+    pub vsock_device: Option<VsockDevice>,
+    pub logger_system: Option<LoggerSystem>,
+    pub metrics_system: Option<MetricsSystem>,
     #[serde(rename = "mmds-config")]
-    pub(crate) mmds_configuration: Option<MmdsConfiguration>,
-    pub(crate) entropy_device: Option<EntropyDevice>,
+    pub mmds_configuration: Option<MmdsConfiguration>,
+    pub entropy_device: Option<EntropyDevice>,
 }
 
 /// A method of initialization used when booting a new (not restored from snapshot) VM.
@@ -87,113 +135,4 @@ pub enum InitMethod {
     /// given inner path, and pass it to Firecracker in order for initialization and boot
     /// to be performed automatically.
     ViaJsonConfiguration(PathBuf),
-}
-
-impl VmConfigurationData {
-    pub fn new(boot_source: BootSource, machine_configuration: MachineConfiguration) -> Self {
-        Self {
-            boot_source,
-            drives: vec![],
-            machine_configuration,
-            cpu_template: None,
-            network_interfaces: vec![],
-            balloon_device: None,
-            vsock_device: None,
-            logger_system: None,
-            metrics_system: None,
-            mmds_configuration: None,
-            entropy_device: None,
-        }
-    }
-
-    pub fn drive(mut self, drive: Drive) -> Self {
-        self.drives.push(drive);
-        self
-    }
-
-    pub fn drives(mut self, drives: impl IntoIterator<Item = Drive>) -> Self {
-        self.drives.extend(drives);
-        self
-    }
-
-    pub fn cpu_template(mut self, cpu_template: CpuTemplate) -> Self {
-        self.cpu_template = Some(cpu_template);
-        self
-    }
-
-    pub fn network_interface(mut self, network_interface: NetworkInterface) -> Self {
-        self.network_interfaces.push(network_interface);
-        self
-    }
-
-    pub fn network_interfaces(mut self, network_interfaces: impl IntoIterator<Item = NetworkInterface>) -> Self {
-        self.network_interfaces.extend(network_interfaces);
-        self
-    }
-
-    pub fn balloon_device(mut self, balloon_device: BalloonDevice) -> Self {
-        self.balloon_device = Some(balloon_device);
-        self
-    }
-
-    pub fn vsock_device(mut self, vsock_device: VsockDevice) -> Self {
-        self.vsock_device = Some(vsock_device);
-        self
-    }
-
-    pub fn logger_system(mut self, logger_system: LoggerSystem) -> Self {
-        self.logger_system = Some(logger_system);
-        self
-    }
-
-    pub fn metrics_system(mut self, metrics_system: MetricsSystem) -> Self {
-        self.metrics_system = Some(metrics_system);
-        self
-    }
-
-    pub fn mmds_configuration(mut self, mmds_configuration: MmdsConfiguration) -> Self {
-        self.mmds_configuration = Some(mmds_configuration);
-        self
-    }
-
-    pub fn entropy_device(mut self, entropy_device: EntropyDevice) -> Self {
-        self.entropy_device = Some(entropy_device);
-        self
-    }
-
-    pub fn get_cpu_template(&self) -> Option<&CpuTemplate> {
-        self.cpu_template.as_ref()
-    }
-
-    pub fn get_drives(&self) -> &Vec<Drive> {
-        &self.drives
-    }
-
-    pub fn get_network_interfaces(&self) -> &Vec<NetworkInterface> {
-        &self.network_interfaces
-    }
-
-    pub fn get_balloon_device(&self) -> Option<&BalloonDevice> {
-        self.balloon_device.as_ref()
-    }
-
-    pub fn get_vsock_device(&self) -> Option<&VsockDevice> {
-        self.vsock_device.as_ref()
-    }
-
-    pub fn get_logger_system(&self) -> Option<&LoggerSystem> {
-        self.logger_system.as_ref()
-    }
-
-    pub fn get_metrics_system(&self) -> Option<&MetricsSystem> {
-        self.metrics_system.as_ref()
-    }
-
-    pub fn get_mmds_configuration(&self) -> Option<&MmdsConfiguration> {
-        self.mmds_configuration.as_ref()
-    }
-
-    pub fn get_entropy_device(&self) -> Option<&EntropyDevice> {
-        self.entropy_device.as_ref()
-    }
 }

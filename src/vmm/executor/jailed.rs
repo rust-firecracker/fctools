@@ -1,8 +1,9 @@
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
+
+use futures_util::TryFutureExt;
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -11,10 +12,11 @@ use crate::{
         arguments::{command_modifier::CommandModifier, jailer::JailerArguments, VmmApiSocket, VmmArguments},
         installation::VmmInstallation,
         ownership::{downgrade_owner_recursively, upgrade_owner, PROCESS_GID, PROCESS_UID},
+        resource::VmmResourceReferences,
     },
 };
 
-use super::{create_file_or_fifo, process_handle::ProcessHandle, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
+use super::{process_handle::ProcessHandle, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
@@ -23,7 +25,6 @@ use super::{create_file_or_fifo, process_handle::ProcessHandle, VmmExecutor, Vmm
 pub struct JailedVmmExecutor<J: JailRenamer + 'static> {
     vmm_arguments: VmmArguments,
     jailer_arguments: JailerArguments,
-    jail_move_method: JailMoveMethod,
     jail_renamer: J,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
 }
@@ -33,15 +34,9 @@ impl<J: JailRenamer + 'static> JailedVmmExecutor<J> {
         Self {
             vmm_arguments,
             jailer_arguments,
-            jail_move_method: JailMoveMethod::Copy,
             jail_renamer,
             command_modifier_chain: Vec::new(),
         }
-    }
-
-    pub fn jail_move_method(mut self, jail_move_method: JailMoveMethod) -> Self {
-        self.jail_move_method = jail_move_method;
-        self
     }
 
     pub fn command_modifier(mut self, command_modifier: impl CommandModifier + 'static) -> Self {
@@ -55,18 +50,6 @@ impl<J: JailRenamer + 'static> JailedVmmExecutor<J> {
     }
 }
 
-/// The method of moving resources into the jail
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum JailMoveMethod {
-    /// Copy the file/directory
-    Copy,
-    /// Hard-link the file/directory (symlinking is incompatible with chroot, thus is not supported)
-    HardLink,
-    /// First try to hard link the file/directory, then resort to copying as a fallback and
-    /// ignore the error that occurred when hard-linking
-    HardLinkWithCopyFallback,
-}
-
 impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
         match &self.vmm_arguments.api_socket {
@@ -75,21 +58,17 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         }
     }
 
-    fn inner_to_outer_path(&self, installation: &VmmInstallation, inner_path: &Path) -> PathBuf {
-        self.get_paths(installation).1.jail_join(inner_path)
-    }
-
-    fn is_traceless(&self) -> bool {
-        true
+    fn local_to_effective_path(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
+        self.get_paths(installation).1.jail_join(&local_path)
     }
 
     async fn prepare<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        outer_paths: Vec<PathBuf>,
         ownership_model: VmmOwnershipModel,
-    ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
+        mut resource_references: VmmResourceReferences<'_>,
+    ) -> Result<(), VmmExecutorError> {
         // Create jail and delete previous one if necessary
         let (chroot_base_dir, jail_path) = self.get_paths(installation);
         upgrade_owner::<R>(&chroot_base_dir, ownership_model, process_spawner.as_ref())
@@ -127,75 +106,40 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             }
         }
 
-        // Ensure argument paths exist
-        if let Some(ref log_path) = self.vmm_arguments.log_path.clone() {
-            join_set.spawn(create_file_or_fifo::<R>(ownership_model, jail_path.jail_join(log_path)));
+        // Apply created resources
+        if let Some(ref mut logs) = self.vmm_arguments.logs {
+            resource_references.created_resources.push(logs);
         }
 
-        if let Some(ref metrics_path) = self.vmm_arguments.metrics_path.clone() {
-            join_set.spawn(create_file_or_fifo::<R>(
-                ownership_model,
-                jail_path.jail_join(metrics_path),
-            ));
+        if let Some(ref mut metrics) = self.vmm_arguments.metrics {
+            resource_references.created_resources.push(metrics);
         }
 
-        // Apply jail renamer and move in the resources in parallel (via a join set)
-        let mut path_mappings = HashMap::with_capacity(outer_paths.len());
+        for created_resource in resource_references.created_resources {
+            join_set.spawn(
+                created_resource
+                    .initialize::<R>(jail_path.jail_join(created_resource.local_path()), ownership_model)
+                    .map_err(VmmExecutorError::ResourceError),
+            );
+        }
 
-        for outer_path in outer_paths {
-            let expanded_inner_path = {
-                let inner_path = self
-                    .jail_renamer
-                    .rename_for_jail(&outer_path)
-                    .map_err(VmmExecutorError::JailRenamerFailed)?;
-                let expanded_inner_path = jail_path.jail_join(&inner_path);
-                path_mappings.insert(outer_path.clone(), inner_path);
+        // Apply moved resources
+        for moved_resource in resource_references.moved_resources {
+            let local_path = self
+                .jail_renamer
+                .rename_for_jail(moved_resource.source_path())
+                .map_err(VmmExecutorError::JailRenamerFailed)?;
+            let effective_path = jail_path.jail_join(&local_path);
+            join_set.spawn(
+                moved_resource
+                    .initialize::<R>(effective_path, local_path, ownership_model, process_spawner.clone())
+                    .map_err(VmmExecutorError::ResourceError),
+            );
+        }
 
-                expanded_inner_path
-            };
-
-            let jail_move_method = self.jail_move_method;
-            let process_spawner = process_spawner.clone();
-
-            join_set.spawn(async move {
-                upgrade_owner::<R>(&outer_path, ownership_model, process_spawner.as_ref())
-                    .await
-                    .map_err(VmmExecutorError::ChangeOwnerError)?;
-
-                if !R::Filesystem::check_exists(&outer_path)
-                    .await
-                    .map_err(VmmExecutorError::FilesystemError)?
-                {
-                    return Err(VmmExecutorError::ExpectedResourceMissing(outer_path.clone()));
-                }
-
-                if let Some(new_path_parent_dir) = expanded_inner_path.parent() {
-                    R::Filesystem::create_dir_all(new_path_parent_dir)
-                        .await
-                        .map_err(VmmExecutorError::FilesystemError)?;
-                }
-
-                match jail_move_method {
-                    JailMoveMethod::Copy => R::Filesystem::copy(&outer_path, &expanded_inner_path)
-                        .await
-                        .map_err(VmmExecutorError::FilesystemError),
-                    JailMoveMethod::HardLink => R::Filesystem::hard_link(&outer_path, &expanded_inner_path)
-                        .await
-                        .map_err(VmmExecutorError::FilesystemError),
-                    JailMoveMethod::HardLinkWithCopyFallback => {
-                        let hardlink_result = R::Filesystem::hard_link(&outer_path, &expanded_inner_path)
-                            .await
-                            .map_err(VmmExecutorError::FilesystemError);
-                        if hardlink_result.is_err() {
-                            R::Filesystem::copy(&outer_path, &expanded_inner_path)
-                                .await
-                                .map_err(VmmExecutorError::FilesystemError)
-                        } else {
-                            hardlink_result
-                        }
-                    }
-                }
-            });
+        // Apply produced resources
+        for produced_resource in resource_references.produced_resources {
+            produced_resource.initialize(jail_path.jail_join(produced_resource.local_path()));
         }
 
         join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))?;
@@ -204,11 +148,11 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             .await
             .map_err(VmmExecutorError::ChangeOwnerError)?;
 
-        Ok(path_mappings)
+        Ok(())
     }
 
     async fn invoke<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         config_path: Option<PathBuf>,
@@ -272,10 +216,11 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
     }
 
     async fn cleanup<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
+        _resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
         let (_, jail_path) = self.get_paths(installation);
 
@@ -283,9 +228,10 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             .await
             .map_err(VmmExecutorError::ChangeOwnerError)?;
 
-        let jail_parent_path = jail_path
-            .parent()
-            .ok_or(VmmExecutorError::ExpectedDirectoryParentMissing)?;
+        let Some(jail_parent_path) = jail_path.parent() else {
+            return Err(VmmExecutorError::ExpectedDirectoryParentMissing(jail_path));
+        };
+
         R::Filesystem::remove_dir_all(jail_parent_path)
             .await
             .map_err(VmmExecutorError::FilesystemError)

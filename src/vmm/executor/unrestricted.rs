@@ -1,8 +1,6 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{path::PathBuf, sync::Arc};
+
+use futures_util::TryFutureExt;
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -11,12 +9,11 @@ use crate::{
         arguments::{command_modifier::CommandModifier, VmmApiSocket, VmmArguments},
         id::VmmId,
         installation::VmmInstallation,
+        resource::VmmResourceReferences,
     },
 };
 
-use super::{
-    create_file_or_fifo, process_handle::ProcessHandle, upgrade_owner, VmmExecutor, VmmExecutorError, VmmOwnershipModel,
-};
+use super::{process_handle::ProcessHandle, upgrade_owner, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
 
 /// A [VmmExecutor] that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
 /// This [VmmExecutor] allows rootless execution, given that the user has been granted access to /dev/kvm, but using
@@ -25,8 +22,6 @@ use super::{
 pub struct UnrestrictedVmmExecutor {
     vmm_arguments: VmmArguments,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
-    remove_metrics_on_cleanup: bool,
-    remove_logs_on_cleanup: bool,
     pipes_to_null: bool,
     id: Option<VmmId>,
 }
@@ -36,8 +31,6 @@ impl UnrestrictedVmmExecutor {
         Self {
             vmm_arguments,
             command_modifier_chain: Vec::new(),
-            remove_metrics_on_cleanup: false,
-            remove_logs_on_cleanup: false,
             pipes_to_null: false,
             id: None,
         }
@@ -50,16 +43,6 @@ impl UnrestrictedVmmExecutor {
 
     pub fn command_modifiers(mut self, command_modifiers: impl IntoIterator<Item = Box<dyn CommandModifier>>) -> Self {
         self.command_modifier_chain.extend(command_modifiers);
-        self
-    }
-
-    pub fn remove_metrics_on_cleanup(mut self) -> Self {
-        self.remove_metrics_on_cleanup = true;
-        self
-    }
-
-    pub fn remove_logs_on_cleanup(mut self) -> Self {
-        self.remove_logs_on_cleanup = true;
         self
     }
 
@@ -82,40 +65,26 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
     }
 
-    fn inner_to_outer_path(&self, _installation: &VmmInstallation, inner_path: &Path) -> PathBuf {
-        inner_path.to_owned()
-    }
-
-    fn is_traceless(&self) -> bool {
-        false
+    fn local_to_effective_path(&self, _installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
+        local_path
     }
 
     async fn prepare<R: Runtime>(
-        &self,
+        &mut self,
         _installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        outer_paths: Vec<PathBuf>,
         ownership_model: VmmOwnershipModel,
-    ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
+        mut resource_references: VmmResourceReferences<'_>,
+    ) -> Result<(), VmmExecutorError> {
         let mut join_set: RuntimeJoinSet<_, R::Executor> = RuntimeJoinSet::new();
 
-        for path in outer_paths.clone() {
-            let process_spawner = process_spawner.clone();
-
-            join_set.spawn(async move {
-                upgrade_owner::<R>(&path, ownership_model, process_spawner.as_ref())
-                    .await
-                    .map_err(VmmExecutorError::ChangeOwnerError)?;
-
-                if !R::Filesystem::check_exists(&path)
-                    .await
-                    .map_err(VmmExecutorError::FilesystemError)?
-                {
-                    return Err(VmmExecutorError::ExpectedResourceMissing(path));
-                }
-
-                Ok(())
-            });
+        // Apply moved resources
+        for moved_resource in resource_references.moved_resources {
+            join_set.spawn(
+                moved_resource
+                    .initialize_with_same_path::<R>(ownership_model, process_spawner.clone())
+                    .map_err(VmmExecutorError::ResourceError),
+            );
         }
 
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
@@ -139,21 +108,33 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             });
         }
 
-        // Ensure argument paths exist
-        if let Some(log_path) = self.vmm_arguments.log_path.clone() {
-            join_set.spawn(create_file_or_fifo::<R>(ownership_model, log_path));
+        // Apply created resources
+        if let Some(ref mut logs) = self.vmm_arguments.logs {
+            resource_references.created_resources.push(logs);
         }
 
-        if let Some(metrics_path) = self.vmm_arguments.metrics_path.clone() {
-            join_set.spawn(create_file_or_fifo::<R>(ownership_model, metrics_path));
+        if let Some(ref mut metrics) = self.vmm_arguments.metrics {
+            resource_references.created_resources.push(metrics);
+        }
+
+        for created_resource in resource_references.created_resources {
+            join_set.spawn(
+                created_resource
+                    .initialize_with_same_path::<R>(ownership_model)
+                    .map_err(VmmExecutorError::ResourceError),
+            );
+        }
+
+        for produced_resource in resource_references.produced_resources {
+            produced_resource.initialize_with_same_path();
         }
 
         join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))?;
-        Ok(outer_paths.into_iter().map(|path| (path.clone(), path)).collect())
+        Ok(())
     }
 
     async fn invoke<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         config_path: Option<PathBuf>,
@@ -179,10 +160,11 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
     }
 
     async fn cleanup<R: Runtime>(
-        &self,
+        &mut self,
         _installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
+        mut resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
         let mut join_set: RuntimeJoinSet<_, R::Executor> = RuntimeJoinSet::new();
 
@@ -207,34 +189,28 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             });
         }
 
-        if self.remove_logs_on_cleanup {
-            if let Some(log_path) = self.vmm_arguments.log_path.clone() {
-                let process_spawner = process_spawner.clone();
-
-                join_set.spawn(async move {
-                    upgrade_owner::<R>(&log_path, ownership_model, process_spawner.as_ref())
-                        .await
-                        .map_err(VmmExecutorError::ChangeOwnerError)?;
-
-                    R::Filesystem::remove_file(&log_path)
-                        .await
-                        .map_err(VmmExecutorError::FilesystemError)
-                });
-            }
+        if let Some(ref mut logs) = self.vmm_arguments.logs {
+            resource_references.created_resources.push(logs);
         }
 
-        if self.remove_metrics_on_cleanup {
-            if let Some(metrics_path) = self.vmm_arguments.metrics_path.clone() {
-                join_set.spawn(async move {
-                    upgrade_owner::<R>(&metrics_path, ownership_model, process_spawner.as_ref())
-                        .await
-                        .map_err(VmmExecutorError::ChangeOwnerError)?;
+        if let Some(ref mut metrics) = self.vmm_arguments.metrics {
+            resource_references.created_resources.push(metrics);
+        }
 
-                    R::Filesystem::remove_file(&metrics_path)
-                        .await
-                        .map_err(VmmExecutorError::FilesystemError)
-                });
-            }
+        for created_resource in resource_references.created_resources {
+            join_set.spawn(
+                created_resource
+                    .dispose::<R>(ownership_model, process_spawner.clone())
+                    .map_err(VmmExecutorError::ResourceError),
+            );
+        }
+
+        for produced_resource in resource_references.produced_resources {
+            join_set.spawn(
+                produced_resource
+                    .dispose::<R>(ownership_model, process_spawner.clone())
+                    .map_err(VmmExecutorError::ResourceError),
+            );
         }
 
         join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))

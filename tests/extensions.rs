@@ -6,20 +6,16 @@ use fctools::{
         grpc_vsock::VsockGrpcExt, http_vsock::VsockHttpExt, metrics::spawn_metrics_task,
         snapshot_editor::SnapshotEditorExt,
     },
-    runtime::tokio::TokioRuntime,
-    vm::{
-        api::VmApi,
-        models::{CreateSnapshot, MetricsSystem, SnapshotType},
-    },
-    vmm::process::HyperResponseExt,
+    runtime::{tokio::TokioRuntime, RuntimeTask},
+    vm::{api::VmApi, models::SnapshotType},
+    vmm::{process::HyperResponseExt, resource::CreatedVmmResourceType},
 };
 use futures_util::StreamExt;
 use grpc_codegen::{guest_agent_service_client::GuestAgentServiceClient, Ping, Pong};
 use http_body_util::Full;
 use serde::{Deserialize, Serialize};
 use test_framework::{
-    get_real_firecracker_installation, get_tmp_fifo_path, get_tmp_path, shutdown_test_vm, TestOptions, TestVm,
-    VmBuilder,
+    get_create_snapshot, get_real_firecracker_installation, shutdown_test_vm, TestOptions, TestVm, VmBuilder,
 };
 use tokio::fs::metadata;
 
@@ -30,21 +26,21 @@ mod test_framework;
 fn snapshot_editor_can_rebase_memory() {
     VmBuilder::new().run(|mut vm| async move {
         vm.api_pause().await.unwrap();
-        let base_snapshot = vm
-            .api_create_snapshot(CreateSnapshot::new(get_tmp_path(), get_tmp_path()))
-            .await
-            .unwrap();
+        let base_snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
         vm.api_resume().await.unwrap();
         vm.api_pause().await.unwrap();
-        let diff_snapshot = vm
-            .api_create_snapshot(CreateSnapshot::new(get_tmp_path(), get_tmp_path()).snapshot_type(SnapshotType::Diff))
-            .await
-            .unwrap();
+
+        let mut diff_create_snapshot = get_create_snapshot();
+        diff_create_snapshot.snapshot_type = Some(SnapshotType::Diff);
+        let diff_snapshot = vm.api_create_snapshot(diff_create_snapshot).await.unwrap();
         vm.api_resume().await.unwrap();
 
         get_real_firecracker_installation()
             .snapshot_editor::<TokioRuntime>()
-            .rebase_memory(base_snapshot.mem_file_path, diff_snapshot.mem_file_path)
+            .rebase_memory(
+                base_snapshot.mem_file.effective_path(),
+                diff_snapshot.mem_file.effective_path(),
+            )
             .await
             .unwrap();
         shutdown_test_vm(&mut vm).await;
@@ -55,15 +51,12 @@ fn snapshot_editor_can_rebase_memory() {
 fn snapshot_editor_can_get_snapshot_version() {
     VmBuilder::new().run(|mut vm| async move {
         vm.api_pause().await.unwrap();
-        let snapshot = vm
-            .api_create_snapshot(CreateSnapshot::new(get_tmp_path(), get_tmp_path()))
-            .await
-            .unwrap();
+        let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
         vm.api_resume().await.unwrap();
 
         let version = get_real_firecracker_installation()
             .snapshot_editor::<TokioRuntime>()
-            .get_snapshot_version(snapshot.snapshot_path)
+            .get_snapshot_version(snapshot.snapshot.effective_path())
             .await
             .unwrap();
         assert_eq!(version.trim(), TestOptions::get().await.toolchain.snapshot_version);
@@ -75,15 +68,12 @@ fn snapshot_editor_can_get_snapshot_version() {
 fn snapshot_editor_can_get_snapshot_vcpu_states() {
     VmBuilder::new().run(|mut vm| async move {
         vm.api_pause().await.unwrap();
-        let snapshot = vm
-            .api_create_snapshot(CreateSnapshot::new(get_tmp_path(), get_tmp_path()))
-            .await
-            .unwrap();
+        let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
         vm.api_resume().await.unwrap();
 
         let data = get_real_firecracker_installation()
             .snapshot_editor::<TokioRuntime>()
-            .get_snapshot_vcpu_states(snapshot.snapshot_path)
+            .get_snapshot_vcpu_states(snapshot.snapshot.effective_path())
             .await
             .unwrap();
         let first_line = data.lines().next().unwrap();
@@ -97,15 +87,12 @@ fn snapshot_editor_can_get_snapshot_vcpu_states() {
 fn snapshot_editor_can_get_snapshot_vm_state() {
     VmBuilder::new().run(|mut vm| async move {
         vm.api_pause().await.unwrap();
-        let snapshot = vm
-            .api_create_snapshot(CreateSnapshot::new(get_tmp_path(), get_tmp_path()))
-            .await
-            .unwrap();
+        let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
         vm.api_resume().await.unwrap();
 
         let data = get_real_firecracker_installation()
             .snapshot_editor::<TokioRuntime>()
-            .get_snapshot_vm_state(snapshot.snapshot_path)
+            .get_snapshot_vm_state(snapshot.snapshot.effective_path())
             .await
             .unwrap();
         assert!(data.contains("kvm"));
@@ -116,19 +103,27 @@ fn snapshot_editor_can_get_snapshot_vm_state() {
 #[test]
 fn metrics_task_can_receive_data_from_plaintext() {
     VmBuilder::new()
-        .metrics_system(MetricsSystem::new(get_tmp_path()))
+        .metrics_system(CreatedVmmResourceType::File)
         .run(|vm| test_metrics_recv(false, vm));
 }
 
 #[test]
 fn metrics_task_can_receive_data_from_fifo() {
     VmBuilder::new()
-        .metrics_system(MetricsSystem::new(get_tmp_fifo_path()))
+        .metrics_system(CreatedVmmResourceType::Fifo)
         .run(|vm| test_metrics_recv(true, vm));
 }
 
 async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
-    let metrics_path = vm.get_accessible_paths().metrics_path.clone().unwrap();
+    let metrics_path = vm
+        .configuration()
+        .data()
+        .metrics_system
+        .as_ref()
+        .unwrap()
+        .metrics
+        .effective_path()
+        .to_owned();
     let file_type = metadata(&metrics_path).await.unwrap().file_type();
 
     if is_fifo {
@@ -138,8 +133,7 @@ async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
         assert!(file_type.is_file());
     }
 
-    let mut metrics_task =
-        spawn_metrics_task::<TokioRuntime>(vm.get_accessible_paths().metrics_path.clone().unwrap(), 100);
+    let mut metrics_task = spawn_metrics_task::<TokioRuntime>(metrics_path, 100);
     let metrics = metrics_task.receiver.next().await.unwrap();
     assert!(metrics.put_api_requests.actions_count > 0);
     shutdown_test_vm(&mut vm).await;
@@ -148,11 +142,20 @@ async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
 #[test]
 fn metrics_task_can_be_cancelled_via_join_handle() {
     VmBuilder::new()
-        .metrics_system(MetricsSystem::new(get_tmp_path()))
+        .metrics_system(CreatedVmmResourceType::Fifo)
         .run(|mut vm| async move {
-            let mut metrics_task =
-                spawn_metrics_task::<TokioRuntime>(vm.get_accessible_paths().metrics_path.clone().unwrap(), 100);
-            drop(metrics_task.task);
+            let mut metrics_task = spawn_metrics_task::<TokioRuntime>(
+                vm.configuration()
+                    .data()
+                    .metrics_system
+                    .as_ref()
+                    .unwrap()
+                    .metrics
+                    .effective_path()
+                    .to_owned(),
+                100,
+            );
+            metrics_task.task.cancel().await;
             tokio::time::timeout(Duration::from_secs(1), async {
                 while metrics_task.receiver.next().await.is_some() {}
             })

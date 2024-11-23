@@ -1,13 +1,9 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{path::PathBuf, sync::Arc};
 
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
-    vmm::{installation::VmmInstallation, ownership::VmmOwnershipModel},
+    vmm::{installation::VmmInstallation, ownership::VmmOwnershipModel, resource::VmmResourceReferences},
 };
 
 use super::{
@@ -46,43 +42,36 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
         }
     }
 
-    fn inner_to_outer_path(&self, installation: &VmmInstallation, inner_path: &Path) -> PathBuf {
+    fn local_to_effective_path(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
         match self {
-            EitherVmmExecutor::Unrestricted(executor) => executor.inner_to_outer_path(installation, inner_path),
-            EitherVmmExecutor::Jailed(executor) => executor.inner_to_outer_path(installation, inner_path),
-        }
-    }
-
-    fn is_traceless(&self) -> bool {
-        match self {
-            EitherVmmExecutor::Unrestricted(executor) => executor.is_traceless(),
-            EitherVmmExecutor::Jailed(executor) => executor.is_traceless(),
+            EitherVmmExecutor::Unrestricted(executor) => executor.local_to_effective_path(installation, local_path),
+            EitherVmmExecutor::Jailed(executor) => executor.local_to_effective_path(installation, local_path),
         }
     }
 
     async fn prepare<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
-        outer_paths: Vec<PathBuf>,
         ownership_model: VmmOwnershipModel,
-    ) -> Result<HashMap<PathBuf, PathBuf>, VmmExecutorError> {
+        resource_references: VmmResourceReferences<'_>,
+    ) -> Result<(), VmmExecutorError> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => {
                 executor
-                    .prepare::<R>(installation, process_spawner, outer_paths, ownership_model)
+                    .prepare::<R>(installation, process_spawner, ownership_model, resource_references)
                     .await
             }
             EitherVmmExecutor::Jailed(executor) => {
                 executor
-                    .prepare::<R>(installation, process_spawner, outer_paths, ownership_model)
+                    .prepare::<R>(installation, process_spawner, ownership_model, resource_references)
                     .await
             }
         }
     }
 
     async fn invoke<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         config_path: Option<PathBuf>,
@@ -103,20 +92,21 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
     }
 
     async fn cleanup<R: Runtime>(
-        &self,
+        &mut self,
         installation: &VmmInstallation,
         process_spawner: Arc<impl ProcessSpawner>,
         ownership_model: VmmOwnershipModel,
+        resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => {
                 executor
-                    .cleanup::<R>(installation, process_spawner, ownership_model)
+                    .cleanup::<R>(installation, process_spawner, ownership_model, resource_references)
                     .await
             }
             EitherVmmExecutor::Jailed(executor) => {
                 executor
-                    .cleanup::<R>(installation, process_spawner, ownership_model)
+                    .cleanup::<R>(installation, process_spawner, ownership_model, resource_references)
                     .await
             }
         }

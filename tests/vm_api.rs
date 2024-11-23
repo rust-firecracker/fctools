@@ -3,37 +3,37 @@ use bytes::Bytes;
 use fctools::{
     vm::{
         api::{VmApi, VmApiError},
-        models::{BalloonDevice, MetricsSystem, UpdateBalloonDevice, UpdateBalloonStatistics},
+        models::{UpdateBalloonDevice, UpdateBalloonStatistics},
         VmState,
     },
-    vmm::process::HyperResponseExt,
+    vmm::{process::HyperResponseExt, resource::CreatedVmmResourceType},
 };
 use http::{Request, StatusCode};
 use http_body_util::Full;
 use serde::{Deserialize, Serialize};
-use test_framework::{get_tmp_path, shutdown_test_vm, VmBuilder};
+use test_framework::{shutdown_test_vm, VmBuilder};
 
 mod test_framework;
 
 #[test]
 fn vm_api_can_catch_api_errors() {
-    VmBuilder::new()
-        .balloon_device(BalloonDevice::new(64, false))
-        .run(|mut vm| async move {
-            // trying to set up balloon stats after being disabled pre-boot is a bad request
-            let error = vm
-                .api_update_balloon_statistics(UpdateBalloonStatistics::new(1))
-                .await
-                .unwrap_err();
-            assert_matches!(
-                error,
-                VmApiError::ReceivedErrorResponse {
-                    status_code: StatusCode::BAD_REQUEST,
-                    fault_message: _
-                }
-            );
-            shutdown_test_vm(&mut vm).await;
-        });
+    VmBuilder::new().balloon_device(None).run(|mut vm| async move {
+        // trying to set up balloon stats after being disabled pre-boot is a bad request
+        let error = vm
+            .api_update_balloon_statistics(UpdateBalloonStatistics {
+                stats_polling_interval_s: 1,
+            })
+            .await
+            .unwrap_err();
+        assert_matches!(
+            error,
+            VmApiError::ReceivedErrorResponse {
+                status_code: StatusCode::BAD_REQUEST,
+                fault_message: _
+            }
+        );
+        shutdown_test_vm(&mut vm).await;
+    });
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn vm_api_can_receive_info() {
 #[test]
 fn vm_api_can_flush_metrics() {
     VmBuilder::new()
-        .metrics_system(MetricsSystem::new(get_tmp_path()))
+        .metrics_system(CreatedVmmResourceType::File)
         .run(|mut vm| async move {
             vm.api_flush_metrics().await.unwrap();
             shutdown_test_vm(&mut vm).await;
@@ -88,61 +88,55 @@ fn vm_api_can_flush_metrics() {
 
 #[test]
 fn vm_api_can_get_balloon() {
-    VmBuilder::new()
-        .balloon_device(BalloonDevice::new(64, false))
-        .run(|mut vm| async move {
-            let balloon = vm.api_get_balloon_device().await.unwrap();
-            assert_eq!(balloon.get_stats_polling_interval_s(), 0);
-            assert_eq!(balloon.get_amount_mib(), 64);
-            assert!(!balloon.get_deflate_on_oom());
-            shutdown_test_vm(&mut vm).await;
-        });
+    VmBuilder::new().balloon_device(None).run(|mut vm| async move {
+        let balloon = vm.api_get_balloon_device().await.unwrap();
+        assert_eq!(balloon.stats_polling_interval_s, Some(0));
+        assert_eq!(balloon.amount_mib, 64);
+        assert!(!balloon.deflate_on_oom);
+        shutdown_test_vm(&mut vm).await;
+    });
 }
 
 #[test]
 fn vm_api_can_update_balloon() {
-    VmBuilder::new()
-        .balloon_device(BalloonDevice::new(64, false))
-        .run(|mut vm| async move {
-            vm.api_update_balloon_device(UpdateBalloonDevice::new(50))
-                .await
-                .unwrap();
-            let balloon = vm.api_get_balloon_device().await.unwrap();
-            assert_eq!(balloon.get_amount_mib(), 50);
-            shutdown_test_vm(&mut vm).await;
-        });
+    VmBuilder::new().balloon_device(None).run(|mut vm| async move {
+        vm.api_update_balloon_device(UpdateBalloonDevice { amount_mib: 50 })
+            .await
+            .unwrap();
+        let balloon = vm.api_get_balloon_device().await.unwrap();
+        assert_eq!(balloon.amount_mib, 50);
+        shutdown_test_vm(&mut vm).await;
+    });
 }
 
 #[test]
 fn vm_api_can_get_balloon_statistics() {
-    VmBuilder::new()
-        .balloon_device(BalloonDevice::new(64, false).stats_polling_interval_s(1))
-        .run(|mut vm| async move {
-            let statistics = vm.api_get_balloon_statistics().await.unwrap();
-            assert_ne!(statistics.actual_mib, 0);
-            shutdown_test_vm(&mut vm).await;
-        });
+    VmBuilder::new().balloon_device(Some(1)).run(|mut vm| async move {
+        let statistics = vm.api_get_balloon_statistics().await.unwrap();
+        assert_ne!(statistics.actual_mib, 0);
+        shutdown_test_vm(&mut vm).await;
+    });
 }
 
 #[test]
 fn vm_api_can_update_balloon_statistics() {
-    VmBuilder::new()
-        .balloon_device(BalloonDevice::new(64, false).stats_polling_interval_s(1))
-        .run(|mut vm| async move {
-            vm.api_update_balloon_statistics(UpdateBalloonStatistics::new(3))
-                .await
-                .unwrap();
-            let _ = vm.api_get_balloon_statistics().await.unwrap();
-            shutdown_test_vm(&mut vm).await;
-        });
+    VmBuilder::new().balloon_device(Some(1)).run(|mut vm| async move {
+        vm.api_update_balloon_statistics(UpdateBalloonStatistics {
+            stats_polling_interval_s: 3,
+        })
+        .await
+        .unwrap();
+        let _ = vm.api_get_balloon_statistics().await.unwrap();
+        shutdown_test_vm(&mut vm).await;
+    });
 }
 
 #[test]
 fn vm_api_can_get_machine_configuration() {
     VmBuilder::new().run(|mut vm| async move {
         let machine_configuration = vm.api_get_machine_configuration().await.unwrap();
-        assert_eq!(machine_configuration.get_vcpu_count(), 1);
-        assert_eq!(machine_configuration.get_mem_size_mib(), 128);
+        assert_eq!(machine_configuration.vcpu_count, 1);
+        assert_eq!(machine_configuration.mem_size_mib, 128);
         shutdown_test_vm(&mut vm).await;
     });
 }
@@ -152,17 +146,6 @@ fn vm_api_can_get_firecracker_version() {
     VmBuilder::new().run(|mut vm| async move {
         let firecracker_version = vm.api_get_firecracker_version().await.unwrap();
         assert!(firecracker_version.contains("1"));
-        shutdown_test_vm(&mut vm).await;
-    });
-}
-
-#[test]
-fn vm_api_can_get_effective_configuration() {
-    VmBuilder::new().run(|mut vm| async move {
-        let effective_configuration = vm.api_get_effective_configuration().await.unwrap();
-        effective_configuration.boot_source.unwrap();
-        effective_configuration.machine_configuration.unwrap();
-        assert_eq!(effective_configuration.drives.len(), 1);
         shutdown_test_vm(&mut vm).await;
     });
 }

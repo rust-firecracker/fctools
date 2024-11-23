@@ -1,6 +1,6 @@
 [package]
 name = "fctools"
-version = "0.6.0-alpha.2"
+version = "0.6.0-alpha.3"
 edition = "2021"
 description = "An exhaustive, highly modular and extensible host SDK for the Firecracker microVM manager."
 license = "MIT"
@@ -24,7 +24,7 @@ opt-level = 0
 opt-level = 3
 strip = "symbols"
 
-[profile.bench.build-override]
+[profile.dev.build-override]
 opt-level = 3
 strip = "symbols"
 

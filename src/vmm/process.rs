@@ -1,10 +1,4 @@
-use std::{
-    collections::HashMap,
-    future::Future,
-    path::{Path, PathBuf},
-    process::ExitStatus,
-    sync::Arc,
-};
+use std::{future::Future, path::PathBuf, process::ExitStatus, sync::Arc};
 
 use async_once_cell::OnceCell;
 use bytes::{Bytes, BytesMut};
@@ -26,20 +20,20 @@ use crate::{
 use super::{
     executor::process_handle::{ProcessHandle, ProcessHandlePipes, ProcessHandlePipesError},
     ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
+    resource::VmmResourceReferences,
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
 /// tied to the given [VmmExecutor] E, [ProcessSpawner] S and [Runtime] R.
 #[derive(Debug)]
 pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
-    executor: Arc<E>,
+    executor: E,
     ownership_model: VmmOwnershipModel,
     process_spawner: Arc<S>,
     installation: Arc<VmmInstallation>,
     process_handle: Option<ProcessHandle<R::Process>>,
     state: VmmProcessState,
     hyper_client: OnceCell<Client<HyperUnixConnector, Full<Bytes>>>,
-    outer_paths: Option<Vec<PathBuf>>,
 }
 
 /// The state of a [VmmProcess].
@@ -140,13 +134,11 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     /// former case it will be put into an [Arc], otherwise the [Arc] will be kept. This allows for performant non-clone-based
     /// sharing of [VmmProcess] components between multiple [VmmProcess]-es.
     pub fn new(
-        executor: impl Into<Arc<E>>,
+        executor: E,
         ownership_model: VmmOwnershipModel,
         process_spawner: impl Into<Arc<S>>,
         installation: impl Into<Arc<VmmInstallation>>,
-        outer_paths: Vec<PathBuf>,
     ) -> Self {
-        let executor = executor.into();
         let installation = installation.into();
         Self {
             executor,
@@ -156,27 +148,23 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
             process_handle: None,
             state: VmmProcessState::AwaitingPrepare,
             hyper_client: OnceCell::new(),
-            outer_paths: Some(outer_paths),
         }
     }
 
     /// Prepare the [VmmProcess] environment. Allowed in [VmmProcessState::AwaitingPrepare], will result in [VmmProcessState::AwaitingStart].
-    pub async fn prepare(&mut self) -> Result<HashMap<PathBuf, PathBuf>, VmmProcessError> {
+    pub async fn prepare(&mut self, resource_references: VmmResourceReferences<'_>) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingPrepare)?;
-        let path_mappings = self
-            .executor
+        self.executor
             .prepare::<R>(
                 self.installation.as_ref(),
                 self.process_spawner.clone(),
-                self.outer_paths
-                    .take()
-                    .expect("Outer paths cannot ever be none, unreachable"),
                 self.ownership_model,
+                resource_references,
             )
             .await
             .map_err(VmmProcessError::ExecutorError)?;
         self.state = VmmProcessState::AwaitingStart;
-        Ok(path_mappings)
+        Ok(())
     }
 
     /// Invoke the [VmmProcess] with the given configuration [PathBuf] for the VMM. Allowed in [VmmProcessState::AwaitingStart],
@@ -250,12 +238,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
         self.executor.get_socket_path(self.installation.as_ref())
     }
 
-    /// Converts a given inner path to an outer path via the executor.
-    pub fn inner_to_outer_path(&self, inner_path: impl AsRef<Path>) -> PathBuf {
-        self.executor
-            .inner_to_outer_path(self.installation.as_ref(), inner_path.as_ref())
-    }
-
     /// Send a graceful shutdown request via Ctrl+Alt+Del to the [VmmProcess]. Allowed on x86_64 as per Firecracker docs,
     /// on ARM either try to write "reboot\n" to stdin or pause the VM and SIGKILL it for a comparable effect.
     /// Allowed in [VmmProcessState::Started], will result in [VmmProcessState::Exited].
@@ -302,8 +284,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     /// Returns the current [VmmProcessState] of the [VmmProcess]. Needs mutable access (as well as most other
     /// [VmmProcess] methods relying on it) in order to query the process Allowed in any [VmmProcessState].
     pub fn state(&mut self) -> VmmProcessState {
-        if let Some(ref mut child) = self.process_handle {
-            if let Ok(Some(exit_status)) = child.try_wait() {
+        if let Some(ref mut process_handle) = self.process_handle {
+            if let Ok(Some(exit_status)) = process_handle.try_wait() {
                 if exit_status.success() {
                     self.state = VmmProcessState::Exited;
                 } else {
@@ -317,17 +299,24 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
 
     /// Cleans up the [VmmProcess]'s environment. Always call this as a sort of async [Drop] mechanism! Allowed in
     /// [VmmProcessState::Exited] or [VmmProcessState::Crashed].
-    pub async fn cleanup(&mut self) -> Result<(), VmmProcessError> {
+    pub async fn cleanup(&mut self, resource_references: VmmResourceReferences<'_>) -> Result<(), VmmProcessError> {
         self.ensure_exited_or_crashed()?;
         self.executor
             .cleanup::<R>(
                 self.installation.as_ref(),
                 self.process_spawner.clone(),
                 self.ownership_model,
+                resource_references,
             )
             .await
-            .map_err(VmmProcessError::ExecutorError)?;
-        Ok(())
+            .map_err(VmmProcessError::ExecutorError)
+    }
+
+    /// Transforms a given local resource path into an effective resource path using the executor. This should be used
+    /// with care and only in cases where the resource system is insufficient.
+    pub fn local_to_effective_path(&self, local_path: impl Into<PathBuf>) -> PathBuf {
+        self.executor
+            .local_to_effective_path(&self.installation, local_path.into())
     }
 
     fn ensure_state(&mut self, expected: VmmProcessState) -> Result<(), VmmProcessError> {

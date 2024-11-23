@@ -20,12 +20,11 @@ use crate::{
 use super::{
     configuration::VmConfigurationData,
     models::{
-        BalloonDevice, BalloonStatistics, CreateSnapshot, EffectiveConfiguration, Info, LoadSnapshot,
-        MachineConfiguration, ReprAction, ReprActionType, ReprApiError, ReprFirecrackerVersion, ReprInfo, ReprIsPaused,
-        ReprUpdateState, ReprUpdatedState, UpdateBalloonDevice, UpdateBalloonStatistics, UpdateDrive,
-        UpdateNetworkInterface,
+        BalloonDevice, BalloonStatistics, CreateSnapshot, Info, LoadSnapshot, MachineConfiguration, ReprAction,
+        ReprActionType, ReprApiError, ReprFirecrackerVersion, ReprInfo, ReprIsPaused, ReprUpdateState,
+        ReprUpdatedState, UpdateBalloonDevice, UpdateBalloonStatistics, UpdateDrive, UpdateNetworkInterface,
     },
-    snapshot::SnapshotData,
+    snapshot::VmSnapshot,
     Vm, VmState, VmStateCheckError,
 };
 
@@ -124,13 +123,9 @@ pub trait VmApi {
     fn api_create_snapshot(
         &mut self,
         create_snapshot: CreateSnapshot,
-    ) -> impl Future<Output = Result<SnapshotData, VmApiError>> + Send;
+    ) -> impl Future<Output = Result<VmSnapshot, VmApiError>> + Send;
 
     fn api_get_firecracker_version(&mut self) -> impl Future<Output = Result<String, VmApiError>> + Send;
-
-    fn api_get_effective_configuration(
-        &mut self,
-    ) -> impl Future<Output = Result<EffectiveConfiguration, VmApiError>> + Send;
 
     fn api_pause(&mut self) -> impl Future<Output = Result<(), VmApiError>> + Send;
 
@@ -255,27 +250,38 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         send_api_request_with_response(self, "/machine-config", "GET", None::<i32>).await
     }
 
-    async fn api_create_snapshot(&mut self, create_snapshot: CreateSnapshot) -> Result<SnapshotData, VmApiError> {
+    async fn api_create_snapshot(&mut self, mut create_snapshot: CreateSnapshot) -> Result<VmSnapshot, VmApiError> {
         self.ensure_state(VmState::Paused)
             .map_err(VmApiError::StateCheckError)?;
         send_api_request(self, "/snapshot/create", "PUT", Some(&create_snapshot)).await?;
-        let snapshot_path = self.vmm_process.inner_to_outer_path(create_snapshot.snapshot_path);
-        let mem_file_path = self.vmm_process.inner_to_outer_path(create_snapshot.mem_file_path);
-        if !self.executor.is_traceless() {
-            self.snapshot_traces.push(snapshot_path.clone());
-            self.snapshot_traces.push(mem_file_path.clone());
-        }
+        let snapshot_effective_path = self
+            .vmm_process
+            .local_to_effective_path(create_snapshot.snapshot.local_path().to_owned());
+        let mem_file_effective_path = self
+            .vmm_process
+            .local_to_effective_path(create_snapshot.mem_file.local_path().to_owned());
 
         futures_util::try_join!(
-            upgrade_owner::<R>(&snapshot_path, self.ownership_model, self.process_spawner.as_ref()),
-            upgrade_owner::<R>(&mem_file_path, self.ownership_model, self.process_spawner.as_ref()),
+            upgrade_owner::<R>(
+                &snapshot_effective_path,
+                self.ownership_model,
+                self.process_spawner.as_ref()
+            ),
+            upgrade_owner::<R>(
+                &mem_file_effective_path,
+                self.ownership_model,
+                self.process_spawner.as_ref()
+            ),
         )
         .map_err(VmApiError::SnapshotChangeOwnerError)?;
 
-        Ok(SnapshotData {
-            snapshot_path,
-            mem_file_path,
-            configuration_data: self.original_configuration_data.clone(),
+        create_snapshot.snapshot.initialize(snapshot_effective_path);
+        create_snapshot.mem_file.initialize(mem_file_effective_path);
+
+        Ok(VmSnapshot {
+            snapshot: create_snapshot.snapshot,
+            mem_file: create_snapshot.mem_file,
+            configuration_data: self.configuration.data().clone(),
         })
     }
 
@@ -286,11 +292,6 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
                 .await?
                 .firecracker_version,
         )
-    }
-
-    async fn api_get_effective_configuration(&mut self) -> Result<EffectiveConfiguration, VmApiError> {
-        self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
-        send_api_request_with_response(self, "/vm/config", "GET", None::<i32>).await
     }
 
     async fn api_pause(&mut self) -> Result<(), VmApiError> {

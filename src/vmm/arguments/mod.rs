@@ -1,24 +1,26 @@
 use std::path::PathBuf;
 
+use super::resource::{CreatedVmmResource, MovedVmmResource};
+
 pub mod command_modifier;
 pub mod jailer;
 
 /// Arguments that can be passed to the main VMM/"firecracker" binary.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VmmArguments {
     // main
     pub(crate) api_socket: VmmApiSocket,
     // logging
     log_level: Option<VmmLogLevel>,
-    pub(crate) log_path: Option<PathBuf>,
+    pub(crate) logs: Option<CreatedVmmResource>,
     show_log_origin: bool,
     log_module: Option<String>,
     show_log_level: bool,
     // misc
     enable_boot_timer: bool,
     api_max_payload_bytes: Option<u32>,
-    metadata_path: Option<PathBuf>,
-    pub(crate) metrics_path: Option<PathBuf>,
+    metadata: Option<MovedVmmResource>,
+    pub(crate) metrics: Option<CreatedVmmResource>,
     mmds_size_limit: Option<u32>,
     disable_seccomp: bool,
     seccomp_path: Option<PathBuf>,
@@ -29,14 +31,14 @@ impl VmmArguments {
         Self {
             api_socket,
             log_level: None,
-            log_path: None,
+            logs: None,
             show_log_origin: false,
             log_module: None,
             show_log_level: false,
             enable_boot_timer: false,
             api_max_payload_bytes: None,
-            metadata_path: None,
-            metrics_path: None,
+            metadata: None,
+            metrics: None,
             mmds_size_limit: None,
             disable_seccomp: false,
             seccomp_path: None,
@@ -48,8 +50,8 @@ impl VmmArguments {
         self
     }
 
-    pub fn log_path(mut self, log_path: impl Into<PathBuf>) -> Self {
-        self.log_path = Some(log_path.into());
+    pub fn logs(mut self, logs: CreatedVmmResource) -> Self {
+        self.logs = Some(logs);
         self
     }
 
@@ -78,13 +80,13 @@ impl VmmArguments {
         self
     }
 
-    pub fn metadata_path(mut self, metadata_path: impl Into<PathBuf>) -> Self {
-        self.metadata_path = Some(metadata_path.into());
+    pub fn metadata(mut self, metadata: MovedVmmResource) -> Self {
+        self.metadata = Some(metadata);
         self
     }
 
-    pub fn metrics_path(mut self, metrics_path: impl Into<PathBuf>) -> Self {
-        self.metrics_path = Some(metrics_path.into());
+    pub fn metrics(mut self, metrics: CreatedVmmResource) -> Self {
+        self.metrics = Some(metrics);
         self
     }
 
@@ -127,9 +129,9 @@ impl VmmArguments {
             args.push(log_level.to_string());
         }
 
-        if let Some(ref log_path) = self.log_path {
+        if let Some(ref log_path) = self.logs {
             args.push("--log-path".to_string());
-            args.push(log_path.to_string_lossy().into_owned());
+            args.push(log_path.local_path().to_string_lossy().into_owned());
         }
 
         if self.show_log_origin {
@@ -154,14 +156,14 @@ impl VmmArguments {
             args.push(max_payload.to_string());
         }
 
-        if let Some(ref metadata_path) = self.metadata_path {
+        if let Some(ref metadata) = self.metadata {
             args.push("--metadata".to_string());
-            args.push(metadata_path.to_string_lossy().into_owned());
+            args.push(metadata.local_path().to_string_lossy().into_owned());
         }
 
-        if let Some(ref metrics_path) = self.metrics_path {
+        if let Some(ref metrics_path) = self.metrics {
             args.push("--metrics-path".to_string());
-            args.push(metrics_path.to_string_lossy().into_owned());
+            args.push(metrics_path.local_path().to_string_lossy().into_owned());
         }
 
         if let Some(ref limit) = self.mmds_size_limit {
@@ -218,7 +220,16 @@ impl std::fmt::Display for VmmLogLevel {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{path::PathBuf, sync::Arc};
+
+    use crate::{
+        process_spawner::DirectProcessSpawner,
+        runtime::tokio::TokioRuntime,
+        vmm::{
+            ownership::VmmOwnershipModel,
+            resource::{CreatedVmmResource, CreatedVmmResourceType, MovedVmmResource, VmmResourceMoveMethod},
+        },
+    };
 
     use super::{VmmApiSocket, VmmArguments, VmmLogLevel};
 
@@ -244,7 +255,10 @@ mod tests {
     #[test]
     fn log_path_can_be_set() {
         check_without_config(
-            new().log_path("/tmp/some_logs.txt"),
+            new().logs(CreatedVmmResource::new(
+                "/tmp/some_logs.txt",
+                CreatedVmmResourceType::File,
+            )),
             ["--log-path", "/tmp/some_logs.txt"],
         );
     }
@@ -279,16 +293,19 @@ mod tests {
 
     #[test]
     fn metadata_path_can_be_set() {
-        check_without_config(
-            new().metadata_path("/tmp/metadata.txt"),
-            ["--metadata", "/tmp/metadata.txt"],
-        );
+        let mut resource = MovedVmmResource::new("/tmp/metadata.txt", VmmResourceMoveMethod::Rename);
+        let _ = resource
+            .initialize_with_same_path::<TokioRuntime>(VmmOwnershipModel::Shared, Arc::new(DirectProcessSpawner));
+        check_without_config(new().metadata(resource), ["--metadata", "/tmp/metadata.txt"]);
     }
 
     #[test]
     fn metrics_path_can_be_set() {
         check_without_config(
-            new().metrics_path("/tmp/metrics.txt"),
+            new().metrics(CreatedVmmResource::new(
+                "/tmp/metrics.txt",
+                CreatedVmmResourceType::File,
+            )),
             ["--metrics-path", "/tmp/metrics.txt"],
         );
     }

@@ -6,9 +6,8 @@ use fctools::{
     vm::{
         api::VmApi,
         configuration::InitMethod,
-        models::{CreateSnapshot, LoggerSystem, MetricsSystem},
         shutdown::{VmShutdownAction, VmShutdownMethod},
-        snapshot::SnapshotData,
+        snapshot::VmSnapshot,
         VmState,
     },
     vmm::{
@@ -19,13 +18,14 @@ use fctools::{
             unrestricted::UnrestrictedVmmExecutor,
         },
         ownership::VmmOwnershipModel,
+        resource::{CreatedVmmResourceType, VmmResourceMoveMethod},
     },
 };
 use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};
 use nix::unistd::{getegid, geteuid};
 use rand::RngCore;
 use test_framework::{
-    get_real_firecracker_installation, get_tmp_fifo_path, get_tmp_path, shutdown_test_vm, TestOptions, TestVm,
+    get_create_snapshot, get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, TestOptions, TestVm,
     VmBuilder,
 };
 use tokio::fs::{metadata, try_exists};
@@ -87,25 +87,36 @@ fn vm_shutdown_test(method: VmShutdownMethod) {
 
 #[test]
 fn vm_processes_logger_path_as_fifo() {
-    VmBuilder::new()
-        .logger_system(LoggerSystem::new().log_path(get_tmp_fifo_path()))
-        .run(|mut vm| async move {
-            let log_path = vm.get_accessible_paths().log_path.clone().unwrap();
-            assert!(metadata(&log_path).await.unwrap().file_type().is_fifo());
-            shutdown_test_vm(&mut vm).await;
-            assert!(!try_exists(log_path).await.unwrap());
-        });
+    vm_logger_test(CreatedVmmResourceType::Fifo);
 }
 
 #[test]
 fn vm_processes_logger_path_as_plaintext() {
+    vm_logger_test(CreatedVmmResourceType::File);
+}
+
+fn vm_logger_test(resource_type: CreatedVmmResourceType) {
     VmBuilder::new()
-        .logger_system(LoggerSystem::new().log_path(get_tmp_path()))
-        .run(|mut vm| async move {
-            let log_path = vm.get_accessible_paths().log_path.clone().unwrap();
-            let file_type = metadata(&log_path).await.unwrap().file_type();
-            assert!(file_type.is_file());
-            assert!(!file_type.is_fifo());
+        .logger_system(resource_type)
+        .run(move |mut vm| async move {
+            let log_path = vm
+                .configuration()
+                .data()
+                .logger_system
+                .as_ref()
+                .unwrap()
+                .logs
+                .as_ref()
+                .unwrap()
+                .effective_path()
+                .to_owned();
+
+            let metadata = metadata(&log_path).await.unwrap();
+            if resource_type == CreatedVmmResourceType::Fifo {
+                assert!(metadata.file_type().is_fifo());
+            } else {
+                assert!(metadata.is_file() && !metadata.file_type().is_fifo());
+            }
 
             shutdown_test_vm(&mut vm).await;
             assert!(!try_exists(log_path).await.unwrap());
@@ -113,44 +124,64 @@ fn vm_processes_logger_path_as_plaintext() {
 }
 
 #[test]
-fn vm_processes_metrics_path() {
+fn vm_processes_metrics_path_as_plaintext() {
+    vm_metrics_test(CreatedVmmResourceType::File);
+}
+
+#[test]
+fn vm_processes_metrics_path_as_fifo() {
+    vm_metrics_test(CreatedVmmResourceType::Fifo);
+}
+
+fn vm_metrics_test(resource_type: CreatedVmmResourceType) {
     VmBuilder::new()
-        .metrics_system(MetricsSystem::new(get_tmp_path()))
-        .run(|mut vm| async move {
-            let metrics_path = vm.get_accessible_paths().metrics_path.clone().unwrap();
-            assert!(metadata(&metrics_path).await.unwrap().is_file());
+        .metrics_system(resource_type)
+        .run(move |mut vm| async move {
+            let metrics_path = vm
+                .configuration()
+                .data()
+                .metrics_system
+                .as_ref()
+                .unwrap()
+                .metrics
+                .effective_path()
+                .to_owned();
+
+            assert_eq!(
+                metadata(&metrics_path).await.unwrap().file_type().is_fifo(),
+                resource_type == CreatedVmmResourceType::Fifo
+            );
             shutdown_test_vm(&mut vm).await;
             assert!(!try_exists(metrics_path).await.unwrap());
-        })
+        });
 }
 
 #[test]
-fn vm_processes_vsock_multiplexer_path() {
+fn vm_processes_vsock() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
-        let vsock_multiplexer_path = vm.get_accessible_paths().vsock_multiplexer_path.clone().unwrap();
-        assert!(metadata(&vsock_multiplexer_path).await.unwrap().file_type().is_socket());
+        let uds_path = vm
+            .configuration()
+            .data()
+            .vsock_device
+            .as_ref()
+            .unwrap()
+            .uds
+            .effective_path()
+            .to_owned();
+        assert!(metadata(&uds_path).await.unwrap().file_type().is_socket());
         shutdown_test_vm(&mut vm).await;
-        assert!(!try_exists(vsock_multiplexer_path).await.unwrap());
+        assert!(!try_exists(uds_path).await.unwrap());
     });
 }
 
 #[test]
-fn vm_processes_vsock_listener_paths() {
+fn vm_translates_local_to_effective_paths() {
     VmBuilder::new().run(|mut vm| async move {
-        assert!(vm.get_accessible_paths().vsock_listener_paths.is_empty());
-        let expected_path = get_tmp_path();
-        vm.register_vsock_listener_path(&expected_path);
-        assert!(vm.get_accessible_paths().vsock_listener_paths.contains(&expected_path));
-        shutdown_test_vm(&mut vm).await;
-    });
-}
-
-#[test]
-fn vm_translates_inner_to_outer_paths() {
-    VmBuilder::new().run(|mut vm| async move {
-        let inner_path = get_tmp_path();
-        let outer_path = vm.get_accessible_path_from_inner(&inner_path);
-        assert!(inner_path == outer_path || outer_path.to_str().unwrap().ends_with(inner_path.to_str().unwrap()));
+        let local_path = get_tmp_path();
+        let effective_path = vm.local_to_effective_path(&local_path);
+        assert!(
+            local_path == effective_path || effective_path.to_str().unwrap().ends_with(local_path.to_str().unwrap())
+        );
         shutdown_test_vm(&mut vm).await;
     });
 }
@@ -206,18 +237,11 @@ fn vm_tracks_state_with_crash() {
 fn vm_can_snapshot_while_original_is_running() {
     VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
         vm.api_pause().await.unwrap();
-        let snapshot = vm
-            .api_create_snapshot(CreateSnapshot::new(get_tmp_path(), get_tmp_path()))
-            .await
-            .unwrap();
-
+        let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
         restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
-
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm).await;
-
-        assert!(!tokio::fs::try_exists(snapshot.snapshot_path).await.unwrap());
-        assert!(!tokio::fs::try_exists(snapshot.mem_file_path).await.unwrap());
+        snapshot.remove::<TokioRuntime>().await;
     });
 }
 
@@ -225,10 +249,7 @@ fn vm_can_snapshot_while_original_is_running() {
 fn vm_can_snapshot_after_original_has_exited() {
     VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
         vm.api_pause().await.unwrap();
-        let mut snapshot = vm
-            .api_create_snapshot(CreateSnapshot::new(get_tmp_path(), get_tmp_path()))
-            .await
-            .unwrap();
+        let mut snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
         snapshot
             .copy::<TokioRuntime>(get_tmp_path(), get_tmp_path())
             .await
@@ -237,18 +258,22 @@ fn vm_can_snapshot_after_original_has_exited() {
         shutdown_test_vm(&mut vm).await;
 
         restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
-        snapshot.remove::<TokioRuntime>().await.unwrap();
+        snapshot.remove::<TokioRuntime>().await;
     });
 }
 
 #[test]
 fn vm_can_boot_with_simple_networking() {
-    VmBuilder::new().simple_networking().run(verify_networking);
+    VmBuilder::new().simple_networking().run(|mut vm| async move {
+        shutdown_test_vm(&mut vm).await;
+    });
 }
 
 #[test]
 fn vm_can_boot_with_namespaced_networking() {
-    VmBuilder::new().namespaced_networking().run(verify_networking);
+    VmBuilder::new().namespaced_networking().run(|mut vm| async move {
+        shutdown_test_vm(&mut vm).await;
+    });
 }
 
 #[test]
@@ -258,13 +283,7 @@ fn vm_can_boot_with_vsock_device() {
     });
 }
 
-async fn verify_networking(mut vm: TestVm) {
-    let configuration = vm.api_get_effective_configuration().await.unwrap();
-    assert_eq!(configuration.network_interfaces.len(), 1);
-    shutdown_test_vm(&mut vm).await;
-}
-
-async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
+async fn restore_vm_from_snapshot(snapshot: VmSnapshot, is_jailed: bool) {
     let executor = match is_jailed {
         true => EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
@@ -284,7 +303,7 @@ async fn restore_vm_from_snapshot(snapshot: SnapshotData, is_jailed: bool) {
         },
         DirectProcessSpawner,
         get_real_firecracker_installation(),
-        snapshot.into_configuration(Some(true), None),
+        snapshot.into_configuration(VmmResourceMoveMethod::Copy, Some(true), Some(true)),
     )
     .await
     .unwrap();

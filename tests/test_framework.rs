@@ -15,8 +15,8 @@ use fctools::{
     vm::{
         configuration::{InitMethod, VmConfiguration, VmConfigurationData},
         models::{
-            BalloonDevice, BootSource, Drive, LoggerSystem, MachineConfiguration, MetricsSystem, MmdsConfiguration,
-            MmdsVersion, NetworkInterface, VsockDevice,
+            BalloonDevice, BootSource, CreateSnapshot, Drive, LoggerSystem, MachineConfiguration, MetricsSystem,
+            MmdsConfiguration, MmdsVersion, NetworkInterface, SnapshotType, VsockDevice,
         },
         shutdown::{VmShutdownAction, VmShutdownMethod},
     },
@@ -34,6 +34,10 @@ use fctools::{
         installation::VmmInstallation,
         ownership::VmmOwnershipModel,
         process::VmmProcessState,
+        resource::{
+            CreatedVmmResource, CreatedVmmResourceType, MovedVmmResource, ProducedVmmResource, VmmResourceMoveMethod,
+            VmmResourceReferences,
+        },
     },
 };
 use rand::{Rng, RngCore};
@@ -116,15 +120,19 @@ pub fn get_tmp_path() -> PathBuf {
 }
 
 #[allow(unused)]
-pub fn get_tmp_fifo_path() -> PathBuf {
-    PathBuf::from(format!("/tmp/{}.fifo", Uuid::new_v4()))
-}
-
-#[allow(unused)]
 pub fn jail_join(path1: impl AsRef<Path>, path2: impl Into<PathBuf>) -> PathBuf {
     path1
         .as_ref()
         .join(path2.into().to_string_lossy().trim_start_matches("/"))
+}
+
+#[allow(unused)]
+pub fn get_create_snapshot() -> CreateSnapshot {
+    CreateSnapshot {
+        snapshot_type: Some(SnapshotType::Full),
+        snapshot: ProducedVmmResource::new(get_tmp_path()),
+        mem_file: ProducedVmmResource::new(get_tmp_path()),
+    }
 }
 
 #[allow(unused)]
@@ -153,38 +161,70 @@ pub type TestVmmProcess =
     fctools::vmm::process::VmmProcess<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime>;
 
 #[allow(unused)]
+pub fn get_resource_references_for_vec(resources: &mut Vec<MovedVmmResource>) -> VmmResourceReferences<'_> {
+    VmmResourceReferences {
+        moved_resources: resources.iter_mut().collect(),
+        created_resources: Vec::new(),
+        produced_resources: Vec::new(),
+    }
+}
+
+#[allow(unused)]
 pub async fn run_vmm_process_test<F, Fut>(no_new_pid_ns: bool, closure: F)
 where
-    F: Fn(TestVmmProcess) -> Fut,
+    F: Fn(TestVmmProcess, Vec<MovedVmmResource>) -> Fut,
     F: 'static,
     Fut: Future<Output = ()>,
 {
-    async fn init_process(process: &mut TestVmmProcess, config_path: impl Into<PathBuf>) {
+    async fn init_process(
+        process: &mut TestVmmProcess,
+        config_path: impl Into<PathBuf>,
+        resources: &mut Vec<MovedVmmResource>,
+    ) {
         process.wait_for_exit().await.unwrap_err();
         process.send_ctrl_alt_del().await.unwrap_err();
         process.send_sigkill().unwrap_err();
         process.take_pipes().unwrap_err();
-        process.cleanup().await.unwrap_err();
+        process
+            .cleanup(get_resource_references_for_vec(resources))
+            .await
+            .unwrap_err();
 
         assert_eq!(process.state(), VmmProcessState::AwaitingPrepare);
-        process.prepare().await.unwrap();
+        process
+            .prepare(get_resource_references_for_vec(resources))
+            .await
+            .unwrap();
         assert_eq!(process.state(), VmmProcessState::AwaitingStart);
         process.invoke(Some(config_path.into())).await.unwrap();
         assert_eq!(process.state(), VmmProcessState::Started);
     }
 
-    let (mut unrestricted_process, mut jailed_process) = get_vmm_processes(no_new_pid_ns).await;
+    let (mut unrestricted_process, mut unrestricted_resources, mut jailed_process, mut jailed_resources) =
+        get_vmm_processes(no_new_pid_ns).await;
 
-    init_process(&mut jailed_process, "/jailed.json").await;
-    init_process(&mut unrestricted_process, get_test_path("configs/unrestricted.json")).await;
+    init_process(&mut jailed_process, "/jailed.json", &mut jailed_resources).await;
+    init_process(
+        &mut unrestricted_process,
+        get_test_path("configs/unrestricted.json"),
+        &mut unrestricted_resources,
+    )
+    .await;
     tokio::time::sleep(Duration::from_millis(TestOptions::get().await.waits.boot_wait_ms)).await;
-    closure(unrestricted_process).await;
+    closure(unrestricted_process, unrestricted_resources).await;
     println!("Succeeded with unrestricted VM");
-    closure(jailed_process).await;
+    closure(jailed_process, jailed_resources).await;
     println!("Succeeded with jailed VM");
 }
 
-async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProcess) {
+async fn get_vmm_processes(
+    no_new_pid_ns: bool,
+) -> (
+    TestVmmProcess,
+    Vec<MovedVmmResource>,
+    TestVmmProcess,
+    Vec<MovedVmmResource>,
+) {
     let socket_path = get_tmp_path();
 
     let vmm_arguments = VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()));
@@ -203,25 +243,41 @@ async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProce
         gid: TestOptions::get().await.jailer_gid.into(),
     };
 
+    let mut jailed_resources = Vec::new();
+    jailed_resources.push(MovedVmmResource::new(
+        get_test_path("assets/kernel"),
+        VmmResourceMoveMethod::Copy,
+    ));
+    jailed_resources.push(MovedVmmResource::new(
+        get_test_path("assets/rootfs.ext4"),
+        VmmResourceMoveMethod::Copy,
+    ));
+
+    let mut unrestricted_resources = jailed_resources.clone();
+    unrestricted_resources.push(MovedVmmResource::new(
+        get_test_path("configs/unrestricted.json"),
+        VmmResourceMoveMethod::Copy,
+    ));
+    jailed_resources.push(MovedVmmResource::new(
+        get_test_path("configs/jailed.json"),
+        VmmResourceMoveMethod::Copy,
+    ));
+
     (
         TestVmmProcess::new(
             EitherVmmExecutor::Unrestricted(unrestricted_executor),
             ownership_model,
             DirectProcessSpawner,
             get_real_firecracker_installation(),
-            vec![],
         ),
+        unrestricted_resources,
         TestVmmProcess::new(
             EitherVmmExecutor::Jailed(jailed_executor),
             ownership_model,
             DirectProcessSpawner,
             get_real_firecracker_installation(),
-            vec![
-                get_test_path("assets/kernel"),
-                get_test_path("assets/rootfs.ext4"),
-                get_test_path("configs/jailed.json"),
-            ],
         ),
+        jailed_resources,
     )
 }
 
@@ -277,18 +333,29 @@ impl VmBuilder {
         self
     }
 
-    pub fn logger_system(mut self, logger_system: LoggerSystem) -> Self {
-        self.logger_system = Some(logger_system);
+    pub fn logger_system(mut self, r#type: CreatedVmmResourceType) -> Self {
+        self.logger_system = Some(LoggerSystem {
+            logs: Some(CreatedVmmResource::new(get_tmp_path(), r#type)),
+            level: None,
+            show_level: None,
+            show_log_origin: None,
+            module: None,
+        });
         self
     }
 
-    pub fn metrics_system(mut self, metrics_system: MetricsSystem) -> Self {
-        self.metrics_system = Some(metrics_system);
+    pub fn metrics_system(mut self, r#type: CreatedVmmResourceType) -> Self {
+        self.metrics_system = Some(MetricsSystem {
+            metrics: CreatedVmmResource::new(get_tmp_path(), r#type),
+        });
         self
     }
 
     pub fn vsock_device(mut self) -> Self {
-        self.vsock_device = Some(VsockDevice::new(rand::thread_rng().next_u32(), get_tmp_path()));
+        self.vsock_device = Some(VsockDevice {
+            guest_cid: rand::thread_rng().next_u32(),
+            uds: ProducedVmmResource::new(get_tmp_path()),
+        });
         self
     }
 
@@ -300,8 +367,12 @@ impl VmBuilder {
         self
     }
 
-    pub fn balloon_device(mut self, balloon_device: BalloonDevice) -> Self {
-        self.balloon_device = Some(balloon_device);
+    pub fn balloon_device(mut self, polling_interval_s: Option<i32>) -> Self {
+        self.balloon_device = Some(BalloonDevice {
+            amount_mib: 64,
+            deflate_on_oom: false,
+            stats_polling_interval_s: polling_interval_s,
+        });
         self
     }
 
@@ -346,7 +417,13 @@ impl VmBuilder {
         let boot_arg_append = format!(" {}", network.guest_ip_boot_arg("eth0"));
 
         NetworkData {
-            network_interface: NetworkInterface::new("eth0", tap_name),
+            network_interface: NetworkInterface {
+                iface_id: "eth0".to_string(),
+                host_dev_name: tap_name,
+                guest_mac: None,
+                rx_rate_limiter: None,
+                tx_rate_limiter: None,
+            },
             network,
             netns_name: None,
             boot_arg_append,
@@ -382,7 +459,13 @@ impl VmBuilder {
         boot_arg_append.push_str(network.guest_ip_boot_arg("eth0").as_str());
 
         NetworkData {
-            network_interface: NetworkInterface::new("eth0", tap_name),
+            network_interface: NetworkInterface {
+                iface_id: "eth0".to_string(),
+                host_dev_name: tap_name,
+                guest_mac: None,
+                rx_rate_limiter: None,
+                tx_rate_limiter: None,
+            },
             network,
             netns_name: Some(netns_name),
             boot_arg_append,
@@ -412,31 +495,58 @@ impl VmBuilder {
             arg
         }
 
+        fn new_configuration_data(boot_args: String, drive_read_only: bool) -> VmConfigurationData {
+            VmConfigurationData {
+                boot_source: BootSource {
+                    kernel_image: MovedVmmResource::new(get_test_path("assets/kernel"), VmmResourceMoveMethod::Copy),
+                    boot_args: Some(boot_args),
+                    initrd: None,
+                },
+                drives: vec![Drive {
+                    drive_id: "rootfs".to_string(),
+                    is_root_device: true,
+                    cache_type: None,
+                    partuuid: None,
+                    is_read_only: Some(drive_read_only),
+                    block: Some(MovedVmmResource::new(
+                        get_test_path("assets/rootfs.ext4"),
+                        VmmResourceMoveMethod::Copy,
+                    )),
+                    rate_limiter: None,
+                    io_engine: None,
+                    socket: None,
+                }],
+                machine_configuration: MachineConfiguration {
+                    vcpu_count: 1,
+                    mem_size_mib: 128,
+                    smt: None,
+                    track_dirty_pages: Some(true),
+                    huge_pages: None,
+                },
+                cpu_template: None,
+                network_interfaces: Vec::new(),
+                balloon_device: None,
+                vsock_device: None,
+                logger_system: None,
+                metrics_system: None,
+                mmds_configuration: None,
+                entropy_device: None,
+            }
+        }
+
         let socket_path = get_tmp_path();
 
-        let mut unrestricted_data = VmConfigurationData::new(
-            BootSource::new(get_test_path("assets/kernel"))
-                .boot_args(get_boot_arg(self.unrestricted_network_data.as_ref())),
-            MachineConfiguration::new(1, 128).track_dirty_pages(true),
-        )
-        .drive(
-            Drive::new("rootfs", true)
-                .path_on_host(get_test_path("assets/rootfs.ext4"))
-                .is_read_only(true),
-        );
+        let mut unrestricted_data = new_configuration_data(get_boot_arg(self.unrestricted_network_data.as_ref()), true);
         let mut unrestricted_executor =
             UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())));
+
         if let Some(ref network) = self.unrestricted_network_data {
             if let Some(ref netns_name) = network.netns_name {
                 unrestricted_executor = unrestricted_executor.command_modifier(NetnsCommandModifier::new(netns_name));
             }
         }
 
-        let mut jailed_data = VmConfigurationData::new(
-            BootSource::new(get_test_path("assets/kernel")).boot_args(get_boot_arg(self.jailed_network_data.as_ref())),
-            MachineConfiguration::new(1, 128).track_dirty_pages(true),
-        )
-        .drive(Drive::new("rootfs", true).path_on_host(get_test_path("assets/rootfs.ext4")));
+        let mut jailed_data = new_configuration_data(get_boot_arg(self.jailed_network_data.as_ref()), false);
 
         let test_options = TestOptions::get_blocking();
         let mut jailer_arguments = JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap())
@@ -459,38 +569,46 @@ impl VmBuilder {
         ));
 
         // add components from builder to data
-        if let Some(logger) = self.logger_system {
-            unrestricted_data = unrestricted_data.logger_system(logger.clone());
-            jailed_data = jailed_data.logger_system(logger);
+        if let Some(logger_system) = self.logger_system {
+            unrestricted_data.logger_system = Some(logger_system.clone());
+            jailed_data.logger_system = Some(logger_system);
         }
 
         if let Some(metrics_system) = self.metrics_system {
-            unrestricted_data = unrestricted_data.metrics_system(metrics_system.clone());
-            jailed_data = jailed_data.metrics_system(metrics_system);
+            unrestricted_data.metrics_system = Some(metrics_system.clone());
+            jailed_data.metrics_system = Some(metrics_system);
         }
 
-        if let Some(vsock) = self.vsock_device {
-            unrestricted_data = unrestricted_data.vsock_device(vsock.clone());
-            jailed_data = jailed_data.vsock_device(vsock);
+        if let Some(vsock_device) = self.vsock_device {
+            unrestricted_data.vsock_device = Some(vsock_device.clone());
+            jailed_data.vsock_device = Some(vsock_device);
         }
 
-        if let Some(balloon) = self.balloon_device {
-            unrestricted_data = unrestricted_data.balloon_device(balloon.clone());
-            jailed_data = jailed_data.balloon_device(balloon);
+        if let Some(balloon_device) = self.balloon_device {
+            unrestricted_data.balloon_device = Some(balloon_device.clone());
+            jailed_data.balloon_device = Some(balloon_device);
         }
 
-        if let Some(ref network) = self.unrestricted_network_data {
-            unrestricted_data = unrestricted_data.network_interface(network.network_interface.clone());
+        if let Some(ref network_data) = self.unrestricted_network_data {
+            unrestricted_data
+                .network_interfaces
+                .push(network_data.network_interface.clone());
         }
 
-        if let Some(ref network) = self.jailed_network_data {
-            jailed_data = jailed_data.network_interface(network.network_interface.clone());
+        if let Some(ref network_data) = self.jailed_network_data {
+            jailed_data
+                .network_interfaces
+                .push(network_data.network_interface.clone());
         }
 
         if self.mmds {
-            let mmds_config = MmdsConfiguration::new(MmdsVersion::V2, vec!["eth0".to_string()]);
-            unrestricted_data = unrestricted_data.mmds_configuration(mmds_config.clone());
-            jailed_data = jailed_data.mmds_configuration(mmds_config);
+            let mmds_config = MmdsConfiguration {
+                version: MmdsVersion::V2,
+                network_interfaces: vec!["eth0".to_string()],
+                ipv4_address: None,
+            };
+            unrestricted_data.mmds_configuration = Some(mmds_config.clone());
+            jailed_data.mmds_configuration = Some(mmds_config);
         }
 
         let (pre_start_hook1, pre_start_hook2) = self.pre_start_hook.unzip();
@@ -591,7 +709,7 @@ pub async fn shutdown_test_vm(vm: &mut TestVm) {
         .shutdown([
             VmShutdownAction {
                 method: VmShutdownMethod::CtrlAltDel,
-                timeout: Some(timeout / 2),
+                timeout: Some(timeout),
                 graceful: true,
             },
             VmShutdownAction {

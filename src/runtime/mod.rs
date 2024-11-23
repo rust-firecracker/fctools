@@ -149,25 +149,23 @@ pub trait RuntimeProcess: Sized + Send + Sync + std::fmt::Debug {
 /// A utility join set of multiple [RuntimeTask]s that run concurrently and can be waited on to all complete.
 #[derive(Default)]
 pub struct RuntimeJoinSet<O: Send + 'static, E: RuntimeExecutor> {
-    join_handles: Vec<E::Task<Result<(), O>>>,
+    tasks: Vec<E::Task<Result<(), O>>>,
 }
 
 impl<O: Send + 'static, E: RuntimeExecutor> RuntimeJoinSet<O, E> {
     pub fn new() -> Self {
-        Self {
-            join_handles: Vec::new(),
-        }
+        Self { tasks: Vec::new() }
     }
 
     pub fn spawn<F>(&mut self, future: F)
     where
         F: Future<Output = Result<(), O>> + Send + 'static,
     {
-        self.join_handles.push(E::spawn(future));
+        self.tasks.push(E::spawn(future));
     }
 
     pub async fn wait(self) -> Option<Result<(), O>> {
-        for join_handle in self.join_handles {
+        for join_handle in self.tasks {
             match join_handle.join().await {
                 Some(result) => match result {
                     Ok(()) => {}
