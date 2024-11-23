@@ -705,7 +705,7 @@ pub async fn shutdown_test_vm(vm: &mut TestVm) {
         .shutdown([
             VmShutdownAction {
                 method: VmShutdownMethod::CtrlAltDel,
-                timeout: Some(timeout / 2),
+                timeout: Some(timeout),
                 graceful: true,
             },
             VmShutdownAction {

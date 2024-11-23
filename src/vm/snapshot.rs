@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
-use crate::{runtime::Runtime, vmm::resource::ProducedVmmResource};
+use crate::{
+    runtime::Runtime,
+    vmm::resource::{MovedVmmResource, ProducedVmmResource, VmmResourceMoveMethod},
+};
 
 use super::{
     configuration::{VmConfiguration, VmConfigurationData},
@@ -34,14 +37,22 @@ impl VmSnapshot {
             .map_err(|errs| errs.0)
     }
 
-    pub fn into_configuration(self, enable_diff_snapshots: Option<bool>, resume_vm: Option<bool>) -> VmConfiguration {
+    pub fn into_configuration(
+        self,
+        move_method: VmmResourceMoveMethod,
+        enable_diff_snapshots: Option<bool>,
+        resume_vm: Option<bool>,
+    ) -> VmConfiguration {
+        let mem_file = MovedVmmResource::new(self.mem_file.effective_path(), move_method);
+        let snapshot = MovedVmmResource::new(self.snapshot.effective_path(), move_method);
+
         let load_snapshot = LoadSnapshot {
             enable_diff_snapshots,
             mem_backend: MemoryBackend {
                 backend_type: MemoryBackendType::File,
-                backend_path: self.mem_file.effective_path().to_owned(),
+                backend: mem_file,
             },
-            snapshot_path: self.snapshot.effective_path().to_owned(),
+            snapshot,
             resume_vm,
         };
 

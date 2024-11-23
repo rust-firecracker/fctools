@@ -205,6 +205,14 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             );
         }
 
+        for produced_resource in resource_references.produced_resources {
+            join_set.spawn(
+                produced_resource
+                    .dispose::<R>(ownership_model, process_spawner.clone())
+                    .map_err(VmmExecutorError::ResourceError),
+            );
+        }
+
         join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))
     }
 }

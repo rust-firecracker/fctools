@@ -60,6 +60,7 @@ pub struct CreatedVmmResource {
     effective_path: Option<PathBuf>,
     local_path: PathBuf,
     r#type: CreatedVmmResourceType,
+    linked: bool,
 }
 
 impl CreatedVmmResource {
@@ -68,7 +69,12 @@ impl CreatedVmmResource {
             effective_path: None,
             local_path: path.into(),
             r#type,
+            linked: true,
         }
+    }
+
+    pub fn unlink(&mut self) {
+        self.linked = false;
     }
 
     pub fn apply<R: Runtime>(
@@ -122,20 +128,12 @@ impl CreatedVmmResource {
         ownership_model: VmmOwnershipModel,
         process_spawner: Arc<impl ProcessSpawner>,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
-        let effective_path = self
-            .effective_path
-            .clone()
-            .expect("effective_path is None when calling dispose");
-
-        async move {
-            upgrade_owner::<R>(&effective_path, ownership_model, process_spawner.as_ref())
-                .await
-                .map_err(VmmResourceError::ChangeOwnerError)?;
-
-            R::Filesystem::remove_file(&effective_path)
-                .await
-                .map_err(VmmResourceError::FilesystemError)
-        }
+        dispose_future::<R>(
+            self.effective_path().to_owned(),
+            self.linked,
+            ownership_model,
+            process_spawner,
+        )
     }
 
     pub fn local_path(&self) -> &Path {
@@ -337,6 +335,7 @@ pub enum VmmResourceMoveMethod {
 pub struct ProducedVmmResource {
     local_path: PathBuf,
     effective_path: Option<PathBuf>,
+    linked: bool,
 }
 
 impl ProducedVmmResource {
@@ -344,7 +343,12 @@ impl ProducedVmmResource {
         Self {
             local_path: path.into(),
             effective_path: None,
+            linked: true,
         }
+    }
+
+    pub fn unlink(&mut self) {
+        self.linked = false;
     }
 
     pub fn apply(&mut self, effective_path: PathBuf) {
@@ -353,6 +357,19 @@ impl ProducedVmmResource {
 
     pub fn apply_with_same_path(&mut self) {
         self.effective_path = Some(self.local_path.clone());
+    }
+
+    pub fn dispose<R: Runtime>(
+        &self,
+        ownership_model: VmmOwnershipModel,
+        process_spawner: Arc<impl ProcessSpawner>,
+    ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
+        dispose_future::<R>(
+            self.effective_path().to_owned(),
+            self.linked,
+            ownership_model,
+            process_spawner,
+        )
     }
 
     pub async fn copy<R: Runtime>(&mut self, new_effective_path: impl Into<PathBuf>) -> Result<(), std::io::Error> {
@@ -394,4 +411,23 @@ impl serde::Serialize for ProducedVmmResource {
     {
         self.local_path.serialize(serializer)
     }
+}
+
+async fn dispose_future<R: Runtime>(
+    path: PathBuf,
+    linked: bool,
+    ownership_model: VmmOwnershipModel,
+    process_spawner: Arc<impl ProcessSpawner>,
+) -> Result<(), VmmResourceError> {
+    if linked {
+        upgrade_owner::<R>(&path, ownership_model, process_spawner.as_ref())
+            .await
+            .map_err(VmmResourceError::ChangeOwnerError)?;
+
+        R::Filesystem::remove_file(&path)
+            .await
+            .map_err(VmmResourceError::FilesystemError)?;
+    }
+
+    Ok(())
 }

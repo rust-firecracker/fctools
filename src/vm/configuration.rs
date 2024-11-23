@@ -54,6 +54,52 @@ impl VmConfiguration {
             } => data,
         }
     }
+
+    pub fn resource_references(&mut self) -> VmmResourceReferences<'_> {
+        let mut references = VmmResourceReferences::new();
+
+        let data = match self {
+            VmConfiguration::RestoredFromSnapshot { load_snapshot, data } => {
+                references.moved_resources.push(&mut load_snapshot.snapshot);
+                references.moved_resources.push(&mut load_snapshot.mem_backend.backend);
+
+                data
+            }
+            VmConfiguration::New { init_method: _, data } => data,
+        };
+
+        references.moved_resources.push(&mut data.boot_source.kernel_image);
+
+        if let Some(ref mut initrd) = data.boot_source.initrd {
+            references.moved_resources.push(initrd);
+        }
+
+        for drive in &mut data.drives {
+            if let Some(ref mut block) = drive.block {
+                references.moved_resources.push(block);
+            }
+
+            if let Some(ref mut socket) = drive.socket {
+                references.moved_resources.push(socket);
+            }
+        }
+
+        if let Some(ref mut vsock_device) = data.vsock_device {
+            references.produced_resources.push(&mut vsock_device.uds);
+        }
+
+        if let Some(ref mut logger_system) = data.logger_system {
+            if let Some(ref mut logs) = logger_system.logs {
+                references.created_resources.push(logs);
+            }
+        }
+
+        if let Some(ref mut metrics_system) = data.metrics_system {
+            references.created_resources.push(&mut metrics_system.metrics);
+        }
+
+        references
+    }
 }
 
 /// The full data of various devices associated with a VM. Even when restoring from a snapshot, this information
@@ -76,44 +122,6 @@ pub struct VmConfigurationData {
     #[serde(rename = "mmds-config")]
     pub mmds_configuration: Option<MmdsConfiguration>,
     pub entropy_device: Option<EntropyDevice>,
-}
-
-impl VmConfigurationData {
-    pub fn resource_references(&mut self) -> VmmResourceReferences<'_> {
-        let mut references = VmmResourceReferences::new();
-
-        references.moved_resources.push(&mut self.boot_source.kernel_image);
-
-        if let Some(ref mut initrd) = self.boot_source.initrd {
-            references.moved_resources.push(initrd);
-        }
-
-        for drive in &mut self.drives {
-            if let Some(ref mut block) = drive.block {
-                references.moved_resources.push(block);
-            }
-
-            if let Some(ref mut socket) = drive.socket {
-                references.moved_resources.push(socket);
-            }
-        }
-
-        if let Some(ref mut vsock_device) = self.vsock_device {
-            references.produced_resources.push(&mut vsock_device.uds);
-        }
-
-        if let Some(ref mut logger_system) = self.logger_system {
-            if let Some(ref mut logs) = logger_system.logs {
-                references.created_resources.push(logs);
-            }
-        }
-
-        if let Some(ref mut metrics_system) = self.metrics_system {
-            references.created_resources.push(&mut metrics_system.metrics);
-        }
-
-        references
-    }
 }
 
 /// A method of initialization used when booting a new (not restored from snapshot) VM.

@@ -164,7 +164,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
 
         let mut vmm_process = VmmProcess::new(executor, ownership_model, process_spawner.clone(), installation);
         vmm_process
-            .prepare(configuration.data_mut().resource_references())
+            .prepare(configuration.resource_references())
             .await
             .map_err(VmError::ProcessError)?;
 
@@ -278,7 +278,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     pub async fn cleanup(&mut self) -> Result<(), VmError> {
         self.ensure_exited_or_crashed().map_err(VmError::StateCheckError)?;
         self.vmm_process
-            .cleanup(self.configuration.data_mut().resource_references())
+            .cleanup(self.configuration.resource_references())
             .await
             .map_err(VmError::ProcessError)
     }

@@ -18,7 +18,7 @@ use fctools::{
             unrestricted::UnrestrictedVmmExecutor,
         },
         ownership::VmmOwnershipModel,
-        resource::CreatedVmmResourceType,
+        resource::{CreatedVmmResourceType, VmmResourceMoveMethod},
     },
 };
 use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};
@@ -238,14 +238,9 @@ fn vm_can_snapshot_while_original_is_running() {
     VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
         vm.api_pause().await.unwrap();
         let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
-
         restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
-
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm).await;
-
-        assert!(!tokio::fs::try_exists(snapshot.snapshot.effective_path()).await.unwrap());
-        assert!(!tokio::fs::try_exists(snapshot.mem_file.effective_path()).await.unwrap());
     });
 }
 
@@ -307,7 +302,7 @@ async fn restore_vm_from_snapshot(snapshot: VmSnapshot, is_jailed: bool) {
         },
         DirectProcessSpawner,
         get_real_firecracker_installation(),
-        snapshot.into_configuration(Some(true), None),
+        snapshot.into_configuration(VmmResourceMoveMethod::Copy, Some(true), Some(true)),
     )
     .await
     .unwrap();

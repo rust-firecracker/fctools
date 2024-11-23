@@ -1,4 +1,4 @@
-use std::{net::Ipv4Addr, path::PathBuf};
+use std::net::Ipv4Addr;
 
 use serde::{Deserialize, Serialize};
 
@@ -233,7 +233,8 @@ pub struct LoadSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_diff_snapshots: Option<bool>,
     pub mem_backend: MemoryBackend,
-    pub snapshot_path: PathBuf,
+    #[serde(rename = "snapshot_path")]
+    pub snapshot: MovedVmmResource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume_vm: Option<bool>,
 }
@@ -241,7 +242,8 @@ pub struct LoadSnapshot {
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct MemoryBackend {
     pub backend_type: MemoryBackendType,
-    pub backend_path: PathBuf,
+    #[serde(rename = "backend_path")]
+    pub backend: MovedVmmResource,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
