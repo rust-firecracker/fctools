@@ -191,20 +191,20 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
                 exited: _,
             } => Err(ProcessHandlePipesError::ProcessIsDetached),
             ProcessHandleInner::Child {
-                process: ref mut child,
+                ref mut process,
                 pipes_dropped,
             } => {
                 if pipes_dropped {
                     return Err(ProcessHandlePipesError::PipesWereDropped);
                 }
 
-                let stdout = child
+                let stdout = process
                     .take_stdout()
                     .ok_or(ProcessHandlePipesError::PipesWereAlreadyTaken)?;
-                let stderr = child
+                let stderr = process
                     .take_stderr()
                     .ok_or(ProcessHandlePipesError::PipesWereAlreadyTaken)?;
-                let stdin = child
+                let stdin = process
                     .take_stdin()
                     .ok_or(ProcessHandlePipesError::PipesWereAlreadyTaken)?;
 
