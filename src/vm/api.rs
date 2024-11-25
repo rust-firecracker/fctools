@@ -14,6 +14,7 @@ use crate::{
         executor::VmmExecutor,
         ownership::ChangeOwnerError,
         process::{HyperResponseExt, VmmProcessError},
+        resource::VmmResourceError,
     },
 };
 
@@ -42,6 +43,7 @@ pub enum VmApiError {
     ResponseBodyContainsUnexpectedData(String),
     StateCheckError(VmStateCheckError),
     SnapshotChangeOwnerError(ChangeOwnerError),
+    ResourceError(VmmResourceError),
 }
 
 impl std::error::Error for VmApiError {}
@@ -75,6 +77,9 @@ impl std::fmt::Display for VmApiError {
             VmApiError::StateCheckError(err) => write!(f, "A state check of the VM failed: {err}"),
             VmApiError::SnapshotChangeOwnerError(err) => {
                 write!(f, "Changing the owner of a snapshot failed: {err}")
+            }
+            VmApiError::ResourceError(err) => {
+                write!(f, "An error occurred when initializing a produced VMM resource: {err}")
             }
         }
     }
@@ -275,8 +280,16 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         )
         .map_err(VmApiError::SnapshotChangeOwnerError)?;
 
-        create_snapshot.snapshot.initialize(snapshot_effective_path);
-        create_snapshot.mem_file.initialize(mem_file_effective_path);
+        create_snapshot
+            .snapshot
+            .initialize::<R>(snapshot_effective_path, self.ownership_model)
+            .await
+            .map_err(VmApiError::ResourceError)?;
+        create_snapshot
+            .mem_file
+            .initialize::<R>(mem_file_effective_path, self.ownership_model)
+            .await
+            .map_err(VmApiError::ResourceError)?;
 
         Ok(VmSnapshot {
             snapshot: create_snapshot.snapshot,

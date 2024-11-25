@@ -388,8 +388,25 @@ impl ProducedVmmResource {
     }
 
     /// Initialize the produced resource with the given effective path.
-    pub fn initialize(&mut self, effective_path: PathBuf) {
+    pub fn initialize<R: Runtime>(
+        &mut self,
+        effective_path: PathBuf,
+        ownership_model: VmmOwnershipModel,
+    ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
+        let path = effective_path.clone();
         self.effective_path = Some(effective_path);
+
+        async move {
+            if let Some(parent_path) = path.parent() {
+                R::Filesystem::create_dir_all(&parent_path)
+                    .await
+                    .map_err(VmmResourceError::FilesystemError)?;
+
+                downgrade_owner(&parent_path, ownership_model).map_err(VmmResourceError::ChangeOwnerError)?;
+            }
+
+            Ok(())
+        }
     }
 
     /// A shorthand to initialize the resource with the same effective path as its local path.
