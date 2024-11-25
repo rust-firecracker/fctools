@@ -126,7 +126,11 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         for produced_resource in resource_references.produced_resources {
-            produced_resource.initialize_with_same_path();
+            join_set.spawn(
+                produced_resource
+                    .initialize_with_same_path::<R>(ownership_model)
+                    .map_err(VmmExecutorError::ResourceError),
+            );
         }
 
         join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))?;

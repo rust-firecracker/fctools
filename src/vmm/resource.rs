@@ -410,8 +410,11 @@ impl ProducedVmmResource {
     }
 
     /// A shorthand to initialize the resource with the same effective path as its local path.
-    pub fn initialize_with_same_path(&mut self) {
-        self.effective_path = Some(self.local_path.clone());
+    pub fn initialize_with_same_path<R: Runtime>(
+        &mut self,
+        ownership_model: VmmOwnershipModel,
+    ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
+        self.initialize::<R>(self.local_path.clone(), ownership_model)
     }
 
     /// Dispose of the resource unless it has been unlinked, according to the given [VmmOwnershipModel]
