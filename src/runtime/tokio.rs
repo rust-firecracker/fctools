@@ -199,8 +199,10 @@ impl RuntimeProcess for TokioRuntimeProcess {
             })
     }
 
-    async fn output(command: std::process::Command) -> Result<std::process::Output, std::io::Error> {
-        tokio::process::Command::from(command).output().await
+    fn output(
+        command: std::process::Command,
+    ) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send {
+        tokio::process::Command::from(command).output()
     }
 
     fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, std::io::Error> {
