@@ -164,8 +164,8 @@ impl<O: Send + 'static, E: RuntimeExecutor> RuntimeJoinSet<O, E> {
     }
 
     pub async fn wait(self) -> Option<Result<(), O>> {
-        for join_handle in self.tasks {
-            match join_handle.join().await {
+        for task in self.tasks {
+            match task.join().await {
                 Some(result) => match result {
                     Ok(()) => {}
                     Err(err) => return Some(Err(err)),
