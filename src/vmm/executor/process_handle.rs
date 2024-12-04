@@ -1,6 +1,6 @@
 use std::{
     os::{
-        fd::{FromRawFd, OwnedFd, RawFd},
+        fd::{AsRawFd, RawFd},
         unix::process::ExitStatusExt,
     },
     path::PathBuf,
@@ -70,15 +70,11 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
 
     /// Try to create a [ProcessHandle] by allocating a pidfd for the given PID.
     pub fn with_pidfd<R: Runtime>(pid: i32) -> Result<Self, std::io::Error> {
-        let raw_pidfd = unsafe { nix::libc::syscall(nix::libc::SYS_pidfd_open, pid, 0) };
+        let pidfd = crate::sys::pidfd_open(pid)?;
+        let raw_pidfd = pidfd.as_raw_fd();
 
-        if raw_pidfd == -1 {
-            return Err(std::io::Error::last_os_error());
-        }
-
-        let raw_pidfd = raw_pidfd as RawFd;
         let (exited_tx, exited_rx) = futures_channel::oneshot::channel();
-        let async_pidfd = R::Filesystem::create_async_fd(unsafe { OwnedFd::from_raw_fd(raw_pidfd) })?;
+        let async_pidfd = R::Filesystem::create_async_fd(pidfd)?;
 
         let _ = R::Executor::spawn(async move {
             if async_pidfd.readable().await.is_ok() {
@@ -117,15 +113,7 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
                     return Err(std::io::Error::other("Trying to send SIGKILL to exited process"));
                 }
 
-                let ret = unsafe {
-                    nix::libc::syscall(nix::libc::SYS_pidfd_send_signal, raw_pidfd, nix::libc::SIGKILL, 0, 0)
-                };
-
-                if ret == -1 {
-                    return Err(std::io::Error::last_os_error());
-                }
-
-                Ok(())
+                crate::sys::pidfd_send_sigkill(raw_pidfd)
             }
         }
     }

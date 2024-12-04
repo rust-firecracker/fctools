@@ -47,3 +47,9 @@ pub mod process_spawner;
 #[cfg(feature = "vm")]
 #[cfg_attr(docsrs, doc(cfg(feature = "vm")))]
 pub mod vm;
+
+#[cfg(all(feature = "runtime", not(any(feature = "sys-nix", feature = "sys-rustix"))))]
+compile_error!("Either \"sys-nix\" or \"sys-rustix\" must be enabled alongside \"runtime\" to provide syscalls");
+
+#[cfg(all(feature = "runtime", any(feature = "sys-nix", feature = "sys-rustix")))]
+pub(crate) mod sys;

@@ -672,8 +672,8 @@ impl VmBuilder {
             TestVm::prepare(
                 executor,
                 VmmOwnershipModel::Downgraded {
-                    uid: TestOptions::get().await.jailer_uid.into(),
-                    gid: TestOptions::get().await.jailer_gid.into(),
+                    uid: TestOptions::get().await.jailer_uid,
+                    gid: TestOptions::get().await.jailer_gid,
                 },
                 DirectProcessSpawner,
                 get_real_firecracker_installation(),

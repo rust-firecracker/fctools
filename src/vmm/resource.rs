@@ -4,8 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use nix::sys::stat::Mode;
-
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::{Runtime, RuntimeFilesystem},
@@ -102,14 +100,7 @@ impl CreatedVmmResource {
                         .map_err(VmmResourceError::FilesystemError)?;
                 }
                 CreatedVmmResourceType::Fifo => {
-                    if nix::unistd::mkfifo(
-                        &effective_path,
-                        Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR,
-                    )
-                    .is_err()
-                    {
-                        return Err(VmmResourceError::MkfifoError(std::io::Error::last_os_error()));
-                    }
+                    crate::sys::mkfifo(&effective_path).map_err(VmmResourceError::MkfifoError)?;
                 }
             };
 

@@ -5,15 +5,13 @@ use std::{
     sync::LazyLock,
 };
 
-use nix::unistd::{Gid, Uid};
-
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::{Runtime, RuntimeFilesystem, RuntimeProcess},
 };
 
-pub(crate) static PROCESS_UID: LazyLock<Uid> = LazyLock::new(nix::unistd::geteuid);
-pub(crate) static PROCESS_GID: LazyLock<Gid> = LazyLock::new(nix::unistd::getegid);
+pub(crate) static PROCESS_UID: LazyLock<u32> = LazyLock::new(crate::sys::geteuid);
+pub(crate) static PROCESS_GID: LazyLock<u32> = LazyLock::new(crate::sys::getegid);
 
 /// The model used for managing the ownership of resources between the controlling process
 /// (the Rust application using fctools) and the VMM process ("firecracker").
@@ -36,15 +34,15 @@ pub enum VmmOwnershipModel {
     /// be made accessible to the VMM process.
     Downgraded {
         /// The UID of the VMM process.
-        uid: Uid,
+        uid: u32,
         /// The GID of the VMM process.
-        gid: Gid,
+        gid: u32,
     },
 }
 
 impl VmmOwnershipModel {
     #[inline]
-    pub(crate) fn as_downgrade(&self) -> Option<(Uid, Gid)> {
+    pub(crate) fn as_downgrade(&self) -> Option<(u32, u32)> {
         match self {
             VmmOwnershipModel::UpgradedTemporarily => Some((*PROCESS_UID, *PROCESS_GID)),
             VmmOwnershipModel::Downgraded { uid, gid } => Some((*uid, *gid)),
@@ -121,11 +119,9 @@ pub async fn upgrade_owner<R: Runtime>(
         if !exit_status.success() && exit_status.into_raw() != 256 {
             return Err(ChangeOwnerError::ProcessExitedWithWrongStatus(exit_status));
         }
-
-        Ok(())
-    } else {
-        Ok(())
     }
+
+    Ok(())
 }
 
 /// For implementors of custom executors: downgrades the owner of the given [Path] recursively using the
@@ -148,11 +144,7 @@ pub async fn downgrade_owner_recursively<R: Runtime>(
 /// no-ops).
 pub fn downgrade_owner(path: &Path, ownership_model: VmmOwnershipModel) -> Result<(), ChangeOwnerError> {
     if let Some((uid, gid)) = ownership_model.as_downgrade() {
-        if nix::unistd::chown(path, Some(uid), Some(gid)).is_err() {
-            Err(ChangeOwnerError::FlatChownError(std::io::Error::last_os_error()))
-        } else {
-            Ok(())
-        }
+        crate::sys::chown(path, uid, gid).map_err(ChangeOwnerError::FlatChownError)
     } else {
         Ok(())
     }

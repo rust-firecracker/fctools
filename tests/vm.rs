@@ -22,7 +22,6 @@ use fctools::{
     },
 };
 use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};
-use nix::unistd::{getegid, geteuid};
 use rand::RngCore;
 use test_framework::{
     get_create_snapshot, get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, TestOptions, TestVm,
@@ -298,8 +297,8 @@ async fn restore_vm_from_snapshot(snapshot: VmSnapshot, is_jailed: bool) {
     let mut vm = TestVm::prepare(
         executor,
         VmmOwnershipModel::Downgraded {
-            uid: geteuid(),
-            gid: getegid(),
+            uid: TestOptions::get().await.jailer_uid,
+            gid: TestOptions::get().await.jailer_gid,
         },
         DirectProcessSpawner,
         get_real_firecracker_installation(),
