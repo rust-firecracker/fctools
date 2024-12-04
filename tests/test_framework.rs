@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use fcnet::backend::TokioBackend;
 use fcnet_types::{FirecrackerIpStack, FirecrackerNetwork, FirecrackerNetworkOperation, FirecrackerNetworkType};
 use fctools::{
     extension::link_local::LinkLocalSubnet,
@@ -656,7 +657,7 @@ impl VmBuilder {
     {
         if let Some(ref network_data) = network_data {
             let lock = get_network_lock().await;
-            fcnet::run(&network_data.network, FirecrackerNetworkOperation::Add)
+            fcnet::run::<TokioBackend>(&network_data.network, FirecrackerNetworkOperation::Add)
                 .await
                 .unwrap();
             drop(lock);
@@ -693,7 +694,7 @@ impl VmBuilder {
 
         if let Some(network_data) = network_data {
             let lock = get_network_lock().await;
-            fcnet::run(&network_data.network, FirecrackerNetworkOperation::Delete)
+            fcnet::run::<TokioBackend>(&network_data.network, FirecrackerNetworkOperation::Delete)
                 .await
                 .unwrap();
             drop(lock);
