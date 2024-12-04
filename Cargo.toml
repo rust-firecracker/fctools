@@ -121,14 +121,13 @@ full = [
     "grpc-vsock-extension",
     "link-local-extension",
     "snapshot-editor-extension",
-    "sys-rustix",
 ]
 default = ["sys-nix"]
 # syslib
 sys-nix = ["dep:nix"]
 sys-rustix = ["dep:rustix"]
 # runtime
-runtime = ["dep:futures-io", "dep:nix"]
+runtime = ["dep:futures-io"]
 tokio-runtime = [
     "runtime",
     "dep:tokio",
@@ -151,7 +150,7 @@ process-spawner = ["runtime"]
 direct-process-spawner = ["process-spawner"]
 elevation-process-spawners = ["process-spawner"]
 # vmm
-vmm-arguments = ["dep:nix"]
+vmm-arguments = []
 vmm-installation = ["dep:futures-util", "runtime"]
 vmm-executor = [
     "vmm-arguments",
@@ -171,7 +170,7 @@ vmm-process = [
     "dep:http",
     "dep:async-once-cell",
 ]
-# other
+# vm
 vm = ["vmm-process", "dep:serde", "dep:serde_json"]
 # extensions
 metrics-extension = ["dep:serde", "dep:serde_json"]
