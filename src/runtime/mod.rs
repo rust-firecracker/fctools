@@ -12,7 +12,6 @@ use std::{
 };
 
 use futures_io::{AsyncRead, AsyncWrite};
-use nix::unistd::{Gid, Uid};
 
 #[cfg(feature = "tokio-runtime")]
 pub mod tokio;
@@ -92,7 +91,7 @@ pub trait RuntimeFilesystem {
 
     fn copy(source_path: &Path, destination_path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send;
 
-    fn chownr(path: &Path, uid: Uid, gid: Gid) -> impl Future<Output = Result<(), std::io::Error>> + Send;
+    fn chownr(path: &Path, uid: u32, gid: u32) -> impl Future<Output = Result<(), std::io::Error>> + Send;
 
     fn hard_link(
         source_path: &Path,

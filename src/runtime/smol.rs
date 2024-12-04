@@ -15,7 +15,6 @@ use std::{
 use async_executor::Executor;
 use async_io::Timer;
 use async_process::{Child, ChildStderr, ChildStdin, ChildStdout};
-use nix::unistd::{Gid, Uid};
 use pin_project_lite::pin_project;
 use smol_hyper::rt::SmolExecutor;
 
@@ -189,7 +188,7 @@ impl RuntimeFilesystem for SmolRuntimeFilesystem {
         async_fs::copy(source_path, destination_path).await.map(|_| ())
     }
 
-    fn chownr(path: &Path, uid: Uid, gid: Gid) -> impl Future<Output = Result<(), std::io::Error>> + Send {
+    fn chownr(path: &Path, uid: u32, gid: u32) -> impl Future<Output = Result<(), std::io::Error>> + Send {
         let path = path.to_owned();
         blocking::unblock(move || chownr_recursive(&path, uid, gid))
     }

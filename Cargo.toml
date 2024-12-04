@@ -31,11 +31,16 @@ strip = "symbols"
 [dependencies]
 # runtime
 futures-io = { version = "0.3.31", optional = true }
+# syslib
 nix = { version = "0.29.0", features = [
     "user",
     "fs",
     "process",
     "signal",
+], optional = true }
+rustix = { version = "0.38.41", default-features = false, features = [
+    "fs",
+    "process",
 ], optional = true }
 # tokio runtime
 tokio-util = { version = "0.7.12", default-features = false, features = [
@@ -116,8 +121,12 @@ full = [
     "grpc-vsock-extension",
     "link-local-extension",
     "snapshot-editor-extension",
+    "sys-rustix",
 ]
-default = []
+default = ["sys-nix"]
+# syslib
+sys-nix = ["dep:nix"]
+sys-rustix = ["dep:rustix"]
 # runtime
 runtime = ["dep:futures-io", "dep:nix"]
 tokio-runtime = [

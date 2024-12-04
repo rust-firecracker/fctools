@@ -47,3 +47,6 @@ pub mod process_spawner;
 #[cfg(feature = "vm")]
 #[cfg_attr(docsrs, doc(cfg(feature = "vm")))]
 pub mod vm;
+
+#[cfg(feature = "runtime")]
+pub(crate) mod sys;
