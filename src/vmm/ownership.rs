@@ -119,11 +119,9 @@ pub async fn upgrade_owner<R: Runtime>(
         if !exit_status.success() && exit_status.into_raw() != 256 {
             return Err(ChangeOwnerError::ProcessExitedWithWrongStatus(exit_status));
         }
-
-        Ok(())
-    } else {
-        Ok(())
     }
+
+    Ok(())
 }
 
 /// For implementors of custom executors: downgrades the owner of the given [Path] recursively using the
