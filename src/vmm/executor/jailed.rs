@@ -202,16 +202,13 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                 .await
                 .map_err(VmmExecutorError::ChangeOwnerError)?;
 
-            let pid;
-
-            loop {
+            let pid = loop {
                 if let Ok(pid_string) = R::Filesystem::read_to_string(&pid_file_path).await {
-                    if let Ok(read_pid) = pid_string.trim_end().parse() {
-                        pid = read_pid;
-                        break;
+                    if let Ok(pid) = pid_string.trim_end().parse() {
+                        break pid;
                     }
                 }
-            }
+            };
 
             Ok(ProcessHandle::with_pidfd::<R>(pid).map_err(VmmExecutorError::PidfdAllocationError)?)
         } else {
