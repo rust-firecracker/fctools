@@ -7,6 +7,7 @@ use std::{
     future::Future,
     os::fd::OwnedFd,
     path::Path,
+    pin::Pin,
     process::{ExitStatus, Stdio},
     time::Duration,
 };
@@ -29,11 +30,7 @@ pub trait Runtime: 'static {
     type Process: RuntimeProcess;
 
     #[cfg(feature = "vmm-process")]
-    type HyperExecutor: hyper::rt::Executor<std::pin::Pin<Box<dyn Future<Output = ()> + Send>>>
-        + Clone
-        + Send
-        + Sync
-        + 'static;
+    type HyperExecutor: hyper::rt::Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Clone + Send + Sync + 'static;
 
     #[cfg(feature = "vmm-process")]
     fn get_hyper_executor() -> Self::HyperExecutor;
