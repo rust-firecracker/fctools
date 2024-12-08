@@ -1,6 +1,7 @@
 use std::{os::unix::fs::FileTypeExt, time::Duration};
 
 use bytes::Bytes;
+use codegen::{GuestAgentServiceClient, Ping, Pong};
 use fctools::{
     extension::{
         grpc_vsock::VsockGrpcExt, http_vsock::VsockHttpExt, metrics::spawn_metrics_task,
@@ -11,7 +12,6 @@ use fctools::{
     vmm::{process::HyperResponseExt, resource::CreatedVmmResourceType},
 };
 use futures_util::StreamExt;
-use grpc_codegen::{guest_agent_service_client::GuestAgentServiceClient, Ping, Pong};
 use http_body_util::Full;
 use serde::{Deserialize, Serialize};
 use test_framework::{
@@ -19,7 +19,103 @@ use test_framework::{
 };
 use tokio::fs::metadata;
 
-mod grpc_codegen;
+mod codegen {
+    #[derive(Clone, Copy, PartialEq, prost::Message)]
+    pub struct Ping {
+        #[prost(uint32, tag = "1")]
+        pub number: u32,
+    }
+    #[derive(Clone, Copy, PartialEq, prost::Message)]
+    pub struct Pong {
+        #[prost(uint32, tag = "1")]
+        pub number: u32,
+    }
+
+    use tonic::codegen::*;
+
+    #[derive(Debug, Clone)]
+    pub struct GuestAgentServiceClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+
+    impl<T> GuestAgentServiceClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+
+        pub async fn unary(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Ping>,
+        ) -> std::result::Result<tonic::Response<super::Pong>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| tonic::Status::unknown(format!("Service was not ready: {}", e.into())))?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/guest_agent.GuestAgentService/Unary");
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("guest_agent.GuestAgentService", "Unary"));
+            self.inner.unary(req, path, codec).await
+        }
+
+        pub async fn client_streaming(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<Message = super::Ping>,
+        ) -> std::result::Result<tonic::Response<super::Pong>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| tonic::Status::unknown(format!("Service was not ready: {}", e.into())))?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/guest_agent.GuestAgentService/ClientStreaming");
+            let mut req = request.into_streaming_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("guest_agent.GuestAgentService", "ClientStreaming"));
+            self.inner.client_streaming(req, path, codec).await
+        }
+
+        pub async fn server_streaming(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Ping>,
+        ) -> std::result::Result<tonic::Response<tonic::codec::Streaming<super::Pong>>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| tonic::Status::unknown(format!("Service was not ready: {}", e.into())))?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/guest_agent.GuestAgentService/ServerStreaming");
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("guest_agent.GuestAgentService", "ServerStreaming"));
+            self.inner.server_streaming(req, path, codec).await
+        }
+
+        pub async fn duplex_streaming(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<Message = super::Ping>,
+        ) -> std::result::Result<tonic::Response<tonic::codec::Streaming<super::Pong>>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| tonic::Status::unknown(format!("Service was not ready: {}", e.into())))?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/guest_agent.GuestAgentService/DuplexStreaming");
+            let mut req = request.into_streaming_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("guest_agent.GuestAgentService", "DuplexStreaming"));
+            self.inner.streaming(req, path, codec).await
+        }
+    }
+}
+
 mod test_framework;
 
 #[test]
