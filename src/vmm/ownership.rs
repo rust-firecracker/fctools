@@ -93,14 +93,15 @@ impl std::fmt::Display for ChangeOwnerError {
 /// For implementors of custom executors: upgrades the owner of the given [Path] using the given [ProcessSpawner]
 /// and [Runtime], if the [VmmOwnershipModel] requires the upgrade (otherwise, no-ops). This spawns an elevated
 /// coreutils "chown" process via the [ProcessSpawner] and waits on it internally.
-pub async fn upgrade_owner<R: Runtime>(
+pub async fn upgrade_owner<R: Runtime, S: ProcessSpawner>(
     path: &Path,
     ownership_model: VmmOwnershipModel,
-    process_spawner: &impl ProcessSpawner,
+    process_spawner: &S,
+    runtime: &R,
 ) -> Result<(), ChangeOwnerError> {
     if ownership_model.is_upgrade() {
         let mut process = process_spawner
-            .spawn::<R>(
+            .spawn(
                 &PathBuf::from("chown"),
                 vec![
                     "-f".to_string(),
@@ -109,6 +110,7 @@ pub async fn upgrade_owner<R: Runtime>(
                     path.to_string_lossy().into_owned(),
                 ],
                 false,
+                runtime,
             )
             .await
             .map_err(ChangeOwnerError::ProcessSpawnFailed)?;
@@ -129,9 +131,12 @@ pub async fn upgrade_owner<R: Runtime>(
 pub async fn downgrade_owner_recursively<R: Runtime>(
     path: &Path,
     ownership_model: VmmOwnershipModel,
+    runtime: &R,
 ) -> Result<(), ChangeOwnerError> {
     if let Some((uid, gid)) = ownership_model.as_downgrade() {
-        R::Filesystem::chownr(path, uid, gid)
+        runtime
+            .filesystem()
+            .chownr(path, uid, gid)
             .await
             .map_err(ChangeOwnerError::RecursiveChownError)
     } else {

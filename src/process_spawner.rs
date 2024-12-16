@@ -20,6 +20,7 @@ pub trait ProcessSpawner: Send + Sync + 'static {
         binary_path: &Path,
         arguments: Vec<String>,
         pipes_to_null: bool,
+        runtime: &R,
     ) -> impl Future<Output = Result<R::Process, std::io::Error>> + Send;
 }
 
@@ -45,10 +46,11 @@ impl ProcessSpawner for DirectProcessSpawner {
         path: &Path,
         arguments: Vec<String>,
         pipes_to_null: bool,
+        runtime: &R,
     ) -> Result<R::Process, std::io::Error> {
         let mut command = Command::new(path);
         command.args(arguments);
-        let child = R::Process::spawn(
+        let child = runtime.spawn_process(
             command,
             get_stdio(pipes_to_null),
             get_stdio(pipes_to_null),
@@ -91,12 +93,13 @@ impl ProcessSpawner for SuProcessSpawner {
         path: &Path,
         arguments: Vec<String>,
         pipes_to_null: bool,
+        runtime: &R,
     ) -> Result<R::Process, std::io::Error> {
         let command = Command::new(match self.su_path {
             Some(ref path) => path.as_os_str(),
             None => SU_OS_STRING.as_os_str(),
         });
-        let mut child = R::Process::spawn(
+        let mut child = runtime.spawn_process(
             command,
             get_stdio(pipes_to_null),
             get_stdio(pipes_to_null),
@@ -158,6 +161,7 @@ impl ProcessSpawner for SudoProcessSpawner {
         path: &Path,
         arguments: Vec<String>,
         pipes_to_null: bool,
+        runtime: &R,
     ) -> Result<R::Process, std::io::Error> {
         let mut command = Command::new(match self.sudo_path {
             Some(ref path) => path.as_os_str(),
@@ -165,7 +169,7 @@ impl ProcessSpawner for SudoProcessSpawner {
         });
         command.arg("-S").arg("-s").arg(path).args(arguments);
 
-        let mut child = R::Process::spawn(
+        let mut child = runtime.spawn_process(
             command,
             get_stdio(pipes_to_null),
             get_stdio(pipes_to_null),

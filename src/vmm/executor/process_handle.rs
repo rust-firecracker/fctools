@@ -69,18 +69,22 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
     }
 
     /// Try to create a [ProcessHandle] by allocating a pidfd for the given PID.
-    pub fn with_pidfd<R: Runtime>(pid: i32) -> Result<Self, std::io::Error> {
+    pub fn with_pidfd<R: Runtime>(pid: i32, runtime: R) -> Result<Self, std::io::Error> {
         let pidfd = crate::sys::pidfd_open(pid)?;
         let raw_pidfd = pidfd.as_raw_fd();
 
         let (exited_tx, exited_rx) = futures_channel::oneshot::channel();
-        let async_pidfd = R::Filesystem::create_async_fd(pidfd)?;
+        let async_pidfd = runtime.filesystem().create_async_fd(pidfd)?;
 
-        let _ = R::Executor::spawn(async move {
+        let _ = runtime.executor().spawn(async move {
             if async_pidfd.readable().await.is_ok() {
                 let mut exit_status = ExitStatus::from_raw(0);
 
-                if let Ok(content) = R::Filesystem::read_to_string(&PathBuf::from(format!("/proc/{pid}/stat"))).await {
+                if let Ok(content) = runtime
+                    .filesystem()
+                    .read_to_string(&PathBuf::from(format!("/proc/{pid}/stat")))
+                    .await
+                {
                     if let Some(status_raw) = content.split_whitespace().last().and_then(|value| value.parse().ok()) {
                         exit_status = ExitStatus::from_raw(status_raw);
                     }
