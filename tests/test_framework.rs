@@ -150,6 +150,7 @@ impl ProcessSpawner for FailingRunner {
         _path: &Path,
         _arguments: Vec<String>,
         _pipes_to_null: bool,
+        _runtime: &R,
     ) -> Result<R::Process, std::io::Error> {
         Err(std::io::Error::other("Purposeful test failure"))
     }
@@ -267,16 +268,18 @@ async fn get_vmm_processes(
     (
         TestVmmProcess::new(
             EitherVmmExecutor::Unrestricted(unrestricted_executor),
+            Arc::new(DirectProcessSpawner),
+            TokioRuntime,
             ownership_model,
-            DirectProcessSpawner,
-            get_real_firecracker_installation(),
+            Arc::new(get_real_firecracker_installation()),
         ),
         unrestricted_resources,
         TestVmmProcess::new(
             EitherVmmExecutor::Jailed(jailed_executor),
+            Arc::new(DirectProcessSpawner),
+            TokioRuntime,
             ownership_model,
-            DirectProcessSpawner,
-            get_real_firecracker_installation(),
+            Arc::new(get_real_firecracker_installation()),
         ),
         jailed_resources,
     )
@@ -400,7 +403,7 @@ impl VmBuilder {
     }
 
     fn setup_simple_network(&self) -> NetworkData {
-        let subnet_index = rand::thread_rng().gen_range(1..=3000);
+        let subnet_index = rand::thread_rng().gen_range(1..1000);
         let subnet = LinkLocalSubnet::new(subnet_index, 30).unwrap();
         let guest_ip = subnet.get_host_ip(0).unwrap().into();
         let tap_ip = subnet.get_host_ip(1).unwrap().into();
@@ -671,12 +674,13 @@ impl VmBuilder {
         let mut vm: fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime> =
             TestVm::prepare(
                 executor,
+                Arc::new(DirectProcessSpawner),
+                TokioRuntime,
                 VmmOwnershipModel::Downgraded {
                     uid: TestOptions::get().await.jailer_uid,
                     gid: TestOptions::get().await.jailer_gid,
                 },
-                DirectProcessSpawner,
-                get_real_firecracker_installation(),
+                Arc::new(get_real_firecracker_installation()),
                 configuration,
             )
             .await

@@ -1,26 +1,22 @@
 use std::{
-    marker::PhantomData,
     path::{Path, PathBuf},
     process::{Command, ExitStatus, Output, Stdio},
 };
 
-use crate::{
-    runtime::{Runtime, RuntimeProcess},
-    vmm::installation::VmmInstallation,
-};
+use crate::{runtime::Runtime, vmm::installation::VmmInstallation};
 
 /// An extension that provides bindings to functionality exposed by Firecracker's "snapshot-editor" binary.
 /// Internally this performs sanity checks and then spawns and awaits a "snapshot-editor" process.
 pub trait SnapshotEditorExt {
     /// Get a [SnapshotEditor] binding that is bound to this [VmmInstallation]'s lifetime.
-    fn snapshot_editor<R: Runtime>(&self) -> SnapshotEditor<'_, R>;
+    fn snapshot_editor<R: Runtime>(&self, runtime: R) -> SnapshotEditor<'_, R>;
 }
 
 impl SnapshotEditorExt for VmmInstallation {
-    fn snapshot_editor<R: Runtime>(&self) -> SnapshotEditor<'_, R> {
+    fn snapshot_editor<R: Runtime>(&self, runtime: R) -> SnapshotEditor<'_, R> {
         SnapshotEditor {
             path: &self.snapshot_editor_path,
-            runtime: PhantomData,
+            runtime,
         }
     }
 }
@@ -29,7 +25,7 @@ impl SnapshotEditorExt for VmmInstallation {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SnapshotEditor<'p, R: Runtime> {
     path: &'p PathBuf,
-    runtime: PhantomData<R>,
+    runtime: R,
 }
 
 /// An error that can be emitted by a "snapshot-editor" invocation.
@@ -152,7 +148,9 @@ impl<'p, R: Runtime> SnapshotEditor<'p, R> {
         command.stderr(Stdio::null());
         command.stdin(Stdio::null());
 
-        let output = R::Process::output(command)
+        let output = self
+            .runtime
+            .run_process(command)
             .await
             .map_err(SnapshotEditorError::ProcessSpawnFailed)?;
 

@@ -164,7 +164,10 @@ pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
 
     for (index, action) in actions.into_iter().enumerate() {
         let result = match action.timeout {
-            Some(duration) => R::Executor::timeout(duration, action.method.run(vm))
+            Some(duration) => vm
+                .runtime
+                .executor()
+                .timeout(duration, action.method.run(vm))
                 .await
                 .unwrap_or(Err(VmShutdownError::Timeout)),
             None => action.method.run(vm).await,

@@ -324,12 +324,15 @@ pub struct MetricsTask<E: RuntimeExecutor> {
 pub fn spawn_metrics_task<R: Runtime>(
     metrics_path: impl AsRef<Path> + Send + 'static,
     buffer: usize,
+    runtime: R,
 ) -> MetricsTask<R::Executor> {
     let (mut sender, receiver) = mpsc::channel(buffer);
 
-    let task = R::Executor::spawn(async move {
+    let task = runtime.executor().spawn(async move {
         let mut buf_reader = BufReader::new(
-            R::Filesystem::open_file_for_read(metrics_path.as_ref())
+            runtime
+                .filesystem()
+                .open_file_for_read(metrics_path.as_ref())
                 .await
                 .map_err(MetricsTaskError::FilesystemError)?,
         )

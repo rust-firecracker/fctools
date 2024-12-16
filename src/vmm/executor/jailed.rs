@@ -1,7 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::path::{Path, PathBuf};
 
 use futures_util::TryFutureExt;
 
@@ -16,7 +13,7 @@ use crate::{
     },
 };
 
-use super::{process_handle::ProcessHandle, VmmExecutor, VmmExecutorError, VmmOwnershipModel};
+use super::{process_handle::ProcessHandle, VmmExecutor, VmmExecutorContext, VmmExecutorError};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
@@ -62,44 +59,59 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         self.get_paths(installation).1.jail_join(&local_path)
     }
 
-    async fn prepare<R: Runtime>(
+    async fn prepare<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        installation: &VmmInstallation,
-        process_spawner: Arc<impl ProcessSpawner>,
-        ownership_model: VmmOwnershipModel,
+        context: VmmExecutorContext<S, R>,
         mut resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
         // Create jail and delete previous one if necessary
-        let (chroot_base_dir, jail_path) = self.get_paths(installation);
-        upgrade_owner::<R>(&chroot_base_dir, ownership_model, process_spawner.as_ref())
-            .await
-            .map_err(VmmExecutorError::ChangeOwnerError)?;
+        let (chroot_base_dir, jail_path) = self.get_paths(context.installation.as_ref());
+        upgrade_owner(
+            &chroot_base_dir,
+            context.ownership_model,
+            context.process_spawner.as_ref(),
+            &context.runtime,
+        )
+        .await
+        .map_err(VmmExecutorError::ChangeOwnerError)?;
 
-        if R::Filesystem::check_exists(&jail_path)
+        if context
+            .runtime
+            .filesystem()
+            .check_exists(&jail_path)
             .await
             .map_err(VmmExecutorError::FilesystemError)?
         {
-            R::Filesystem::remove_dir_all(&jail_path)
+            context
+                .runtime
+                .filesystem()
+                .remove_dir_all(&jail_path)
                 .await
                 .map_err(VmmExecutorError::FilesystemError)?;
         }
 
-        R::Filesystem::create_dir_all(&jail_path)
+        context
+            .runtime
+            .filesystem()
+            .create_dir_all(&jail_path)
             .await
             .map_err(VmmExecutorError::FilesystemError)?;
 
-        let mut join_set: RuntimeJoinSet<_, R::Executor> = RuntimeJoinSet::new();
+        let mut join_set = RuntimeJoinSet::new(context.runtime.clone());
 
         // Ensure socket parent directory exists so that the firecracker process can bind inside of it
         if let VmmApiSocket::Enabled(ref socket_path) = self.vmm_arguments.api_socket {
             if let Some(socket_parent_dir) = socket_path.parent() {
                 let socket_parent_dir = socket_parent_dir.to_owned();
                 let jail_path = jail_path.clone();
+                let runtime = context.runtime.clone();
 
                 join_set.spawn(async move {
                     let expanded_path = jail_path.jail_join(&socket_parent_dir);
 
-                    R::Filesystem::create_dir_all(&expanded_path)
+                    runtime
+                        .filesystem()
+                        .create_dir_all(&expanded_path)
                         .await
                         .map_err(VmmExecutorError::FilesystemError)
                 });
@@ -118,7 +130,11 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         for created_resource in resource_references.created_resources {
             join_set.spawn(
                 created_resource
-                    .initialize::<R>(jail_path.jail_join(created_resource.local_path()), ownership_model)
+                    .initialize(
+                        jail_path.jail_join(created_resource.local_path()),
+                        context.ownership_model,
+                        context.runtime.clone(),
+                    )
                     .map_err(VmmExecutorError::ResourceError),
             );
         }
@@ -132,7 +148,13 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             let effective_path = jail_path.jail_join(&local_path);
             join_set.spawn(
                 moved_resource
-                    .initialize::<R>(effective_path, local_path, ownership_model, process_spawner.clone())
+                    .initialize(
+                        effective_path,
+                        local_path,
+                        context.ownership_model,
+                        context.process_spawner.clone(),
+                        context.runtime.clone(),
+                    )
                     .map_err(VmmExecutorError::ResourceError),
             );
         }
@@ -141,34 +163,38 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         for produced_resource in resource_references.produced_resources {
             join_set.spawn(
                 produced_resource
-                    .initialize::<R>(jail_path.jail_join(produced_resource.local_path()), ownership_model)
+                    .initialize(
+                        jail_path.jail_join(produced_resource.local_path()),
+                        context.ownership_model,
+                        context.runtime.clone(),
+                    )
                     .map_err(VmmExecutorError::ResourceError),
             );
         }
 
         join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))?;
 
-        downgrade_owner_recursively::<R>(&jail_path, ownership_model)
+        downgrade_owner_recursively(&jail_path, context.ownership_model, &context.runtime)
             .await
             .map_err(VmmExecutorError::ChangeOwnerError)?;
 
         Ok(())
     }
 
-    async fn invoke<R: Runtime>(
+    async fn invoke<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        installation: &VmmInstallation,
-        process_spawner: Arc<impl ProcessSpawner>,
+        context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
-        ownership_model: VmmOwnershipModel,
     ) -> Result<ProcessHandle<R::Process>, VmmExecutorError> {
-        let (uid, gid) = match ownership_model.as_downgrade() {
+        let (uid, gid) = match context.ownership_model.as_downgrade() {
             Some(values) => values,
             None => (*PROCESS_UID, *PROCESS_GID),
         };
 
-        let mut arguments = self.jailer_arguments.join(uid, gid, &installation.firecracker_path);
-        let mut binary_path = installation.jailer_path.clone();
+        let mut arguments = self
+            .jailer_arguments
+            .join(uid, gid, &context.installation.firecracker_path);
+        let mut binary_path = context.installation.jailer_path.clone();
         arguments.push("--".to_string());
         arguments.extend(self.vmm_arguments.join(config_path));
 
@@ -177,16 +203,18 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         }
 
         // nulling the pipes is redundant since jailer can do this itself via daemonization
-        let mut process = process_spawner
-            .spawn::<R>(&binary_path, arguments, false)
+        let mut process = context
+            .process_spawner
+            .spawn(&binary_path, arguments, false, &context.runtime)
             .await
             .map_err(VmmExecutorError::ProcessSpawnFailed)?;
 
         if self.jailer_arguments.daemonize || self.jailer_arguments.exec_in_new_pid_ns {
-            let (_, jail_path) = self.get_paths(installation);
+            let (_, jail_path) = self.get_paths(&context.installation);
             let pid_file_path = jail_path.join(format!(
                 "{}.pid",
-                installation
+                context
+                    .installation
                     .firecracker_path
                     .file_name()
                     .and_then(|f| f.to_str())
@@ -198,42 +226,53 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                 return Err(VmmExecutorError::ProcessExitedWithIncorrectStatus(exit_status));
             }
 
-            upgrade_owner::<R>(&pid_file_path, ownership_model, process_spawner.as_ref())
-                .await
-                .map_err(VmmExecutorError::ChangeOwnerError)?;
+            upgrade_owner(
+                &pid_file_path,
+                context.ownership_model,
+                context.process_spawner.as_ref(),
+                &context.runtime,
+            )
+            .await
+            .map_err(VmmExecutorError::ChangeOwnerError)?;
 
             let pid = loop {
-                if let Ok(pid_string) = R::Filesystem::read_to_string(&pid_file_path).await {
+                if let Ok(pid_string) = context.runtime.filesystem().read_to_string(&pid_file_path).await {
                     if let Ok(pid) = pid_string.trim_end().parse() {
                         break pid;
                     }
                 }
             };
 
-            Ok(ProcessHandle::with_pidfd::<R>(pid).map_err(VmmExecutorError::PidfdAllocationError)?)
+            Ok(ProcessHandle::with_pidfd(pid, context.runtime).map_err(VmmExecutorError::PidfdAllocationError)?)
         } else {
             Ok(ProcessHandle::with_child(process, false))
         }
     }
 
-    async fn cleanup<R: Runtime>(
+    async fn cleanup<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        installation: &VmmInstallation,
-        process_spawner: Arc<impl ProcessSpawner>,
-        ownership_model: VmmOwnershipModel,
+        context: VmmExecutorContext<S, R>,
         _resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
-        let (_, jail_path) = self.get_paths(installation);
+        let (_, jail_path) = self.get_paths(&context.installation);
 
-        upgrade_owner::<R>(&jail_path, ownership_model, process_spawner.as_ref())
-            .await
-            .map_err(VmmExecutorError::ChangeOwnerError)?;
+        upgrade_owner(
+            &jail_path,
+            context.ownership_model,
+            context.process_spawner.as_ref(),
+            &context.runtime,
+        )
+        .await
+        .map_err(VmmExecutorError::ChangeOwnerError)?;
 
         let Some(jail_parent_path) = jail_path.parent() else {
             return Err(VmmExecutorError::ExpectedDirectoryParentMissing(jail_path));
         };
 
-        R::Filesystem::remove_dir_all(jail_parent_path)
+        context
+            .runtime
+            .filesystem()
+            .remove_dir_all(jail_parent_path)
             .await
             .map_err(VmmExecutorError::FilesystemError)
     }

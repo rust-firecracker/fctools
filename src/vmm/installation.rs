@@ -3,7 +3,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-use crate::runtime::{Runtime, RuntimeFilesystem, RuntimeProcess};
+use crate::runtime::{Runtime, RuntimeFilesystem};
 
 /// A [VmmInstallation] encapsulates release binaries of the most important automatable VMM components:
 /// "firecracker", "jailer" and "snapshot-editor". Using a partial installation with only
@@ -50,22 +50,39 @@ impl std::fmt::Display for VmmInstallationError {
 impl VmmInstallation {
     /// Verify the [VmmInstallation] using the given [Runtime] by ensuring all binaries exist,
     /// are executable and yield the correct type and version when spawned and awaited with "--version".
-    pub async fn verify<R: Runtime>(&self, expected_version: impl AsRef<str>) -> Result<(), VmmInstallationError> {
+    pub async fn verify<R: Runtime>(
+        &self,
+        expected_version: impl AsRef<str>,
+        runtime: &R,
+    ) -> Result<(), VmmInstallationError> {
         futures_util::try_join!(
-            verify_imp::<R>(&self.firecracker_path, expected_version.as_ref(), "Firecracker"),
-            verify_imp::<R>(&self.jailer_path, expected_version.as_ref(), "Jailer"),
-            verify_imp::<R>(&self.snapshot_editor_path, expected_version.as_ref(), "snapshot-editor")
+            verify_imp::<R>(
+                runtime,
+                &self.firecracker_path,
+                expected_version.as_ref(),
+                "Firecracker"
+            ),
+            verify_imp::<R>(runtime, &self.jailer_path, expected_version.as_ref(), "Jailer"),
+            verify_imp::<R>(
+                runtime,
+                &self.snapshot_editor_path,
+                expected_version.as_ref(),
+                "snapshot-editor"
+            )
         )?;
         Ok(())
     }
 }
 
 async fn verify_imp<R: Runtime>(
+    runtime: &R,
     path: &Path,
     expected_version: &str,
     expected_name: &str,
 ) -> Result<(), VmmInstallationError> {
-    if !R::Filesystem::check_exists(path)
+    if !runtime
+        .filesystem()
+        .check_exists(path)
         .await
         .map_err(VmmInstallationError::FilesystemError)?
     {
@@ -79,7 +96,8 @@ async fn verify_imp<R: Runtime>(
         .stderr(Stdio::null())
         .stdin(Stdio::null());
 
-    let output = R::Process::output(command)
+    let output = runtime
+        .run_process(command)
         .await
         .map_err(|_| VmmInstallationError::BinaryNotExecutable)?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();

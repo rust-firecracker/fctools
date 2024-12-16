@@ -40,10 +40,10 @@ impl std::fmt::Display for VmmResourceError {
 
 /// A set of mutable references to VMM resources of all three types. Through these references, the resources
 /// should be initialized by a VMM executor.
-pub struct VmmResourceReferences<'r> {
-    pub moved_resources: Vec<&'r mut MovedVmmResource>,
-    pub created_resources: Vec<&'r mut CreatedVmmResource>,
-    pub produced_resources: Vec<&'r mut ProducedVmmResource>,
+pub struct VmmResourceReferences<'res> {
+    pub moved_resources: Vec<&'res mut MovedVmmResource>,
+    pub created_resources: Vec<&'res mut CreatedVmmResource>,
+    pub produced_resources: Vec<&'res mut ProducedVmmResource>,
 }
 
 impl<'r> VmmResourceReferences<'r> {
@@ -82,20 +82,25 @@ impl CreatedVmmResource {
         &mut self,
         effective_path: PathBuf,
         ownership_model: VmmOwnershipModel,
+        runtime: R,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
         self.effective_path = Some(effective_path.clone());
 
         let r#type = self.r#type;
         async move {
             if let Some(parent_path) = effective_path.parent() {
-                R::Filesystem::create_dir_all(&parent_path)
+                runtime
+                    .filesystem()
+                    .create_dir_all(&parent_path)
                     .await
                     .map_err(VmmResourceError::FilesystemError)?;
             }
 
             match r#type {
                 CreatedVmmResourceType::File => {
-                    R::Filesystem::create_file(&effective_path)
+                    runtime
+                        .filesystem()
+                        .create_file(&effective_path)
                         .await
                         .map_err(VmmResourceError::FilesystemError)?;
                 }
@@ -114,8 +119,9 @@ impl CreatedVmmResource {
     pub fn initialize_with_same_path<R: Runtime>(
         &mut self,
         ownership_model: VmmOwnershipModel,
+        runtime: R,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
-        self.initialize::<R>(self.local_path.clone(), ownership_model)
+        self.initialize(self.local_path.clone(), ownership_model, runtime)
     }
 
     /// Dispose of the resource by deleting it according to ownership constraints via [VmmOwnershipModel] and
@@ -124,15 +130,18 @@ impl CreatedVmmResource {
         &self,
         ownership_model: VmmOwnershipModel,
         process_spawner: Arc<impl ProcessSpawner>,
+        runtime: R,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
         let path = self.effective_path().to_owned();
 
         async move {
-            upgrade_owner::<R>(&path, ownership_model, process_spawner.as_ref())
+            upgrade_owner(&path, ownership_model, process_spawner.as_ref(), &runtime)
                 .await
                 .map_err(VmmResourceError::ChangeOwnerError)?;
 
-            R::Filesystem::remove_file(&path)
+            runtime
+                .filesystem()
+                .remove_file(&path)
                 .await
                 .map_err(VmmResourceError::FilesystemError)
         }
@@ -203,12 +212,13 @@ impl MovedVmmResource {
     /// Initialize the resource at the given effective and local paths according to the ownership constraints
     /// defined by [VmmOwnershipModel] and [ProcessSpawner]. The mutation will be performed immediately, and
     /// the returned futrue can be spawned onto the [Runtime] to apply the changes to the filesystem.
-    pub fn initialize<R: Runtime>(
+    pub fn initialize<S: ProcessSpawner, R: Runtime>(
         &mut self,
         effective_path: PathBuf,
         local_path: PathBuf,
         ownership_model: VmmOwnershipModel,
-        process_spawner: Arc<impl ProcessSpawner>,
+        process_spawner: Arc<S>,
+        runtime: R,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
         self.effective_path = Some(effective_path.clone());
         self.local_path = Some(local_path);
@@ -221,11 +231,13 @@ impl MovedVmmResource {
                 return Ok(());
             }
 
-            upgrade_owner::<R>(&source_path, ownership_model, process_spawner.as_ref())
+            upgrade_owner(&source_path, ownership_model, process_spawner.as_ref(), &runtime)
                 .await
                 .map_err(VmmResourceError::ChangeOwnerError)?;
 
-            if !R::Filesystem::check_exists(&source_path)
+            if !runtime
+                .filesystem()
+                .check_exists(&source_path)
                 .await
                 .map_err(VmmResourceError::FilesystemError)?
             {
@@ -233,38 +245,55 @@ impl MovedVmmResource {
             }
 
             if let Some(parent_path) = effective_path.parent() {
-                R::Filesystem::create_dir_all(parent_path)
+                runtime
+                    .filesystem()
+                    .create_dir_all(parent_path)
                     .await
                     .map_err(VmmResourceError::FilesystemError)?;
             }
 
             match move_method {
                 VmmResourceMoveMethod::Copy => {
-                    R::Filesystem::copy(&source_path, &effective_path)
+                    runtime
+                        .filesystem()
+                        .copy(&source_path, &effective_path)
                         .await
                         .map_err(VmmResourceError::FilesystemError)?;
                 }
                 VmmResourceMoveMethod::HardLink => {
-                    R::Filesystem::hard_link(&source_path, &effective_path)
+                    runtime
+                        .filesystem()
+                        .hard_link(&source_path, &effective_path)
                         .await
                         .map_err(VmmResourceError::FilesystemError)?;
                 }
                 VmmResourceMoveMethod::CopyOrHardLink => {
-                    if R::Filesystem::copy(&source_path, &effective_path).await.is_err() {
-                        R::Filesystem::hard_link(&source_path, &effective_path)
+                    if runtime.filesystem().copy(&source_path, &effective_path).await.is_err() {
+                        runtime
+                            .filesystem()
+                            .hard_link(&source_path, &effective_path)
                             .await
                             .map_err(VmmResourceError::FilesystemError)?;
                     }
                 }
                 VmmResourceMoveMethod::HardLinkOrCopy => {
-                    if R::Filesystem::hard_link(&source_path, &effective_path).await.is_err() {
-                        R::Filesystem::copy(&source_path, &effective_path)
+                    if runtime
+                        .filesystem()
+                        .hard_link(&source_path, &effective_path)
+                        .await
+                        .is_err()
+                    {
+                        runtime
+                            .filesystem()
+                            .copy(&source_path, &effective_path)
                             .await
                             .map_err(VmmResourceError::FilesystemError)?;
                     }
                 }
                 VmmResourceMoveMethod::Rename => {
-                    R::Filesystem::rename_file(&source_path, &effective_path)
+                    runtime
+                        .filesystem()
+                        .rename_file(&source_path, &effective_path)
                         .await
                         .map_err(VmmResourceError::FilesystemError)?;
                 }
@@ -276,21 +305,24 @@ impl MovedVmmResource {
 
     /// A shorthand to initialize the resource with local and effective paths being equal to the source path, i.e. with the
     /// underlying file being unmoved.
-    pub fn initialize_with_same_path<R: Runtime>(
+    pub fn initialize_with_same_path<S: ProcessSpawner, R: Runtime>(
         &mut self,
         ownership_model: VmmOwnershipModel,
-        process_spawner: Arc<impl ProcessSpawner>,
+        process_spawner: Arc<S>,
+        runtime: R,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
         self.effective_path = Some(self.source_path.clone());
         self.local_path = Some(self.source_path.clone());
 
         let source_path = self.source_path.clone();
         async move {
-            upgrade_owner::<R>(&source_path, ownership_model, process_spawner.as_ref())
+            upgrade_owner(&source_path, ownership_model, process_spawner.as_ref(), &runtime)
                 .await
                 .map_err(VmmResourceError::ChangeOwnerError)?;
 
-            if !R::Filesystem::check_exists(&source_path)
+            if !runtime
+                .filesystem()
+                .check_exists(&source_path)
                 .await
                 .map_err(VmmResourceError::FilesystemError)?
             {
@@ -383,13 +415,16 @@ impl ProducedVmmResource {
         &mut self,
         effective_path: PathBuf,
         ownership_model: VmmOwnershipModel,
+        runtime: R,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
         let path = effective_path.clone();
         self.effective_path = Some(effective_path);
 
         async move {
             if let Some(parent_path) = path.parent() {
-                R::Filesystem::create_dir_all(&parent_path)
+                runtime
+                    .filesystem()
+                    .create_dir_all(&parent_path)
                     .await
                     .map_err(VmmResourceError::FilesystemError)?;
 
@@ -404,28 +439,32 @@ impl ProducedVmmResource {
     pub fn initialize_with_same_path<R: Runtime>(
         &mut self,
         ownership_model: VmmOwnershipModel,
+        runtime: R,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
-        self.initialize::<R>(self.local_path.clone(), ownership_model)
+        self.initialize(self.local_path.clone(), ownership_model, runtime)
     }
 
     /// Dispose of the resource unless it has been unlinked, according to the given [VmmOwnershipModel]
     /// and [ProcessSpawner]. The returned future doesn't depend on &self and can be spawned on the
     /// [Runtime] to be persisted to the filesystem.
-    pub fn dispose<R: Runtime>(
+    pub fn dispose<S: ProcessSpawner, R: Runtime>(
         &self,
         ownership_model: VmmOwnershipModel,
-        process_spawner: Arc<impl ProcessSpawner>,
+        process_spawner: Arc<S>,
+        runtime: R,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
         let linked = self.linked;
         let path = self.effective_path().to_owned();
 
         async move {
             if linked {
-                upgrade_owner::<R>(&path, ownership_model, process_spawner.as_ref())
+                upgrade_owner(&path, ownership_model, process_spawner.as_ref(), &runtime)
                     .await
                     .map_err(VmmResourceError::ChangeOwnerError)?;
 
-                R::Filesystem::remove_file(&path)
+                runtime
+                    .filesystem()
+                    .remove_file(&path)
                     .await
                     .map_err(VmmResourceError::FilesystemError)?;
             }
@@ -435,26 +474,40 @@ impl ProducedVmmResource {
     }
 
     /// Unlink and copy the resource to the given new effective path. The local path remains unchanged.
-    pub async fn copy<R: Runtime>(&mut self, new_effective_path: impl Into<PathBuf>) -> Result<(), std::io::Error> {
+    pub async fn copy<R: Runtime>(
+        &mut self,
+        new_effective_path: impl Into<PathBuf>,
+        runtime: &R,
+    ) -> Result<(), std::io::Error> {
         let new_effective_path = new_effective_path.into();
-        R::Filesystem::copy(self.effective_path(), &new_effective_path).await?;
+        runtime
+            .filesystem()
+            .copy(self.effective_path(), &new_effective_path)
+            .await?;
         self.effective_path = Some(new_effective_path);
         self.unlink();
         Ok(())
     }
 
     /// Unlink and move/rename the resource to the given new effective path. The local path remains unchanged.
-    pub async fn rename<R: Runtime>(&mut self, new_effective_path: impl Into<PathBuf>) -> Result<(), std::io::Error> {
+    pub async fn rename<R: Runtime>(
+        &mut self,
+        new_effective_path: impl Into<PathBuf>,
+        runtime: &R,
+    ) -> Result<(), std::io::Error> {
         let new_effective_path = new_effective_path.into();
-        R::Filesystem::rename_file(self.effective_path(), &new_effective_path).await?;
+        runtime
+            .filesystem()
+            .rename_file(self.effective_path(), &new_effective_path)
+            .await?;
         self.effective_path = Some(new_effective_path);
         self.unlink();
         Ok(())
     }
 
     /// Attempt to delete the resource, giving back ownership alongside the error if the operation fails.
-    pub async fn delete<R: Runtime>(self) -> Result<(), (std::io::Error, Self)> {
-        if let Err(err) = R::Filesystem::remove_file(self.effective_path()).await {
+    pub async fn delete<R: Runtime>(self, runtime: &R) -> Result<(), (std::io::Error, Self)> {
+        if let Err(err) = runtime.filesystem().remove_file(self.effective_path()).await {
             return Err((err, self));
         }
 

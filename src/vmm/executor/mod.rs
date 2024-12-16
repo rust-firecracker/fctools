@@ -86,31 +86,32 @@ pub trait VmmExecutor: Send + Sync {
     fn local_to_effective_path(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf;
 
     /// Prepare all transient resources for the VMM invocation.
-    fn prepare<R: Runtime>(
+    fn prepare<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        installation: &VmmInstallation,
-        process_spawner: Arc<impl ProcessSpawner>,
-        ownership_model: VmmOwnershipModel,
-        resource_references: VmmResourceReferences,
+        context: VmmExecutorContext<S, R>,
+        resource_references: VmmResourceReferences<'_>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 
     /// Invoke the VMM on the given [VmmInstallation] and return the [ProcessHandle] that performs a connection to
     /// the created process, regardless of it possibly being not a child and rather having been unshare()-d into
     /// a separate PID namespace.
-    fn invoke<R: Runtime>(
+    fn invoke<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        installation: &VmmInstallation,
-        process_spawner: Arc<impl ProcessSpawner>,
+        context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
-        ownership_model: VmmOwnershipModel,
     ) -> impl Future<Output = Result<ProcessHandle<R::Process>, VmmExecutorError>> + Send;
 
     /// Clean up all transient resources of the VMM invocation.
-    fn cleanup<R: Runtime>(
+    fn cleanup<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        installation: &VmmInstallation,
-        process_spawner: Arc<impl ProcessSpawner>,
-        ownership_model: VmmOwnershipModel,
-        resource_references: VmmResourceReferences,
+        context: VmmExecutorContext<S, R>,
+        resource_references: VmmResourceReferences<'_>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
+}
+
+pub struct VmmExecutorContext<S: ProcessSpawner, R: Runtime> {
+    pub installation: Arc<VmmInstallation>,
+    pub process_spawner: Arc<S>,
+    pub runtime: R,
+    pub ownership_model: VmmOwnershipModel,
 }

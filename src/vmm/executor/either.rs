@@ -1,16 +1,16 @@
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
-    vmm::{installation::VmmInstallation, ownership::VmmOwnershipModel, resource::VmmResourceReferences},
+    vmm::{installation::VmmInstallation, resource::VmmResourceReferences},
 };
 
 use super::{
     jailed::{JailRenamer, JailedVmmExecutor},
     process_handle::ProcessHandle,
     unrestricted::UnrestrictedVmmExecutor,
-    VmmExecutor, VmmExecutorError,
+    VmmExecutor, VmmExecutorContext, VmmExecutorError,
 };
 
 /// [EitherVmmExecutor] encapsulates either an unrestricted or a jailed executor with the
@@ -49,66 +49,36 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
         }
     }
 
-    async fn prepare<R: Runtime>(
+    async fn prepare<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        installation: &VmmInstallation,
-        process_spawner: Arc<impl ProcessSpawner>,
-        ownership_model: VmmOwnershipModel,
+        context: VmmExecutorContext<S, R>,
         resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
         match self {
-            EitherVmmExecutor::Unrestricted(executor) => {
-                executor
-                    .prepare::<R>(installation, process_spawner, ownership_model, resource_references)
-                    .await
-            }
-            EitherVmmExecutor::Jailed(executor) => {
-                executor
-                    .prepare::<R>(installation, process_spawner, ownership_model, resource_references)
-                    .await
-            }
+            EitherVmmExecutor::Unrestricted(executor) => executor.prepare(context, resource_references).await,
+            EitherVmmExecutor::Jailed(executor) => executor.prepare(context, resource_references).await,
         }
     }
 
-    async fn invoke<R: Runtime>(
+    async fn invoke<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        installation: &VmmInstallation,
-        process_spawner: Arc<impl ProcessSpawner>,
+        context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
-        ownership_model: VmmOwnershipModel,
     ) -> Result<ProcessHandle<R::Process>, VmmExecutorError> {
         match self {
-            EitherVmmExecutor::Unrestricted(executor) => {
-                executor
-                    .invoke::<R>(installation, process_spawner, config_path, ownership_model)
-                    .await
-            }
-            EitherVmmExecutor::Jailed(executor) => {
-                executor
-                    .invoke::<R>(installation, process_spawner, config_path, ownership_model)
-                    .await
-            }
+            EitherVmmExecutor::Unrestricted(executor) => executor.invoke(context, config_path).await,
+            EitherVmmExecutor::Jailed(executor) => executor.invoke(context, config_path).await,
         }
     }
 
-    async fn cleanup<R: Runtime>(
+    async fn cleanup<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        installation: &VmmInstallation,
-        process_spawner: Arc<impl ProcessSpawner>,
-        ownership_model: VmmOwnershipModel,
+        context: VmmExecutorContext<S, R>,
         resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
         match self {
-            EitherVmmExecutor::Unrestricted(executor) => {
-                executor
-                    .cleanup::<R>(installation, process_spawner, ownership_model, resource_references)
-                    .await
-            }
-            EitherVmmExecutor::Jailed(executor) => {
-                executor
-                    .cleanup::<R>(installation, process_spawner, ownership_model, resource_references)
-                    .await
-            }
+            EitherVmmExecutor::Unrestricted(executor) => executor.cleanup(context, resource_references).await,
+            EitherVmmExecutor::Jailed(executor) => executor.cleanup(context, resource_references).await,
         }
     }
 }

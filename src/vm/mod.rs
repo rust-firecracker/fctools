@@ -37,6 +37,7 @@ pub struct Vm<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     vmm_process: VmmProcess<E, S, R>,
     process_spawner: Arc<S>,
     ownership_model: VmmOwnershipModel,
+    pub(crate) runtime: R,
     is_paused: bool,
     configuration: VmConfiguration,
 }
@@ -146,23 +147,29 @@ impl std::fmt::Display for VmStateCheckError {
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
-    /// Prepare the full environment of a [Vm] without booting it. Analogously to the [VmmProcess], the passed-in resources
-    /// can be either owned or [Arc]-ed; in the former case they will be put into an [Arc].
+    /// Prepare the full environment of a [Vm] without booting it. Analogously to a [VmmProcess], this requires
+    /// all the necessary components: [VmmExecutor], [Arc<ProcessSpawner>], [Runtime], [VmmOwnershipModel],
+    /// [Arc<VmmInstallation>]. An additional component of a [Vm] is its [VmConfiguration].
     pub async fn prepare(
         executor: E,
+        process_spawner: Arc<S>,
+        runtime: R,
         ownership_model: VmmOwnershipModel,
-        process_spawner: impl Into<Arc<S>>,
-        installation: impl Into<Arc<VmmInstallation>>,
+        installation: Arc<VmmInstallation>,
         mut configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
-        let process_spawner = process_spawner.into();
-        let installation = installation.into();
-
         if executor.get_socket_path(installation.as_ref()).is_none() {
             return Err(VmError::DisabledApiSocketIsUnsupported);
         }
 
-        let mut vmm_process = VmmProcess::new(executor, ownership_model, process_spawner.clone(), installation);
+        let mut vmm_process = VmmProcess::new(
+            executor,
+            process_spawner.clone(),
+            runtime.clone(),
+            ownership_model,
+            installation,
+        );
+
         vmm_process
             .prepare(configuration.resource_references())
             .await
@@ -172,6 +179,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             vmm_process,
             process_spawner,
             ownership_model,
+            runtime,
             is_paused: false,
             configuration,
         })
@@ -207,20 +215,23 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         {
             let config_effective_path = self.vmm_process.local_to_effective_path(config_local_path.clone());
             config_path = Some(config_local_path.clone());
-            upgrade_owner::<R>(
+            upgrade_owner(
                 &config_effective_path,
                 self.ownership_model,
                 self.process_spawner.as_ref(),
+                &self.runtime,
             )
             .await
             .map_err(VmError::ChangeOwnerError)?;
 
-            R::Filesystem::write_file(
-                &config_effective_path,
-                serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
-            )
-            .await
-            .map_err(VmError::FilesystemError)?;
+            self.runtime
+                .filesystem()
+                .write_file(
+                    &config_effective_path,
+                    serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
+                )
+                .await
+                .map_err(VmError::FilesystemError)?;
         }
 
         self.vmm_process
@@ -228,25 +239,27 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             .await
             .map_err(VmError::ProcessError)?;
 
-        let client = hyper_util::client::legacy::Builder::new(R::get_hyper_executor()).build::<_, Full<Bytes>>(
+        let client = hyper_util::client::legacy::Builder::new(self.runtime.hyper_executor()).build::<_, Full<Bytes>>(
             HyperUnixConnector {
-                backend: R::get_hyper_client_sockets_backend(),
+                backend: self.runtime.hyper_client_sockets_backend(),
             },
         );
 
-        R::Executor::timeout(socket_wait_timeout, async move {
-            loop {
-                if client
-                    .get(Uri::unix(&socket_path, "/").expect("/ route was invalid for the socket path"))
-                    .await
-                    .is_ok()
-                {
-                    break;
+        self.runtime
+            .executor()
+            .timeout(socket_wait_timeout, async move {
+                loop {
+                    if client
+                        .get(Uri::unix(&socket_path, "/").expect("/ route was invalid for the socket path"))
+                        .await
+                        .is_ok()
+                    {
+                        break;
+                    }
                 }
-            }
-        })
-        .await
-        .map_err(|_| VmError::SocketWaitTimeout)?;
+            })
+            .await
+            .map_err(|_| VmError::SocketWaitTimeout)?;
 
         match self.configuration.clone() {
             VmConfiguration::New { init_method, data } => {

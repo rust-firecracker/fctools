@@ -1,4 +1,4 @@
-use std::{os::unix::fs::FileTypeExt, time::Duration};
+use std::{os::unix::fs::FileTypeExt, sync::Arc, time::Duration};
 
 use fctools::{
     process_spawner::DirectProcessSpawner,
@@ -240,7 +240,7 @@ fn vm_can_snapshot_while_original_is_running() {
         restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm).await;
-        snapshot.remove::<TokioRuntime>().await;
+        snapshot.remove(&TokioRuntime).await;
     });
 }
 
@@ -250,14 +250,14 @@ fn vm_can_snapshot_after_original_has_exited() {
         vm.api_pause().await.unwrap();
         let mut snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
         snapshot
-            .copy::<TokioRuntime>(get_tmp_path(), get_tmp_path())
+            .copy(get_tmp_path(), get_tmp_path(), &TokioRuntime)
             .await
             .unwrap();
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm).await;
 
         restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
-        snapshot.remove::<TokioRuntime>().await;
+        snapshot.remove(&TokioRuntime).await;
     });
 }
 
@@ -296,12 +296,13 @@ async fn restore_vm_from_snapshot(snapshot: VmSnapshot, is_jailed: bool) {
 
     let mut vm = TestVm::prepare(
         executor,
+        Arc::new(DirectProcessSpawner),
+        TokioRuntime,
         VmmOwnershipModel::Downgraded {
             uid: TestOptions::get().await.jailer_uid,
             gid: TestOptions::get().await.jailer_gid,
         },
-        DirectProcessSpawner,
-        get_real_firecracker_installation(),
+        Arc::new(get_real_firecracker_installation()),
         snapshot.into_configuration(VmmResourceMoveMethod::Copy, Some(true), Some(true)),
     )
     .await

@@ -13,6 +13,7 @@ use super::{
     chownr::chownr_recursive, Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess, RuntimeTask,
 };
 
+#[derive(Clone)]
 pub struct TokioRuntime;
 
 impl Runtime for TokioRuntime {
@@ -26,13 +27,53 @@ impl Runtime for TokioRuntime {
     type HyperExecutor = hyper_util::rt::TokioExecutor;
 
     #[cfg(feature = "vmm-process")]
-    fn get_hyper_executor() -> Self::HyperExecutor {
+    fn hyper_executor(&self) -> Self::HyperExecutor {
         hyper_util::rt::TokioExecutor::new()
     }
 
     #[cfg(feature = "vmm-process")]
-    fn get_hyper_client_sockets_backend() -> hyper_client_sockets::Backend {
+    fn hyper_client_sockets_backend(&self) -> hyper_client_sockets::Backend {
         hyper_client_sockets::Backend::Tokio
+    }
+
+    fn executor(&self) -> Self::Executor {
+        TokioRuntimeExecutor
+    }
+
+    fn filesystem(&self) -> Self::Filesystem {
+        TokioRuntimeFilesystem
+    }
+
+    fn spawn_process(
+        &self,
+        command: std::process::Command,
+        stdout: Stdio,
+        stderr: Stdio,
+        stdin: Stdio,
+    ) -> Result<Self::Process, std::io::Error> {
+        tokio::process::Command::from(command)
+            .stdout(stdout)
+            .stderr(stderr)
+            .stdin(stdin)
+            .spawn()
+            .map(|mut child| {
+                let stdout = child.stdout.take().map(|stdout| stdout.compat());
+                let stderr = child.stderr.take().map(|stderr| stderr.compat());
+                let stdin = child.stdin.take().map(|stdin| stdin.compat_write());
+                TokioRuntimeProcess {
+                    child,
+                    stdout,
+                    stdin,
+                    stderr,
+                }
+            })
+    }
+
+    fn run_process(
+        &self,
+        command: std::process::Command,
+    ) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send {
+        tokio::process::Command::from(command).output()
     }
 }
 
@@ -43,7 +84,7 @@ impl RuntimeExecutor for TokioRuntimeExecutor {
 
     type TimeoutError = tokio::time::error::Elapsed;
 
-    fn spawn<F, O>(future: F) -> Self::Task<O>
+    fn spawn<F, O>(&self, future: F) -> Self::Task<O>
     where
         F: Future<Output = O> + Send + 'static,
         O: Send + 'static,
@@ -51,7 +92,7 @@ impl RuntimeExecutor for TokioRuntimeExecutor {
         TokioRuntimeTask(tokio::task::spawn(future))
     }
 
-    fn timeout<F, O>(duration: Duration, future: F) -> impl Future<Output = Result<O, Self::TimeoutError>> + Send
+    fn timeout<F, O>(&self, duration: Duration, future: F) -> impl Future<Output = Result<O, Self::TimeoutError>> + Send
     where
         F: Future<Output = O> + Send,
         O: Send,
@@ -83,46 +124,47 @@ impl RuntimeFilesystem for TokioRuntimeFilesystem {
 
     type AsyncFd = TokioRuntimeAsyncFd;
 
-    fn check_exists(path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send {
+    fn check_exists(&self, path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send {
         tokio::fs::try_exists(path)
     }
 
-    fn remove_file(path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
+    fn remove_file(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
         tokio::fs::remove_file(path)
     }
 
-    fn create_dir_all(path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
+    fn create_dir_all(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
         tokio::fs::create_dir_all(path)
     }
 
-    async fn create_file(path: &Path) -> Result<(), std::io::Error> {
+    async fn create_file(&self, path: &Path) -> Result<(), std::io::Error> {
         tokio::fs::File::create(path).await.map(|_| ())
     }
 
-    fn write_file(path: &Path, content: String) -> impl Future<Output = Result<(), std::io::Error>> + Send {
+    fn write_file(&self, path: &Path, content: String) -> impl Future<Output = Result<(), std::io::Error>> + Send {
         tokio::fs::write(path, content)
     }
 
-    fn read_to_string(path: &Path) -> impl Future<Output = Result<String, std::io::Error>> + Send {
+    fn read_to_string(&self, path: &Path) -> impl Future<Output = Result<String, std::io::Error>> + Send {
         tokio::fs::read_to_string(path)
     }
 
     fn rename_file(
+        &self,
         source_path: &Path,
         destination_path: &Path,
     ) -> impl Future<Output = Result<(), std::io::Error>> + Send {
         tokio::fs::rename(source_path, destination_path)
     }
 
-    fn remove_dir_all(path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
+    fn remove_dir_all(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
         tokio::fs::remove_dir_all(path)
     }
 
-    async fn copy(source_path: &Path, destination_path: &Path) -> Result<(), std::io::Error> {
+    async fn copy(&self, source_path: &Path, destination_path: &Path) -> Result<(), std::io::Error> {
         tokio::fs::copy(source_path, destination_path).await.map(|_| ())
     }
 
-    async fn chownr(path: &Path, uid: u32, gid: u32) -> Result<(), std::io::Error> {
+    async fn chownr(&self, path: &Path, uid: u32, gid: u32) -> Result<(), std::io::Error> {
         let path = path.to_owned();
         match tokio::task::spawn_blocking(move || chownr_recursive(&path, uid, gid)).await {
             Ok(result) => result,
@@ -131,20 +173,21 @@ impl RuntimeFilesystem for TokioRuntimeFilesystem {
     }
 
     fn hard_link(
+        &self,
         source_path: &Path,
         destination_path: &Path,
     ) -> impl Future<Output = Result<(), std::io::Error>> + Send {
         tokio::fs::hard_link(source_path, destination_path)
     }
 
-    async fn open_file_for_read(path: &Path) -> Result<Self::File, std::io::Error> {
+    async fn open_file_for_read(&self, path: &Path) -> Result<Self::File, std::io::Error> {
         let mut open_options = tokio::fs::OpenOptions::new();
         open_options.read(true);
         let file = open_options.open(path).await?;
         Ok(file.compat())
     }
 
-    fn create_async_fd(fd: OwnedFd) -> Result<Self::AsyncFd, std::io::Error> {
+    fn create_async_fd(&self, fd: OwnedFd) -> Result<Self::AsyncFd, std::io::Error> {
         Ok(TokioRuntimeAsyncFd(AsyncFd::new(fd)?))
     }
 }
@@ -173,36 +216,6 @@ impl RuntimeProcess for TokioRuntimeProcess {
     type Stderr = Compat<ChildStderr>;
 
     type Stdin = Compat<ChildStdin>;
-
-    fn spawn(
-        command: std::process::Command,
-        stdout: Stdio,
-        stderr: Stdio,
-        stdin: Stdio,
-    ) -> Result<Self, std::io::Error> {
-        tokio::process::Command::from(command)
-            .stdout(stdout)
-            .stderr(stderr)
-            .stdin(stdin)
-            .spawn()
-            .map(|mut child| {
-                let stdout = child.stdout.take().map(|stdout| stdout.compat());
-                let stderr = child.stderr.take().map(|stderr| stderr.compat());
-                let stdin = child.stdin.take().map(|stdin| stdin.compat_write());
-                Self {
-                    child,
-                    stdout,
-                    stdin,
-                    stderr,
-                }
-            })
-    }
-
-    fn output(
-        command: std::process::Command,
-    ) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send {
-        tokio::process::Command::from(command).output()
-    }
 
     fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, std::io::Error> {
         self.child.try_wait()

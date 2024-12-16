@@ -98,7 +98,7 @@ async fn vmm_can_send_get_request_to_api_socket() {
         let request = Request::builder().method("GET").body(Full::new(Bytes::new())).unwrap();
         let mut response = process.send_api_request("/", request).await.unwrap();
         assert!(response.status().is_success());
-        let body = response.recv_to_string().await.unwrap();
+        let body = response.read_body_to_string().await.unwrap();
         assert!(body.contains("\"state\":\"Running\""));
         assert!(body.contains("\"vmm_version\":\""));
         assert!(body.contains("\"app_name\":\"Firecracker\""));
@@ -117,7 +117,7 @@ async fn vmm_can_send_patch_request_to_api_socket() {
             .unwrap();
         let mut response = process.send_api_request("/vm", request).await.unwrap();
         assert!(response.status().is_success());
-        assert!(response.recv_to_string().await.unwrap().is_empty());
+        assert!(response.read_body_to_string().await.unwrap().is_empty());
     }
 
     run_vmm_process_test(false, |mut process, resources| async move {
@@ -138,7 +138,7 @@ async fn vmm_can_send_put_request_to_api_socket() {
             .unwrap();
         let mut response = process.send_api_request("/actions", request).await.unwrap();
         assert!(response.status().is_success());
-        assert!(response.recv_to_string().await.unwrap().is_empty());
+        assert!(response.read_body_to_string().await.unwrap().is_empty());
         shutdown(&mut process, resources).await;
     })
     .await;

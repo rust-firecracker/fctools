@@ -55,6 +55,9 @@ impl VmConfiguration {
         }
     }
 
+    /// Create a set of [VmmResourceReferences] from this [VmConfiguration] by correctly mapping all internal resources
+    /// in all configuration structures. This will mutably borrow the [VmConfiguration] and the returned value will be
+    /// bound to its lifetime.
     pub fn resource_references(&mut self) -> VmmResourceReferences<'_> {
         let mut references = VmmResourceReferences::new();
 

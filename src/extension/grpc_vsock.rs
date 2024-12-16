@@ -99,7 +99,7 @@ fn create_endpoint_and_service<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
     let service = FirecrackerTowerService {
         guest_port,
         uds_path: Arc::new(uds_path),
-        backend: R::get_hyper_client_sockets_backend(),
+        backend: vm.runtime.hyper_client_sockets_backend(),
     };
 
     Ok((endpoint, service))

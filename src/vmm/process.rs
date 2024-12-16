@@ -18,7 +18,10 @@ use crate::{
 };
 
 use super::{
-    executor::process_handle::{ProcessHandle, ProcessHandlePipes, ProcessHandlePipesError},
+    executor::{
+        process_handle::{ProcessHandle, ProcessHandlePipes, ProcessHandlePipesError},
+        VmmExecutorContext,
+    },
     ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
     resource::VmmResourceReferences,
 };
@@ -30,6 +33,7 @@ pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     executor: E,
     ownership_model: VmmOwnershipModel,
     process_spawner: Arc<S>,
+    runtime: R,
     installation: Arc<VmmInstallation>,
     process_handle: Option<ProcessHandle<R::Process>>,
     state: VmmProcessState,
@@ -130,20 +134,21 @@ impl std::fmt::Display for VmmProcessError {
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
-    /// Create a new [VmmProcess] from the given component. Each component is either its owned value or an [Arc]; in the
-    /// former case it will be put into an [Arc], otherwise the [Arc] will be kept. This allows for performant non-clone-based
-    /// sharing of [VmmProcess] components between multiple [VmmProcess]-es.
+    /// Create a new [VmmProcess] from the necessary set of components:
+    /// [VmmExecutor], [Arc<ProcessSpawner>], [Runtime], [VmmOwnershipModel], [Arc<VmmInstallation>]
     pub fn new(
         executor: E,
+        process_spawner: Arc<S>,
+        runtime: R,
         ownership_model: VmmOwnershipModel,
-        process_spawner: impl Into<Arc<S>>,
-        installation: impl Into<Arc<VmmInstallation>>,
+        installation: Arc<VmmInstallation>,
     ) -> Self {
         let installation = installation.into();
         Self {
             executor,
             ownership_model,
             process_spawner: process_spawner.into(),
+            runtime,
             installation,
             process_handle: None,
             state: VmmProcessState::AwaitingPrepare,
@@ -155,12 +160,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     pub async fn prepare(&mut self, resource_references: VmmResourceReferences<'_>) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingPrepare)?;
         self.executor
-            .prepare::<R>(
-                self.installation.as_ref(),
-                self.process_spawner.clone(),
-                self.ownership_model,
-                resource_references,
-            )
+            .prepare(self.executor_context(), resource_references)
             .await
             .map_err(VmmProcessError::ExecutorError)?;
         self.state = VmmProcessState::AwaitingStart;
@@ -173,12 +173,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.process_handle = Some(
             self.executor
-                .invoke::<R>(
-                    self.installation.as_ref(),
-                    self.process_spawner.clone(),
-                    config_path,
-                    self.ownership_model,
-                )
+                .invoke(self.executor_context(), config_path)
                 .await
                 .map_err(VmmProcessError::ExecutorError)?,
         );
@@ -200,13 +195,20 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
         let hyper_client = self
             .hyper_client
             .get_or_try_init(async {
-                upgrade_owner::<R>(&socket_path, self.ownership_model, self.process_spawner.as_ref())
-                    .await
-                    .map_err(VmmProcessError::ChangeOwnerError)?;
+                upgrade_owner(
+                    &socket_path,
+                    self.ownership_model,
+                    self.process_spawner.as_ref(),
+                    &self.runtime,
+                )
+                .await
+                .map_err(VmmProcessError::ChangeOwnerError)?;
 
-                Ok(Client::builder(R::get_hyper_executor()).build(HyperUnixConnector {
-                    backend: R::get_hyper_client_sockets_backend(),
-                }))
+                Ok(
+                    Client::builder(self.runtime.hyper_executor()).build(HyperUnixConnector {
+                        backend: self.runtime.hyper_client_sockets_backend(),
+                    }),
+                )
             })
             .await?;
 
@@ -302,12 +304,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     pub async fn cleanup(&mut self, resource_references: VmmResourceReferences<'_>) -> Result<(), VmmProcessError> {
         self.ensure_exited_or_crashed()?;
         self.executor
-            .cleanup::<R>(
-                self.installation.as_ref(),
-                self.process_spawner.clone(),
-                self.ownership_model,
-                resource_references,
-            )
+            .cleanup(self.executor_context(), resource_references)
             .await
             .map_err(VmmProcessError::ExecutorError)
     }
@@ -341,25 +338,35 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
 
         Err(VmmProcessError::ExpectedExitedOrCrashed { actual: state })
     }
+
+    #[inline(always)]
+    fn executor_context(&self) -> VmmExecutorContext<S, R> {
+        VmmExecutorContext {
+            installation: self.installation.clone(),
+            process_spawner: self.process_spawner.clone(),
+            runtime: self.runtime.clone(),
+            ownership_model: self.ownership_model,
+        }
+    }
 }
 
 /// An extension to a hyper [Response<Incoming>] (returned by the Firecracker API socket) that allows
 /// easy streaming of the response body into a [String] or [BytesMut].
 pub trait HyperResponseExt: Send {
     /// Stream the entire response body into a byte buffer (BytesMut).
-    fn recv_to_buf(&mut self) -> impl Future<Output = Result<BytesMut, hyper::Error>> + Send;
+    fn read_body_to_buffer(&mut self) -> impl Future<Output = Result<BytesMut, hyper::Error>> + Send;
 
     /// Stream the entire response body into an owned string.
-    fn recv_to_string(&mut self) -> impl Future<Output = Result<String, hyper::Error>> + Send {
+    fn read_body_to_string(&mut self) -> impl Future<Output = Result<String, hyper::Error>> + Send {
         async {
-            let buf = self.recv_to_buf().await?;
+            let buf = self.read_body_to_buffer().await?;
             Ok(String::from_utf8_lossy(&buf).into_owned())
         }
     }
 }
 
 impl HyperResponseExt for Response<Incoming> {
-    async fn recv_to_buf(&mut self) -> Result<BytesMut, hyper::Error> {
+    async fn read_body_to_buffer(&mut self) -> Result<BytesMut, hyper::Error> {
         let mut buf = BytesMut::new();
         while let Some(frame) = self.frame().await {
             if let Ok(bytes) = frame?.into_data() {
