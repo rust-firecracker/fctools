@@ -88,7 +88,8 @@ pub trait VmmExecutor: Send + Sync {
     /// Prepare all transient resources for the VMM invocation.
     fn prepare<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
+        resource_references: VmmResourceReferences<'_>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 
     /// Invoke the VMM on the given [VmmInstallation] and return the [ProcessHandle] that performs a connection to
@@ -96,21 +97,21 @@ pub trait VmmExecutor: Send + Sync {
     /// a separate PID namespace.
     fn invoke<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
     ) -> impl Future<Output = Result<ProcessHandle<R::Process>, VmmExecutorError>> + Send;
 
     /// Clean up all transient resources of the VMM invocation.
     fn cleanup<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
+        resource_references: VmmResourceReferences<'_>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
-pub struct VmmExecutorContext<'ctx, S: ProcessSpawner, R: Runtime> {
-    pub installation: &'ctx VmmInstallation,
+pub struct VmmExecutorContext<S: ProcessSpawner, R: Runtime> {
+    pub installation: Arc<VmmInstallation>,
     pub process_spawner: Arc<S>,
     pub runtime: R,
     pub ownership_model: VmmOwnershipModel,
-    pub resource_references: VmmResourceReferences<'ctx>,
 }

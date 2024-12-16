@@ -9,6 +9,7 @@ use crate::{
         arguments::{command_modifier::CommandModifier, VmmApiSocket, VmmArguments},
         id::VmmId,
         installation::VmmInstallation,
+        resource::VmmResourceReferences,
     },
 };
 
@@ -70,12 +71,13 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
     async fn prepare<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        mut context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
+        mut resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
         let mut join_set = RuntimeJoinSet::new(context.runtime.clone());
 
         // Apply moved resources
-        for moved_resource in context.resource_references.moved_resources {
+        for moved_resource in resource_references.moved_resources {
             join_set.spawn(
                 moved_resource
                     .initialize_with_same_path(
@@ -116,14 +118,14 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
         // Apply created resources
         if let Some(ref mut logs) = self.vmm_arguments.logs {
-            context.resource_references.created_resources.push(logs);
+            resource_references.created_resources.push(logs);
         }
 
         if let Some(ref mut metrics) = self.vmm_arguments.metrics {
-            context.resource_references.created_resources.push(metrics);
+            resource_references.created_resources.push(metrics);
         }
 
-        for created_resource in context.resource_references.created_resources {
+        for created_resource in resource_references.created_resources {
             join_set.spawn(
                 created_resource
                     .initialize_with_same_path::<R>(context.ownership_model, context.runtime.clone())
@@ -131,7 +133,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             );
         }
 
-        for produced_resource in context.resource_references.produced_resources {
+        for produced_resource in resource_references.produced_resources {
             join_set.spawn(
                 produced_resource
                     .initialize_with_same_path::<R>(context.ownership_model, context.runtime.clone())
@@ -145,7 +147,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
     async fn invoke<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
     ) -> Result<ProcessHandle<R::Process>, VmmExecutorError> {
         let mut arguments = self.vmm_arguments.join(config_path);
@@ -170,7 +172,8 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
     async fn cleanup<S: ProcessSpawner, R: Runtime>(
         &mut self,
-        mut context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
+        mut resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
         let mut join_set = RuntimeJoinSet::new(context.runtime.clone());
 
@@ -202,14 +205,14 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         if let Some(ref mut logs) = self.vmm_arguments.logs {
-            context.resource_references.created_resources.push(logs);
+            resource_references.created_resources.push(logs);
         }
 
         if let Some(ref mut metrics) = self.vmm_arguments.metrics {
-            context.resource_references.created_resources.push(metrics);
+            resource_references.created_resources.push(metrics);
         }
 
-        for created_resource in context.resource_references.created_resources {
+        for created_resource in resource_references.created_resources {
             join_set.spawn(
                 created_resource
                     .dispose(
@@ -221,7 +224,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             );
         }
 
-        for produced_resource in context.resource_references.produced_resources {
+        for produced_resource in resource_references.produced_resources {
             join_set.spawn(
                 produced_resource
                     .dispose(

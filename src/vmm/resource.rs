@@ -40,10 +40,10 @@ impl std::fmt::Display for VmmResourceError {
 
 /// A set of mutable references to VMM resources of all three types. Through these references, the resources
 /// should be initialized by a VMM executor.
-pub struct VmmResourceReferences<'r> {
-    pub moved_resources: Vec<&'r mut MovedVmmResource>,
-    pub created_resources: Vec<&'r mut CreatedVmmResource>,
-    pub produced_resources: Vec<&'r mut ProducedVmmResource>,
+pub struct VmmResourceReferences<'res> {
+    pub moved_resources: Vec<&'res mut MovedVmmResource>,
+    pub created_resources: Vec<&'res mut CreatedVmmResource>,
+    pub produced_resources: Vec<&'res mut ProducedVmmResource>,
 }
 
 impl<'r> VmmResourceReferences<'r> {
