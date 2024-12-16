@@ -37,7 +37,7 @@ pub struct Vm<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     vmm_process: VmmProcess<E, S, R>,
     process_spawner: Arc<S>,
     ownership_model: VmmOwnershipModel,
-    runtime: R,
+    pub(crate) runtime: R,
     is_paused: bool,
     configuration: VmConfiguration,
 }
