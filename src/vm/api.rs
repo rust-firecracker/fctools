@@ -267,27 +267,29 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
             .local_to_effective_path(create_snapshot.mem_file.local_path().to_owned());
 
         futures_util::try_join!(
-            upgrade_owner::<R>(
+            upgrade_owner(
                 &snapshot_effective_path,
                 self.ownership_model,
-                self.process_spawner.as_ref()
+                self.process_spawner.as_ref(),
+                &self.runtime,
             ),
-            upgrade_owner::<R>(
+            upgrade_owner(
                 &mem_file_effective_path,
                 self.ownership_model,
-                self.process_spawner.as_ref()
+                self.process_spawner.as_ref(),
+                &self.runtime,
             ),
         )
         .map_err(VmApiError::SnapshotChangeOwnerError)?;
 
         create_snapshot
             .snapshot
-            .initialize::<R>(snapshot_effective_path, self.ownership_model)
+            .initialize(snapshot_effective_path, self.ownership_model, self.runtime.clone())
             .await
             .map_err(VmApiError::ResourceError)?;
         create_snapshot
             .mem_file
-            .initialize::<R>(mem_file_effective_path, self.ownership_model)
+            .initialize::<R>(mem_file_effective_path, self.ownership_model, self.runtime.clone())
             .await
             .map_err(VmApiError::ResourceError)?;
 
