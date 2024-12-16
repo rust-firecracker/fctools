@@ -15,9 +15,11 @@ use std::{
 use futures_io::{AsyncRead, AsyncWrite};
 
 #[cfg(feature = "tokio-runtime")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tokio-runtime")))]
 pub mod tokio;
 
 #[cfg(feature = "smol-runtime")]
+#[cfg_attr(docsrs, doc(cfg(feature = "smol-runtime")))]
 pub mod smol;
 
 #[cfg(any(feature = "tokio-runtime", feature = "smol-runtime"))]
@@ -32,12 +34,15 @@ pub trait Runtime: Clone + Send + Sync + 'static {
     type Process: RuntimeProcess;
 
     #[cfg(feature = "vmm-process")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
     type HyperExecutor: hyper::rt::Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Clone + Send + Sync + 'static;
 
     #[cfg(feature = "vmm-process")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
     fn hyper_executor(&self) -> Self::HyperExecutor;
 
     #[cfg(feature = "vmm-process")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
     fn hyper_client_sockets_backend(&self) -> hyper_client_sockets::Backend;
 
     fn executor(&self) -> Self::Executor;
