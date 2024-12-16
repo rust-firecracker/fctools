@@ -48,7 +48,7 @@ fn vm_api_can_send_custom_request() {
             .await
             .unwrap();
         assert!(response.status().is_success());
-        let content = response.recv_to_string().await.unwrap();
+        let content = response.read_body_to_string().await.unwrap();
         assert!(content.starts_with('{'));
         shutdown_test_vm(&mut vm).await;
     });

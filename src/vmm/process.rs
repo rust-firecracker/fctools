@@ -353,19 +353,19 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
 /// easy streaming of the response body into a [String] or [BytesMut].
 pub trait HyperResponseExt: Send {
     /// Stream the entire response body into a byte buffer (BytesMut).
-    fn recv_to_buf(&mut self) -> impl Future<Output = Result<BytesMut, hyper::Error>> + Send;
+    fn read_body_to_buffer(&mut self) -> impl Future<Output = Result<BytesMut, hyper::Error>> + Send;
 
     /// Stream the entire response body into an owned string.
-    fn recv_to_string(&mut self) -> impl Future<Output = Result<String, hyper::Error>> + Send {
+    fn read_body_to_string(&mut self) -> impl Future<Output = Result<String, hyper::Error>> + Send {
         async {
-            let buf = self.recv_to_buf().await?;
+            let buf = self.read_body_to_buffer().await?;
             Ok(String::from_utf8_lossy(&buf).into_owned())
         }
     }
 }
 
 impl HyperResponseExt for Response<Incoming> {
-    async fn recv_to_buf(&mut self) -> Result<BytesMut, hyper::Error> {
+    async fn read_body_to_buffer(&mut self) -> Result<BytesMut, hyper::Error> {
         let mut buf = BytesMut::new();
         while let Some(frame) = self.frame().await {
             if let Ok(bytes) = frame?.into_data() {

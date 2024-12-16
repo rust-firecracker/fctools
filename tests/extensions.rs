@@ -384,7 +384,7 @@ fn make_vsock_req() -> http::Request<Full<Bytes>> {
 }
 
 async fn assert_vsock_resp(mut response: http::Response<hyper::body::Incoming>) {
-    let response_json = response.recv_to_string().await.unwrap();
+    let response_json = response.read_body_to_string().await.unwrap();
     assert_eq!(
         serde_json::from_str::<PingResponse>(&response_json).unwrap(),
         PingResponse { c: 20 }

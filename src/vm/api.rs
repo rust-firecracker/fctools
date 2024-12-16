@@ -496,7 +496,7 @@ async fn send_api_request_internal<E: VmmExecutor, S: ProcessSpawner, R: Runtime
         .await
         .map_err(VmApiError::ConnectionError)?;
     let response_json = response
-        .recv_to_string()
+        .read_body_to_string()
         .await
         .map_err(VmApiError::ResponseBodyReceiveError)?;
 
