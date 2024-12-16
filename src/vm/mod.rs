@@ -147,28 +147,26 @@ impl std::fmt::Display for VmStateCheckError {
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
-    /// Prepare the full environment of a [Vm] without booting it. Analogously to the [VmmProcess], the passed-in resources
-    /// can be either owned or [Arc]-ed; in the former case they will be put into an [Arc].
+    /// Prepare the full environment of a [Vm] without booting it. Analogously to a [VmmProcess], this requires
+    /// all the necessary components: [VmmExecutor], [Arc<ProcessSpawner>], [Runtime], [VmmOwnershipModel],
+    /// [Arc<VmmInstallation>]. An additional component of a [Vm] is its [VmConfiguration].
     pub async fn prepare(
         executor: E,
-        ownership_model: VmmOwnershipModel,
-        process_spawner: impl Into<Arc<S>>,
+        process_spawner: Arc<S>,
         runtime: R,
-        installation: impl Into<Arc<VmmInstallation>>,
+        ownership_model: VmmOwnershipModel,
+        installation: Arc<VmmInstallation>,
         mut configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
-        let process_spawner = process_spawner.into();
-        let installation = installation.into();
-
         if executor.get_socket_path(installation.as_ref()).is_none() {
             return Err(VmError::DisabledApiSocketIsUnsupported);
         }
 
         let mut vmm_process = VmmProcess::new(
             executor,
-            ownership_model,
             process_spawner.clone(),
             runtime.clone(),
+            ownership_model,
             installation,
         );
 

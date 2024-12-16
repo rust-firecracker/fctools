@@ -1,4 +1,4 @@
-use std::{os::unix::fs::FileTypeExt, time::Duration};
+use std::{os::unix::fs::FileTypeExt, sync::Arc, time::Duration};
 
 use fctools::{
     process_spawner::DirectProcessSpawner,
@@ -296,13 +296,13 @@ async fn restore_vm_from_snapshot(snapshot: VmSnapshot, is_jailed: bool) {
 
     let mut vm = TestVm::prepare(
         executor,
+        Arc::new(DirectProcessSpawner),
+        TokioRuntime,
         VmmOwnershipModel::Downgraded {
             uid: TestOptions::get().await.jailer_uid,
             gid: TestOptions::get().await.jailer_gid,
         },
-        DirectProcessSpawner,
-        TokioRuntime,
-        get_real_firecracker_installation(),
+        Arc::new(get_real_firecracker_installation()),
         snapshot.into_configuration(VmmResourceMoveMethod::Copy, Some(true), Some(true)),
     )
     .await

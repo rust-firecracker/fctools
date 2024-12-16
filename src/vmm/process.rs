@@ -134,13 +134,14 @@ impl std::fmt::Display for VmmProcessError {
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
-    /// Create a new [VmmProcess] from the given set of components (executor, process spawner and runtime).
+    /// Create a new [VmmProcess] from the necessary set of components:
+    /// [VmmExecutor], [Arc<ProcessSpawner>], [Runtime], [VmmOwnershipModel], [Arc<VmmInstallation>]
     pub fn new(
         executor: E,
-        ownership_model: VmmOwnershipModel,
-        process_spawner: impl Into<Arc<S>>,
+        process_spawner: Arc<S>,
         runtime: R,
-        installation: impl Into<Arc<VmmInstallation>>,
+        ownership_model: VmmOwnershipModel,
+        installation: Arc<VmmInstallation>,
     ) -> Self {
         let installation = installation.into();
         Self {

@@ -268,18 +268,18 @@ async fn get_vmm_processes(
     (
         TestVmmProcess::new(
             EitherVmmExecutor::Unrestricted(unrestricted_executor),
-            ownership_model,
-            DirectProcessSpawner,
+            Arc::new(DirectProcessSpawner),
             TokioRuntime,
-            get_real_firecracker_installation(),
+            ownership_model,
+            Arc::new(get_real_firecracker_installation()),
         ),
         unrestricted_resources,
         TestVmmProcess::new(
             EitherVmmExecutor::Jailed(jailed_executor),
-            ownership_model,
-            DirectProcessSpawner,
+            Arc::new(DirectProcessSpawner),
             TokioRuntime,
-            get_real_firecracker_installation(),
+            ownership_model,
+            Arc::new(get_real_firecracker_installation()),
         ),
         jailed_resources,
     )
@@ -674,13 +674,13 @@ impl VmBuilder {
         let mut vm: fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime> =
             TestVm::prepare(
                 executor,
+                Arc::new(DirectProcessSpawner),
+                TokioRuntime,
                 VmmOwnershipModel::Downgraded {
                     uid: TestOptions::get().await.jailer_uid,
                     gid: TestOptions::get().await.jailer_gid,
                 },
-                DirectProcessSpawner,
-                TokioRuntime,
-                get_real_firecracker_installation(),
+                Arc::new(get_real_firecracker_installation()),
                 configuration,
             )
             .await
