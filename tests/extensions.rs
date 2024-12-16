@@ -132,7 +132,7 @@ fn snapshot_editor_can_rebase_memory() {
         vm.api_resume().await.unwrap();
 
         get_real_firecracker_installation()
-            .snapshot_editor::<TokioRuntime>()
+            .snapshot_editor(TokioRuntime)
             .rebase_memory(
                 base_snapshot.mem_file.effective_path(),
                 diff_snapshot.mem_file.effective_path(),
@@ -151,7 +151,7 @@ fn snapshot_editor_can_get_snapshot_version() {
         vm.api_resume().await.unwrap();
 
         let version = get_real_firecracker_installation()
-            .snapshot_editor::<TokioRuntime>()
+            .snapshot_editor(TokioRuntime)
             .get_snapshot_version(snapshot.snapshot.effective_path())
             .await
             .unwrap();
@@ -168,7 +168,7 @@ fn snapshot_editor_can_get_snapshot_vcpu_states() {
         vm.api_resume().await.unwrap();
 
         let data = get_real_firecracker_installation()
-            .snapshot_editor::<TokioRuntime>()
+            .snapshot_editor(TokioRuntime)
             .get_snapshot_vcpu_states(snapshot.snapshot.effective_path())
             .await
             .unwrap();
@@ -187,7 +187,7 @@ fn snapshot_editor_can_get_snapshot_vm_state() {
         vm.api_resume().await.unwrap();
 
         let data = get_real_firecracker_installation()
-            .snapshot_editor::<TokioRuntime>()
+            .snapshot_editor(TokioRuntime)
             .get_snapshot_vm_state(snapshot.snapshot.effective_path())
             .await
             .unwrap();
@@ -229,7 +229,7 @@ async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
         assert!(file_type.is_file());
     }
 
-    let mut metrics_task = spawn_metrics_task::<TokioRuntime>(metrics_path, 100);
+    let mut metrics_task = spawn_metrics_task(metrics_path, 100, TokioRuntime);
     let metrics = metrics_task.receiver.next().await.unwrap();
     assert!(metrics.put_api_requests.actions_count > 0);
     shutdown_test_vm(&mut vm).await;
@@ -240,7 +240,7 @@ fn metrics_task_can_be_cancelled_via_join_handle() {
     VmBuilder::new()
         .metrics_system(CreatedVmmResourceType::Fifo)
         .run(|mut vm| async move {
-            let mut metrics_task = spawn_metrics_task::<TokioRuntime>(
+            let mut metrics_task = spawn_metrics_task(
                 vm.configuration()
                     .data()
                     .metrics_system
@@ -250,6 +250,7 @@ fn metrics_task_can_be_cancelled_via_join_handle() {
                     .effective_path()
                     .to_owned(),
                 100,
+                TokioRuntime,
             );
             metrics_task.task.cancel().await;
             tokio::time::timeout(Duration::from_secs(1), async {

@@ -23,7 +23,9 @@ pub mod smol;
 #[cfg(any(feature = "tokio-runtime", feature = "smol-runtime"))]
 mod chownr;
 
-/// An async runtime platform used by fctools.
+/// An async runtime platform used by fctools. Instances of a [Runtime] are highly frequently cloned by fctools,
+/// so the [Clone] implementation is expected to be cheap and fast, meaning that the underlying structure of a [Runtime]
+/// implementation should either be a ZST or an [Arc](std::sync::Arc) of an inner shared type.
 pub trait Runtime: Clone + Send + Sync + 'static {
     type Executor: RuntimeExecutor;
     type Filesystem: RuntimeFilesystem;

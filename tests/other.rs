@@ -23,7 +23,7 @@ async fn installation_does_not_verify_for_missing_files() {
     };
     assert_matches::assert_matches!(
         installation
-            .verify::<TokioRuntime>(&TestOptions::get().await.toolchain.version)
+            .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)
             .await,
         Err(VmmInstallationError::BinaryMissing)
     );
@@ -44,7 +44,7 @@ async fn installation_does_not_verify_for_non_executable_files() {
     };
     assert_matches::assert_matches!(
         installation
-            .verify::<TokioRuntime>(&TestOptions::get().await.toolchain.version)
+            .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)
             .await,
         Err(VmmInstallationError::BinaryNotExecutable)
     );
@@ -59,7 +59,7 @@ async fn installation_does_not_verify_for_incorrect_binary_type() {
     };
     assert_matches::assert_matches!(
         installation
-            .verify::<TokioRuntime>(&TestOptions::get().await.toolchain.version)
+            .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)
             .await,
         Err(VmmInstallationError::BinaryIsOfIncorrectType)
     );
@@ -74,7 +74,7 @@ async fn installation_does_not_verify_for_incorrect_binary_version() {
     };
     assert_matches::assert_matches!(
         installation
-            .verify::<TokioRuntime>(&TestOptions::get().await.toolchain.version)
+            .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)
             .await,
         Err(VmmInstallationError::BinaryDoesNotMatchExpectedVersion)
     );
@@ -88,7 +88,7 @@ async fn installation_verifies_for_correct_parameters() {
         snapshot_editor_path: get_test_path("toolchain/snapshot-editor"),
     };
     installation
-        .verify::<TokioRuntime>(&TestOptions::get().await.toolchain.version)
+        .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)
         .await
         .unwrap();
 }
@@ -96,7 +96,7 @@ async fn installation_verifies_for_correct_parameters() {
 #[tokio::test]
 async fn direct_process_spawner_can_null_pipes() {
     let mut process = DirectProcessSpawner
-        .spawn::<TokioRuntime>(&PathBuf::from("echo"), vec![], true)
+        .spawn(&PathBuf::from("echo"), vec![], true, &TokioRuntime)
         .await
         .unwrap();
     assert!(process.take_stdout().is_none());

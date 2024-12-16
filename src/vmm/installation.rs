@@ -52,17 +52,17 @@ impl VmmInstallation {
     /// are executable and yield the correct type and version when spawned and awaited with "--version".
     pub async fn verify<R: Runtime>(
         &self,
-        runtime: R,
         expected_version: impl AsRef<str>,
+        runtime: &R,
     ) -> Result<(), VmmInstallationError> {
         futures_util::try_join!(
             verify_imp::<R>(
-                runtime.clone(),
+                runtime,
                 &self.firecracker_path,
                 expected_version.as_ref(),
                 "Firecracker"
             ),
-            verify_imp::<R>(runtime.clone(), &self.jailer_path, expected_version.as_ref(), "Jailer"),
+            verify_imp::<R>(runtime, &self.jailer_path, expected_version.as_ref(), "Jailer"),
             verify_imp::<R>(
                 runtime,
                 &self.snapshot_editor_path,
@@ -75,7 +75,7 @@ impl VmmInstallation {
 }
 
 async fn verify_imp<R: Runtime>(
-    runtime: R,
+    runtime: &R,
     path: &Path,
     expected_version: &str,
     expected_name: &str,
