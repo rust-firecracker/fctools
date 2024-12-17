@@ -51,22 +51,22 @@ impl Runtime for TokioRuntime {
         stderr: Stdio,
         stdin: Stdio,
     ) -> Result<Self::Process, std::io::Error> {
-        tokio::process::Command::from(command)
+        let mut child = tokio::process::Command::from(command)
             .stdout(stdout)
             .stderr(stderr)
             .stdin(stdin)
-            .spawn()
-            .map(|mut child| {
-                let stdout = child.stdout.take().map(|stdout| stdout.compat());
-                let stderr = child.stderr.take().map(|stderr| stderr.compat());
-                let stdin = child.stdin.take().map(|stdin| stdin.compat_write());
-                TokioRuntimeProcess {
-                    child,
-                    stdout,
-                    stdin,
-                    stderr,
-                }
-            })
+            .spawn()?;
+
+        let stdout = child.stdout.take().map(|stdout| stdout.compat());
+        let stderr = child.stderr.take().map(|stderr| stderr.compat());
+        let stdin = child.stdin.take().map(|stdin| stdin.compat_write());
+
+        Ok(TokioRuntimeProcess {
+            child,
+            stdout,
+            stdin,
+            stderr,
+        })
     }
 
     fn run_process(
