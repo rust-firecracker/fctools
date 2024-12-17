@@ -6,10 +6,10 @@
 //! - VMM IDs.
 //! - VMM installations (including the possibility to verify them at runtime).
 //! - VMM resource management (moved, created and produced resources).
-//!
-//! With the `vmm-executor` feature, these are available additionally:
-//! - VMM executor trait.
 //! - VMM ownership models and implementation helpers.
+//!
+//! With the `vmm-executor` feature, a VMM executor trait is additionally available that abstracts
+//! away the details of possibly jailing or not jailing a VMM, as well as other details of a VMM's lifecycle.
 //!
 //! The `unrestricted-vmm-executor`, `jailed-vmm-executor` and `either-vmm-executor` features enable the
 //! respective default implementations of VMM executors.
@@ -25,13 +25,11 @@ pub mod id;
 
 pub mod installation;
 
-#[cfg(feature = "vmm-executor")]
-#[cfg_attr(docsrs, doc(cfg(feature = "vmm-executor")))]
-pub mod executor;
+pub mod ownership;
 
 #[cfg(feature = "vmm-executor")]
 #[cfg_attr(docsrs, doc(cfg(feature = "vmm-executor")))]
-pub mod ownership;
+pub mod executor;
 
 #[cfg(feature = "vmm-process")]
 #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]

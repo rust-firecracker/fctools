@@ -1,5 +1,9 @@
+#![allow(unused)]
+
 #[cfg(all(feature = "syscall-nix", not(feature = "syscall-rustix")))]
 mod imp_nix {
+    #![allow(unused)]
+
     use std::{
         os::fd::{FromRawFd, OwnedFd, RawFd},
         path::Path,
@@ -55,6 +59,8 @@ mod imp_nix {
 
 #[cfg(feature = "syscall-rustix")]
 mod imp_rustix {
+    #![allow(unused)]
+
     use std::{
         os::fd::{BorrowedFd, OwnedFd, RawFd},
         path::Path,

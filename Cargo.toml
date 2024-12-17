@@ -61,7 +61,10 @@ async-fs = { version = "2.1.2", optional = true }
 blocking = { version = "1.6.1", optional = true }
 pin-project-lite = { version = "0.2.15", optional = true }
 # executor
-futures-util = { version = "0.3.31", features = ["sink"], optional = true }
+futures-util = { version = "0.3.31", features = [
+    "sink",
+    "io",
+], optional = true }
 futures-channel = { version = "0.3.31", features = ["sink"], optional = true }
 # process
 async-once-cell = { version = "0.5.4", optional = true }
@@ -157,12 +160,13 @@ either-vmm-executor = ["unrestricted-vmm-executor", "jailed-vmm-executor"]
 # L4: VMM process
 vmm-process = [
     "vmm-executor",
+    "dep:async-once-cell",
     "dep:hyper",
     "dep:bytes",
     "dep:http-body-util",
+    "dep:hyper-client-sockets",
     "dep:hyper-util",
     "dep:http",
-    "dep:async-once-cell",
 ]
 # L5: VM
 vm = ["vmm-process", "dep:serde", "dep:serde_json"]

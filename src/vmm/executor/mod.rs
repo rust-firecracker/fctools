@@ -8,7 +8,7 @@ use crate::{process_spawner::ProcessSpawner, runtime::Runtime};
 
 use super::{
     installation::VmmInstallation,
-    ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
+    ownership::{ChangeOwnerError, VmmOwnershipModel},
     resource::{VmmResourceError, VmmResourceReferences},
 };
 
@@ -64,6 +64,7 @@ impl std::fmt::Display for VmmExecutorError {
             }
             VmmExecutorError::TaskJoinFailed => write!(f, "Joining on an async task via the runtime failed"),
             VmmExecutorError::ProcessSpawnFailed(err) => write!(f, "Spawning a process failed: {err}"),
+            #[cfg(feature = "jailed-vmm-executor")]
             VmmExecutorError::JailRenamerFailed(err) => {
                 write!(f, "Invoking the jail renamer to produce an inner path failed: {err}")
             }

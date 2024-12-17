@@ -7,12 +7,14 @@ use std::{
     future::Future,
     os::fd::OwnedFd,
     path::Path,
-    pin::Pin,
     process::{ExitStatus, Stdio},
     time::Duration,
 };
 
 use futures_io::{AsyncRead, AsyncWrite};
+
+#[cfg(feature = "vmm-process")]
+use std::pin::Pin;
 
 #[cfg(feature = "tokio-runtime")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tokio-runtime")))]
