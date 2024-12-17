@@ -105,7 +105,7 @@ impl VmmArguments {
         self
     }
 
-    /// Join
+    /// Join these [VmmArguments] into a [Vec] of process arguments, using the given optional config path.
     pub fn join(&self, config_path: Option<PathBuf>) -> Vec<String> {
         let mut args = Vec::with_capacity(1);
 
