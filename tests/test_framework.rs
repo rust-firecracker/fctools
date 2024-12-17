@@ -141,7 +141,7 @@ pub fn get_process_spawner() -> Arc<impl ProcessSpawner> {
     Arc::new(DirectProcessSpawner)
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct FailingRunner;
 
 impl ProcessSpawner for FailingRunner {

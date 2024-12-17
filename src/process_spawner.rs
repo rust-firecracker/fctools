@@ -1,19 +1,27 @@
-use std::{
-    ffi::OsString,
-    future::Future,
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
-    sync::LazyLock,
-};
+use std::{future::Future, path::Path};
 
+#[cfg(feature = "elevation-process-spawners")]
 use futures_util::AsyncWriteExt;
 
-use crate::runtime::{Runtime, RuntimeProcess};
+#[cfg(feature = "elevation-process-spawners")]
+use std::{
+    ffi::OsString,
+    path::PathBuf,
+    sync::{Arc, LazyLock},
+};
+
+#[cfg(feature = "elevation-process-spawners")]
+use crate::runtime::RuntimeProcess;
+
+#[cfg(any(feature = "direct-process-spawner", feature = "elevation-process-spawners"))]
+use std::process::{Command, Stdio};
+
+use crate::runtime::Runtime;
 
 /// A [ProcessSpawner] concerns itself with spawning a rootful or rootless process from the given binary path and arguments.
 /// The command delegated to the spawner is either a "firecracker" or "jailer" invocation for starting the respective
 /// processes, or an elevated "chown"/"mkdir" invocation from the executors.
-pub trait ProcessSpawner: Send + Sync + 'static {
+pub trait ProcessSpawner: Clone + Send + Sync + 'static {
     /// Spawn the process with the given binary path and arguments.
     fn spawn<R: Runtime>(
         &self,
@@ -25,12 +33,13 @@ pub trait ProcessSpawner: Send + Sync + 'static {
 }
 
 /// A [ProcessSpawner] that directly invokes the underlying process.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg(feature = "direct-process-spawner")]
+#[cfg_attr(docsrs, doc(cfg(feature = "direct-process-spawner")))]
 pub struct DirectProcessSpawner;
 
 #[inline(always)]
-#[cfg(feature = "direct-process-spawner")]
+#[cfg(any(feature = "direct-process-spawner", feature = "elevation-process-spawners"))]
 fn get_stdio(pipes_to_null: bool) -> Stdio {
     if pipes_to_null {
         Stdio::null()
@@ -40,6 +49,7 @@ fn get_stdio(pipes_to_null: bool) -> Stdio {
 }
 
 #[cfg(feature = "direct-process-spawner")]
+#[cfg_attr(docsrs, doc(cfg(feature = "direct-process-spawner")))]
 impl ProcessSpawner for DirectProcessSpawner {
     async fn spawn<R: Runtime>(
         &self,
@@ -60,33 +70,32 @@ impl ProcessSpawner for DirectProcessSpawner {
     }
 }
 
-#[cfg(feature = "elevation-process-spawners")]
-static SU_OS_STRING: LazyLock<OsString> = LazyLock::new(|| OsString::from("su"));
-
 /// A [ProcessSpawner] that elevates the permissions of the process via the "su" CLI utility.
 #[cfg(feature = "elevation-process-spawners")]
+#[cfg_attr(docsrs, doc(cfg(feature = "elevation-process-spawners")))]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SuProcessSpawner {
+pub struct SuProcessSpawner(Arc<SuProcessSpawnerInner>);
+
+#[cfg(feature = "elevation-process-spawners")]
+#[derive(Debug, PartialEq, Eq)]
+struct SuProcessSpawnerInner {
     su_path: Option<PathBuf>,
     password: String,
 }
 
 #[cfg(feature = "elevation-process-spawners")]
+#[cfg_attr(docsrs, doc(cfg(feature = "elevation-process-spawners")))]
 impl SuProcessSpawner {
-    pub fn new(password: impl Into<String>) -> Self {
-        Self {
-            su_path: None,
-            password: password.into(),
-        }
-    }
-
-    pub fn su_path(mut self, su_path: impl Into<PathBuf>) -> Self {
-        self.su_path = Some(su_path.into());
-        self
+    pub fn new(password: String, su_path: Option<PathBuf>) -> Self {
+        Self(Arc::new(SuProcessSpawnerInner { su_path, password }))
     }
 }
 
 #[cfg(feature = "elevation-process-spawners")]
+static SU_OS_STRING: LazyLock<OsString> = LazyLock::new(|| OsString::from("su"));
+
+#[cfg(feature = "elevation-process-spawners")]
+#[cfg_attr(docsrs, doc(cfg(feature = "elevation-process-spawners")))]
 impl ProcessSpawner for SuProcessSpawner {
     async fn spawn<R: Runtime>(
         &self,
@@ -95,59 +104,53 @@ impl ProcessSpawner for SuProcessSpawner {
         pipes_to_null: bool,
         runtime: &R,
     ) -> Result<R::Process, std::io::Error> {
-        let command = Command::new(match self.su_path {
+        let command = Command::new(match self.0.su_path {
             Some(ref path) => path.as_os_str(),
             None => SU_OS_STRING.as_os_str(),
         });
-        let mut child = runtime.spawn_process(
+
+        let mut process = runtime.spawn_process(
             command,
             get_stdio(pipes_to_null),
             get_stdio(pipes_to_null),
             Stdio::piped(),
         )?;
 
-        let stdin = child
+        let stdin = process
             .stdin()
             .as_mut()
             .ok_or_else(|| std::io::Error::other("Stdin not received"))?;
-        stdin.write_all(format!("{}\n", self.password).as_bytes()).await?;
+        stdin.write_all(format!("{}\n", self.0.password).as_bytes()).await?;
         stdin
             .write_all(format!("{path:?} {} ; exit\n", arguments.join(" ")).as_bytes())
             .await?;
 
         if pipes_to_null {
-            drop(child.take_stdin());
+            drop(process.take_stdin());
         }
 
-        Ok(child)
+        Ok(process)
     }
 }
 
 /// A [ProcessSpawner] that escalates the privileges of the process via the "sudo" CLI utility.
 #[cfg(feature = "elevation-process-spawners")]
+#[cfg_attr(docsrs, doc(cfg(feature = "elevation-process-spawners")))]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SudoProcessSpawner {
+pub struct SudoProcessSpawner(Arc<SudoProcessSpawnerInner>);
+
+#[cfg(feature = "elevation-process-spawners")]
+#[derive(Debug, PartialEq, Eq, Default)]
+struct SudoProcessSpawnerInner {
     sudo_path: Option<PathBuf>,
     password: Option<String>,
 }
 
 #[cfg(feature = "elevation-process-spawners")]
+#[cfg_attr(docsrs, doc(cfg(feature = "elevation-process-spawners")))]
 impl SudoProcessSpawner {
-    pub fn new() -> Self {
-        Self {
-            sudo_path: None,
-            password: None,
-        }
-    }
-
-    pub fn sudo_path(mut self, sudo_path: impl Into<PathBuf>) -> Self {
-        self.sudo_path = Some(sudo_path.into());
-        self
-    }
-
-    pub fn password(mut self, password: impl Into<String>) -> Self {
-        self.password = Some(password.into());
-        self
+    pub fn new(password: Option<String>, sudo_path: Option<PathBuf>) -> Self {
+        Self(Arc::new(SudoProcessSpawnerInner { sudo_path, password }))
     }
 }
 
@@ -155,6 +158,7 @@ impl SudoProcessSpawner {
 static SUDO_OS_STRING: LazyLock<OsString> = LazyLock::new(|| OsString::from("sudo"));
 
 #[cfg(feature = "elevation-process-spawners")]
+#[cfg_attr(docsrs, doc(cfg(feature = "elevation-process-spawners")))]
 impl ProcessSpawner for SudoProcessSpawner {
     async fn spawn<R: Runtime>(
         &self,
@@ -163,7 +167,7 @@ impl ProcessSpawner for SudoProcessSpawner {
         pipes_to_null: bool,
         runtime: &R,
     ) -> Result<R::Process, std::io::Error> {
-        let mut command = Command::new(match self.sudo_path {
+        let mut command = Command::new(match self.0.sudo_path {
             Some(ref path) => path.as_os_str(),
             None => SUDO_OS_STRING.as_os_str(),
         });
@@ -180,7 +184,7 @@ impl ProcessSpawner for SudoProcessSpawner {
             .as_mut()
             .ok_or_else(|| std::io::Error::other("Stdin not received"))?;
 
-        if let Some(ref password) = self.password {
+        if let Some(ref password) = self.0.password {
             stdin_ref.write_all(format!("{password}\n").as_bytes()).await?;
         }
 
