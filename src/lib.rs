@@ -5,6 +5,10 @@
 //! crates using `fctools` should usually pull in either a built-in implementation of a [Runtime](runtime::Runtime) via either
 //! the `tokio-runtime` or `smol-runtime` features, or install a third-party crate with its own implementation.
 //!
+//! Either the "syscall-nix" or "syscall-rustix" feature must be enabled to provide syscalls for the runtime facilities, otherwise
+//! the crate won't compile. These features use their respective crates internally to provide these syscalls. "nix" uses C FFI to
+//! call into libc and perform syscalls, while "rustix" invokes syscalls directly without any FFI.
+//!
 //! The rest of the crate that provides actual functionality is structured in a vertical fashion, with each layer introducing more
 //! useful and high-level features than the one preceding it. There are 6 such layers, from lowest to highest level of abstraction:
 //!

@@ -126,7 +126,7 @@ full = [
     "snapshot-editor-extension",
     "syscall-nix",
 ]
-default = []
+default = ["syscall-nix"]
 # syscall implementations
 syscall-nix = ["dep:nix"]
 syscall-rustix = ["dep:rustix"]
