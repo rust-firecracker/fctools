@@ -95,7 +95,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let runtime = context.runtime.clone();
 
             join_set.spawn(async move {
-                upgrade_owner(&socket_path, ownership_model, process_spawner.as_ref(), &runtime)
+                upgrade_owner(&socket_path, ownership_model, &process_spawner, &runtime)
                     .await
                     .map_err(VmmExecutorError::ChangeOwnerError)?;
 
@@ -183,7 +183,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let ownership_model = context.ownership_model;
 
             join_set.spawn(async move {
-                upgrade_owner(&socket_path, ownership_model, process_spawner.as_ref(), &runtime)
+                upgrade_owner(&socket_path, ownership_model, &process_spawner, &runtime)
                     .await
                     .map_err(VmmExecutorError::ChangeOwnerError)?;
 

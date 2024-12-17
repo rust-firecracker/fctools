@@ -296,7 +296,7 @@ async fn restore_vm_from_snapshot(snapshot: VmSnapshot, is_jailed: bool) {
 
     let mut vm = TestVm::prepare(
         executor,
-        Arc::new(DirectProcessSpawner),
+        DirectProcessSpawner,
         TokioRuntime,
         VmmOwnershipModel::Downgraded {
             uid: TestOptions::get().await.jailer_uid,

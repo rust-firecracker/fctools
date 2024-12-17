@@ -220,7 +220,7 @@ impl std::fmt::Display for VmmLogLevel {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, sync::Arc};
+    use std::path::PathBuf;
 
     use crate::{
         process_spawner::DirectProcessSpawner,
@@ -294,8 +294,7 @@ mod tests {
     #[test]
     fn metadata_path_can_be_set() {
         let mut resource = MovedVmmResource::new("/tmp/metadata.txt", VmmResourceMoveMethod::Rename);
-        let _ =
-            resource.initialize_with_same_path(VmmOwnershipModel::Shared, Arc::new(DirectProcessSpawner), TokioRuntime);
+        let _ = resource.initialize_with_same_path(VmmOwnershipModel::Shared, DirectProcessSpawner, TokioRuntime);
         check_without_config(new().metadata(resource), ["--metadata", "/tmp/metadata.txt"]);
     }
 

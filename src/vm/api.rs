@@ -270,13 +270,13 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
             upgrade_owner(
                 &snapshot_effective_path,
                 self.ownership_model,
-                self.process_spawner.as_ref(),
+                &self.process_spawner,
                 &self.runtime,
             ),
             upgrade_owner(
                 &mem_file_effective_path,
                 self.ownership_model,
-                self.process_spawner.as_ref(),
+                &self.process_spawner,
                 &self.runtime,
             ),
         )

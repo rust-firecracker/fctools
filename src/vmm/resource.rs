@@ -1,7 +1,6 @@
 use std::{
     future::Future,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 use crate::{
@@ -126,16 +125,16 @@ impl CreatedVmmResource {
 
     /// Dispose of the resource by deleting it according to ownership constraints via [VmmOwnershipModel] and
     /// [ProcessSpawner].
-    pub fn dispose<R: Runtime>(
+    pub fn dispose<S: ProcessSpawner, R: Runtime>(
         &self,
         ownership_model: VmmOwnershipModel,
-        process_spawner: Arc<impl ProcessSpawner>,
+        process_spawner: S,
         runtime: R,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
         let path = self.effective_path().to_owned();
 
         async move {
-            upgrade_owner(&path, ownership_model, process_spawner.as_ref(), &runtime)
+            upgrade_owner(&path, ownership_model, &process_spawner, &runtime)
                 .await
                 .map_err(VmmResourceError::ChangeOwnerError)?;
 
@@ -217,7 +216,7 @@ impl MovedVmmResource {
         effective_path: PathBuf,
         local_path: PathBuf,
         ownership_model: VmmOwnershipModel,
-        process_spawner: Arc<S>,
+        process_spawner: S,
         runtime: R,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
         self.effective_path = Some(effective_path.clone());
@@ -231,7 +230,7 @@ impl MovedVmmResource {
                 return Ok(());
             }
 
-            upgrade_owner(&source_path, ownership_model, process_spawner.as_ref(), &runtime)
+            upgrade_owner(&source_path, ownership_model, &process_spawner, &runtime)
                 .await
                 .map_err(VmmResourceError::ChangeOwnerError)?;
 
@@ -308,7 +307,7 @@ impl MovedVmmResource {
     pub fn initialize_with_same_path<S: ProcessSpawner, R: Runtime>(
         &mut self,
         ownership_model: VmmOwnershipModel,
-        process_spawner: Arc<S>,
+        process_spawner: S,
         runtime: R,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
         self.effective_path = Some(self.source_path.clone());
@@ -316,7 +315,7 @@ impl MovedVmmResource {
 
         let source_path = self.source_path.clone();
         async move {
-            upgrade_owner(&source_path, ownership_model, process_spawner.as_ref(), &runtime)
+            upgrade_owner(&source_path, ownership_model, &process_spawner, &runtime)
                 .await
                 .map_err(VmmResourceError::ChangeOwnerError)?;
 
@@ -450,7 +449,7 @@ impl ProducedVmmResource {
     pub fn dispose<S: ProcessSpawner, R: Runtime>(
         &self,
         ownership_model: VmmOwnershipModel,
-        process_spawner: Arc<S>,
+        process_spawner: S,
         runtime: R,
     ) -> impl Future<Output = Result<(), VmmResourceError>> + Send {
         let linked = self.linked;
@@ -458,7 +457,7 @@ impl ProducedVmmResource {
 
         async move {
             if linked {
-                upgrade_owner(&path, ownership_model, process_spawner.as_ref(), &runtime)
+                upgrade_owner(&path, ownership_model, &process_spawner, &runtime)
                     .await
                     .map_err(VmmResourceError::ChangeOwnerError)?;
 

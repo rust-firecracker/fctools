@@ -69,7 +69,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         upgrade_owner(
             &chroot_base_dir,
             context.ownership_model,
-            context.process_spawner.as_ref(),
+            &context.process_spawner,
             &context.runtime,
         )
         .await
@@ -229,7 +229,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             upgrade_owner(
                 &pid_file_path,
                 context.ownership_model,
-                context.process_spawner.as_ref(),
+                &context.process_spawner,
                 &context.runtime,
             )
             .await
@@ -259,7 +259,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         upgrade_owner(
             &jail_path,
             context.ownership_model,
-            context.process_spawner.as_ref(),
+            &context.process_spawner,
             &context.runtime,
         )
         .await

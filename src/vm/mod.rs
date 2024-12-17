@@ -35,7 +35,7 @@ pub mod snapshot;
 #[derive(Debug)]
 pub struct Vm<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     vmm_process: VmmProcess<E, S, R>,
-    process_spawner: Arc<S>,
+    process_spawner: S,
     ownership_model: VmmOwnershipModel,
     pub(crate) runtime: R,
     is_paused: bool,
@@ -148,11 +148,11 @@ impl std::fmt::Display for VmStateCheckError {
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     /// Prepare the full environment of a [Vm] without booting it. Analogously to a [VmmProcess], this requires
-    /// all the necessary components: [VmmExecutor], [Arc<ProcessSpawner>], [Runtime], [VmmOwnershipModel],
+    /// all the necessary components: [VmmExecutor], [ProcessSpawner], [Runtime], [VmmOwnershipModel],
     /// [Arc<VmmInstallation>]. An additional component of a [Vm] is its [VmConfiguration].
     pub async fn prepare(
         executor: E,
-        process_spawner: Arc<S>,
+        process_spawner: S,
         runtime: R,
         ownership_model: VmmOwnershipModel,
         installation: Arc<VmmInstallation>,
@@ -218,7 +218,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             upgrade_owner(
                 &config_effective_path,
                 self.ownership_model,
-                self.process_spawner.as_ref(),
+                &self.process_spawner,
                 &self.runtime,
             )
             .await

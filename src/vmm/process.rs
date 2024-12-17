@@ -32,7 +32,7 @@ use super::{
 pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     executor: E,
     ownership_model: VmmOwnershipModel,
-    process_spawner: Arc<S>,
+    process_spawner: S,
     runtime: R,
     installation: Arc<VmmInstallation>,
     process_handle: Option<ProcessHandle<R::Process>>,
@@ -135,10 +135,10 @@ impl std::fmt::Display for VmmProcessError {
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     /// Create a new [VmmProcess] from the necessary set of components:
-    /// [VmmExecutor], [Arc<ProcessSpawner>], [Runtime], [VmmOwnershipModel], [Arc<VmmInstallation>]
+    /// [VmmExecutor], [ProcessSpawner], [Runtime], [VmmOwnershipModel], [Arc<VmmInstallation>]
     pub fn new(
         executor: E,
-        process_spawner: Arc<S>,
+        process_spawner: S,
         runtime: R,
         ownership_model: VmmOwnershipModel,
         installation: Arc<VmmInstallation>,
@@ -147,7 +147,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
         Self {
             executor,
             ownership_model,
-            process_spawner: process_spawner.into(),
+            process_spawner,
             runtime,
             installation,
             process_handle: None,
@@ -195,14 +195,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
         let hyper_client = self
             .hyper_client
             .get_or_try_init(async {
-                upgrade_owner(
-                    &socket_path,
-                    self.ownership_model,
-                    self.process_spawner.as_ref(),
-                    &self.runtime,
-                )
-                .await
-                .map_err(VmmProcessError::ChangeOwnerError)?;
+                upgrade_owner(&socket_path, self.ownership_model, &self.process_spawner, &self.runtime)
+                    .await
+                    .map_err(VmmProcessError::ChangeOwnerError)?;
 
                 Ok(
                     Client::builder(self.runtime.hyper_executor()).build(HyperUnixConnector {

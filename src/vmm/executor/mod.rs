@@ -111,7 +111,7 @@ pub trait VmmExecutor: Send + Sync {
 
 pub struct VmmExecutorContext<S: ProcessSpawner, R: Runtime> {
     pub installation: Arc<VmmInstallation>,
-    pub process_spawner: Arc<S>,
+    pub process_spawner: S,
     pub runtime: R,
     pub ownership_model: VmmOwnershipModel,
 }
