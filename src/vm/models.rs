@@ -302,16 +302,21 @@ pub(crate) enum ReprIsPaused {
 pub struct CpuTemplate {
     pub kvm_capabilities: Vec<String>,
     #[cfg(target_arch = "x86_64")]
+    #[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
     pub cpuid_modifiers: Vec<CpuidModifier>,
     #[cfg(target_arch = "x86_64")]
+    #[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
     pub msr_modifiers: Vec<MsrModifier>,
     #[cfg(target_arch = "aarch64")]
+    #[cfg_attr(docsrs, doc(cfg(target_arch = "aarch64")))]
     pub vcpu_features: Vec<VcpuFeature>,
     #[cfg(target_arch = "aarch64")]
+    #[cfg_attr(docsrs, doc(cfg(target_arch = "aarch64")))]
     pub reg_modifiers: Vec<RegModifier>,
 }
 
 #[cfg(target_arch = "x86_64")]
+#[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct CpuidModifier {
     pub leaf: String,
@@ -321,6 +326,7 @@ pub struct CpuidModifier {
 }
 
 #[cfg(target_arch = "x86_64")]
+#[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct CpuidRegisterModifier {
     pub register: String,
@@ -328,6 +334,7 @@ pub struct CpuidRegisterModifier {
 }
 
 #[cfg(target_arch = "x86_64")]
+#[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct MsrModifier {
     pub addr: String,
@@ -335,6 +342,7 @@ pub struct MsrModifier {
 }
 
 #[cfg(target_arch = "aarch64")]
+#[cfg_attr(docsrs, doc(cfg(target_arch = "aarch64")))]
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct VcpuFeature {
     pub index: u32,
@@ -342,6 +350,7 @@ pub struct VcpuFeature {
 }
 
 #[cfg(target_arch = "aarch64")]
+#[cfg_attr(docsrs, doc(cfg(target_arch = "aarch64")))]
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct RegModifier {
     pub addr: String,
