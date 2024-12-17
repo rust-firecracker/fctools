@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
 use fctools::{
-    process_spawner::{DirectProcessSpawner, ProcessSpawner},
+    process_spawner::{DirectProcessSpawner, ProcessSpawner, SuProcessSpawner, SudoProcessSpawner},
     runtime::{tokio::TokioRuntime, RuntimeProcess},
     vmm::installation::{VmmInstallation, VmmInstallationError},
 };
+use futures_util::AsyncReadExt;
 use test_framework::{get_test_path, TestOptions};
 use uuid::Uuid;
 
@@ -102,4 +103,63 @@ async fn direct_process_spawner_can_null_pipes() {
     assert!(process.take_stdout().is_none());
     assert!(process.take_stderr().is_none());
     assert!(process.take_stdin().is_none());
+}
+
+#[tokio::test]
+async fn direct_process_spawner_can_invoke_process() {
+    let mut process = DirectProcessSpawner
+        .spawn(&PathBuf::from("bash"), vec!["--help".to_string()], false, &TokioRuntime)
+        .await
+        .unwrap();
+    let mut buf = Vec::new();
+    process.take_stdout().unwrap().read_to_end(&mut buf).await.unwrap();
+    let buf_string = String::from_utf8(buf).unwrap();
+    assert!(buf_string.contains("GNU bash"));
+}
+
+#[tokio::test]
+async fn su_process_spawner_can_elevate() {
+    test_elevation(|password| SuProcessSpawner::new(password, None), false).await;
+}
+
+#[tokio::test]
+async fn su_process_spawner_can_null_pipes() {
+    test_elevation(|password| SuProcessSpawner::new(password, None), true).await;
+}
+
+#[tokio::test]
+async fn sudo_process_spawner_can_elevate() {
+    test_elevation(|password| SudoProcessSpawner::new(Some(password), None), false).await;
+}
+
+#[tokio::test]
+async fn sudo_process_spawner_can_null_pipes() {
+    test_elevation(|password| SudoProcessSpawner::new(Some(password), None), true).await;
+}
+
+async fn test_elevation<F: FnOnce(String) -> S, S: ProcessSpawner>(process_spawner_function: F, pipes_nulled: bool) {
+    let Ok(password) = std::env::var("ROOT_PWD") else {
+        println!("ROOT_PWD env var wasn't set for the elevation test, skipping it");
+        return;
+    };
+
+    let process_spawner = process_spawner_function(password);
+    let mut process = process_spawner
+        .spawn(
+            &PathBuf::from("bash"),
+            vec!["-c".to_string(), "'echo $UID'".to_string()],
+            pipes_nulled,
+            &TokioRuntime,
+        )
+        .await
+        .unwrap();
+
+    if pipes_nulled {
+        assert!(process.take_stdout().is_none());
+        assert!(process.take_stderr().is_none());
+    } else {
+        let mut stdout = Vec::new();
+        process.take_stdout().unwrap().read_to_end(&mut stdout).await.unwrap();
+        assert_eq!(String::from_utf8(stdout).unwrap(), "0\n");
+    }
 }
