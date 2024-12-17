@@ -1,4 +1,6 @@
-//! Provides a managed and high-level VM abstraction.
+//! Provides managed and high-level VM APIs that are most suitable for production applications
+//! that only need to concern themselves with the high-level details of a Firecracker VM.
+//! These abstractions is built on the `vmm-core`, `vmm-executor` and `vmm-process` features.
 
 use std::{path::PathBuf, process::ExitStatus, sync::Arc, time::Duration};
 

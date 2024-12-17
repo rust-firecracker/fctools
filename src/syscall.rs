@@ -1,11 +1,11 @@
-#[cfg(all(feature = "sys-nix", not(feature = "sys-rustix")))]
+#[cfg(all(feature = "syscall-nix", not(feature = "syscall-rustix")))]
 mod imp_nix {
     use std::{
         os::fd::{FromRawFd, OwnedFd, RawFd},
         path::Path,
     };
 
-    use nix::sys::stat::Mode as NixMode;
+    use nix::sys::stat::Mode;
 
     #[inline]
     pub fn chown(path: &Path, uid: u32, gid: u32) -> Result<(), std::io::Error> {
@@ -24,11 +24,8 @@ mod imp_nix {
 
     #[inline]
     pub fn mkfifo(path: &Path) -> Result<(), std::io::Error> {
-        nix::unistd::mkfifo(
-            path,
-            NixMode::S_IROTH | NixMode::S_IWOTH | NixMode::S_IRUSR | NixMode::S_IWUSR,
-        )
-        .map_err(|_| std::io::Error::last_os_error())
+        nix::unistd::mkfifo(path, Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR)
+            .map_err(|_| std::io::Error::last_os_error())
     }
 
     #[inline]
@@ -56,7 +53,7 @@ mod imp_nix {
     }
 }
 
-#[cfg(feature = "sys-rustix")]
+#[cfg(feature = "syscall-rustix")]
 mod imp_rustix {
     use std::{
         os::fd::{BorrowedFd, OwnedFd, RawFd},
@@ -118,8 +115,8 @@ mod imp_rustix {
     }
 }
 
-#[cfg(feature = "sys-rustix")]
+#[cfg(feature = "syscall-rustix")]
 pub use imp_rustix::*;
 
-#[cfg(all(feature = "sys-nix", not(feature = "sys-rustix")))]
+#[cfg(all(feature = "syscall-nix", not(feature = "syscall-rustix")))]
 pub use imp_nix::*;

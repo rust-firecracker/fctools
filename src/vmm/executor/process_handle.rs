@@ -70,7 +70,7 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
 
     /// Try to create a [ProcessHandle] by allocating a pidfd for the given PID.
     pub fn with_pidfd<R: Runtime>(pid: i32, runtime: R) -> Result<Self, std::io::Error> {
-        let pidfd = crate::sys::pidfd_open(pid)?;
+        let pidfd = crate::syscall::pidfd_open(pid)?;
         let raw_pidfd = pidfd.as_raw_fd();
 
         let (exited_tx, exited_rx) = futures_channel::oneshot::channel();
@@ -117,7 +117,7 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
                     return Err(std::io::Error::other("Trying to send SIGKILL to exited process"));
                 }
 
-                crate::sys::pidfd_send_sigkill(raw_pidfd)
+                crate::syscall::pidfd_send_sigkill(raw_pidfd)
             }
         }
     }

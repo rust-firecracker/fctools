@@ -8,5 +8,5 @@ pub fn chownr_recursive(path: &Path, uid: u32, gid: u32) -> Result<(), std::io::
         }
     }
 
-    crate::sys::chown(path, uid, gid)
+    crate::syscall::chown(path, uid, gid)
 }

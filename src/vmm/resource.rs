@@ -104,7 +104,7 @@ impl CreatedVmmResource {
                         .map_err(VmmResourceError::FilesystemError)?;
                 }
                 CreatedVmmResourceType::Fifo => {
-                    crate::sys::mkfifo(&effective_path).map_err(VmmResourceError::MkfifoError)?;
+                    crate::syscall::mkfifo(&effective_path).map_err(VmmResourceError::MkfifoError)?;
                 }
             };
 
