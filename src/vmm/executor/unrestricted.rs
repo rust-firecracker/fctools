@@ -4,7 +4,7 @@ use futures_util::TryFutureExt;
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{Runtime, RuntimeJoinSet},
+    runtime::{util::RuntimeTaskSet, Runtime},
     vmm::{
         arguments::{command_modifier::CommandModifier, VmmApiSocket, VmmArguments},
         id::VmmId,
@@ -75,11 +75,11 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         context: VmmExecutorContext<S, R>,
         mut resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
-        let mut join_set = RuntimeJoinSet::new(context.runtime.clone());
+        let mut task_set = RuntimeTaskSet::new(context.runtime.clone());
 
         // Apply moved resources
         for moved_resource in resource_references.moved_resources {
-            join_set.spawn(
+            task_set.spawn(
                 moved_resource
                     .initialize_with_same_path(
                         context.ownership_model,
@@ -95,7 +95,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             let ownership_model = context.ownership_model;
             let runtime = context.runtime.clone();
 
-            join_set.spawn(async move {
+            task_set.spawn(async move {
                 upgrade_owner(&socket_path, ownership_model, &process_spawner, &runtime)
                     .await
                     .map_err(VmmExecutorError::ChangeOwnerError)?;
@@ -125,7 +125,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         for created_resource in resource_references.created_resources {
-            join_set.spawn(
+            task_set.spawn(
                 created_resource
                     .initialize_with_same_path::<R>(context.ownership_model, context.runtime.clone())
                     .map_err(VmmExecutorError::ResourceError),
@@ -133,14 +133,14 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         for produced_resource in resource_references.produced_resources {
-            join_set.spawn(
+            task_set.spawn(
                 produced_resource
                     .initialize_with_same_path::<R>(context.ownership_model, context.runtime.clone())
                     .map_err(VmmExecutorError::ResourceError),
             );
         }
 
-        join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))?;
+        task_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))?;
         Ok(())
     }
 
@@ -174,14 +174,14 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         context: VmmExecutorContext<S, R>,
         mut resource_references: VmmResourceReferences<'_>,
     ) -> Result<(), VmmExecutorError> {
-        let mut join_set = RuntimeJoinSet::new(context.runtime.clone());
+        let mut task_set = RuntimeTaskSet::new(context.runtime.clone());
 
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
             let process_spawner = context.process_spawner.clone();
             let runtime = context.runtime.clone();
             let ownership_model = context.ownership_model;
 
-            join_set.spawn(async move {
+            task_set.spawn(async move {
                 upgrade_owner(&socket_path, ownership_model, &process_spawner, &runtime)
                     .await
                     .map_err(VmmExecutorError::ChangeOwnerError)?;
@@ -210,7 +210,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         for created_resource in resource_references.created_resources {
-            join_set.spawn(
+            task_set.spawn(
                 created_resource
                     .dispose(
                         context.ownership_model,
@@ -222,7 +222,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         for produced_resource in resource_references.produced_resources {
-            join_set.spawn(
+            task_set.spawn(
                 produced_resource
                     .dispose(
                         context.ownership_model,
@@ -233,6 +233,6 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             );
         }
 
-        join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))
+        task_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))
     }
 }

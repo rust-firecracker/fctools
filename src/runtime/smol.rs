@@ -16,7 +16,7 @@ use async_io::Timer;
 use async_process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use pin_project_lite::pin_project;
 
-use super::{chownr::chownr_recursive, Runtime, RuntimeAsyncFd, RuntimeChild, RuntimeTask};
+use super::{util::chown_all_blocking, Runtime, RuntimeAsyncFd, RuntimeChild, RuntimeTask};
 
 #[derive(Clone)]
 enum MaybeStaticExecutor {
@@ -26,18 +26,6 @@ enum MaybeStaticExecutor {
 
 #[derive(Clone)]
 pub struct SmolRuntime(MaybeStaticExecutor);
-
-#[derive(Clone)]
-pub struct SmolRuntimeHyperExecutor(MaybeStaticExecutor);
-
-impl hyper::rt::Executor<Pin<Box<dyn Future<Output = ()> + Send>>> for SmolRuntimeHyperExecutor {
-    fn execute(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
-        match self.0 {
-            MaybeStaticExecutor::NonStatic(ref executor) => executor.spawn(future).detach(),
-            MaybeStaticExecutor::Static(executor) => executor.spawn(future).detach(),
-        }
-    }
-}
 
 impl SmolRuntime {
     pub fn with_executor(executor: impl Into<Arc<async_executor::Executor<'static>>>) -> Self {
@@ -55,14 +43,6 @@ impl Runtime for SmolRuntime {
     type File = async_fs::File;
     type AsyncFd = SmolRuntimeAsyncFd;
     type Child = SmolRuntimeChild;
-
-    #[cfg(feature = "vmm-process")]
-    type HyperExecutor = SmolRuntimeHyperExecutor;
-
-    #[cfg(feature = "vmm-process")]
-    fn get_hyper_executor(&self) -> Self::HyperExecutor {
-        SmolRuntimeHyperExecutor(self.0.clone())
-    }
 
     #[cfg(feature = "vmm-process")]
     fn get_hyper_client_sockets_backend(&self) -> hyper_client_sockets::Backend {
@@ -136,7 +116,7 @@ impl Runtime for SmolRuntime {
 
     fn fs_chown_all(&self, path: &Path, uid: u32, gid: u32) -> impl Future<Output = Result<(), std::io::Error>> + Send {
         let path = path.to_owned();
-        blocking::unblock(move || chownr_recursive(&path, uid, gid))
+        blocking::unblock(move || chown_all_blocking(&path, uid, gid))
     }
 
     fn fs_hard_link(

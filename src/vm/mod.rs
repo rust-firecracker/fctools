@@ -6,7 +6,7 @@ use std::{path::PathBuf, process::ExitStatus, sync::Arc, time::Duration};
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::Runtime,
+    runtime::{util::RuntimeHyperExecutor, Runtime},
     vmm::{
         executor::{process_handle::ProcessHandlePipes, VmmExecutor},
         installation::VmmInstallation,
@@ -240,7 +240,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             .await
             .map_err(VmError::ProcessError)?;
 
-        let client = hyper_util::client::legacy::Builder::new(self.runtime.get_hyper_executor())
+        let client = hyper_util::client::legacy::Builder::new(RuntimeHyperExecutor(self.runtime.clone()))
             .build::<_, Full<Bytes>>(HyperUnixConnector {
                 backend: self.runtime.get_hyper_client_sockets_backend(),
             });

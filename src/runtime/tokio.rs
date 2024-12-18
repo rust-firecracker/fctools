@@ -9,7 +9,7 @@ use tokio::{
 };
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-use super::{chownr::chownr_recursive, Runtime, RuntimeAsyncFd, RuntimeChild, RuntimeTask};
+use super::{util::chown_all_blocking, Runtime, RuntimeAsyncFd, RuntimeChild, RuntimeTask};
 
 #[derive(Clone)]
 pub struct TokioRuntime;
@@ -20,14 +20,6 @@ impl Runtime for TokioRuntime {
     type File = Compat<tokio::fs::File>;
     type AsyncFd = TokioRuntimeAsyncFd;
     type Child = TokioRuntimeChild;
-
-    #[cfg(feature = "vmm-process")]
-    type HyperExecutor = hyper_util::rt::TokioExecutor;
-
-    #[cfg(feature = "vmm-process")]
-    fn get_hyper_executor(&self) -> Self::HyperExecutor {
-        hyper_util::rt::TokioExecutor::new()
-    }
 
     #[cfg(feature = "vmm-process")]
     fn get_hyper_client_sockets_backend(&self) -> hyper_client_sockets::Backend {
@@ -92,7 +84,7 @@ impl Runtime for TokioRuntime {
 
     async fn fs_chown_all(&self, path: &Path, uid: u32, gid: u32) -> Result<(), std::io::Error> {
         let path = path.to_owned();
-        match tokio::task::spawn_blocking(move || chownr_recursive(&path, uid, gid)).await {
+        match tokio::task::spawn_blocking(move || chown_all_blocking(&path, uid, gid)).await {
             Ok(result) => result,
             Err(_) => Err(std::io::Error::other("chownr_impl blocking task panicked")),
         }

@@ -10,7 +10,7 @@ use hyper_util::client::legacy::Client;
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::Runtime,
+    runtime::{util::RuntimeHyperExecutor, Runtime},
     vmm::{
         executor::{VmmExecutor, VmmExecutorError},
         installation::VmmInstallation,
@@ -200,7 +200,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
                     .map_err(VmmProcessError::ChangeOwnerError)?;
 
                 Ok(
-                    Client::builder(self.runtime.get_hyper_executor()).build(HyperUnixConnector {
+                    Client::builder(RuntimeHyperExecutor(self.runtime.clone())).build(HyperUnixConnector {
                         backend: self.runtime.get_hyper_client_sockets_backend(),
                     }),
                 )

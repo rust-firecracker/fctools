@@ -130,13 +130,16 @@ default = ["syscall-nix"]
 # syscall implementations
 syscall-nix = ["dep:nix"]
 syscall-rustix = ["dep:rustix"]
-# built-in runtime implementations
+# runtime-related
+runtime-util = []
 tokio-runtime = [
+    "runtime-util",
     "dep:tokio",
     "dep:tokio-util",
     "hyper-client-sockets/tokio-backend",
 ]
 smol-runtime = [
+    "runtime-util",
     "dep:async-task",
     "dep:async-executor",
     "dep:async-io",
@@ -153,7 +156,12 @@ elevation-process-spawners = ["process-spawner"]
 # L2: VMM core
 vmm-core = ["process-spawner", "dep:futures-util"]
 # L3: VMM executor
-vmm-executor = ["vmm-core", "process-spawner", "dep:futures-channel"]
+vmm-executor = [
+    "runtime-util",
+    "vmm-core",
+    "process-spawner",
+    "dep:futures-channel",
+]
 jailed-vmm-executor = ["vmm-executor"]
 unrestricted-vmm-executor = ["vmm-executor"]
 either-vmm-executor = ["unrestricted-vmm-executor", "jailed-vmm-executor"]

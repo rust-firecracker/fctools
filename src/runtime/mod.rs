@@ -2,6 +2,9 @@
 //! Two built-in implementations are provided behind feature gates that are both disabled by default:
 //! - `tokio-runtime` using Tokio.
 //! - `smol-runtime` using the async-* crates (async-io, async-fs, async-process, async-task, async-executor).
+//!
+//! Extra utilities that are used internally by certain layers of fctools and which are helpful for third-party runtime
+//! implementors are available via the optional `runtime-util` feature.
 
 use std::{
     future::Future,
@@ -13,9 +16,6 @@ use std::{
 
 use futures_io::{AsyncRead, AsyncWrite};
 
-#[cfg(feature = "vmm-process")]
-use std::pin::Pin;
-
 #[cfg(feature = "tokio-runtime")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tokio-runtime")))]
 pub mod tokio;
@@ -24,8 +24,9 @@ pub mod tokio;
 #[cfg_attr(docsrs, doc(cfg(feature = "smol-runtime")))]
 pub mod smol;
 
-#[cfg(any(feature = "tokio-runtime", feature = "smol-runtime"))]
-mod chownr;
+#[cfg(feature = "runtime-util")]
+#[cfg_attr(docsrs, doc(cfg(feature = "runtime-util")))]
+pub mod util;
 
 /// An async runtime platform used by fctools. Instances of a [Runtime] are highly frequently cloned by fctools,
 /// so the [Clone] implementation is expected to be cheap and fast, meaning that the underlying structure of a [Runtime]
@@ -36,14 +37,6 @@ pub trait Runtime: Clone + Send + Sync + 'static {
     type File: AsyncRead + AsyncWrite + Send + Unpin;
     type AsyncFd: RuntimeAsyncFd;
     type Child: RuntimeChild;
-
-    #[cfg(feature = "vmm-process")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
-    type HyperExecutor: hyper::rt::Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Clone + Send + Sync + 'static;
-
-    #[cfg(feature = "vmm-process")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
-    fn get_hyper_executor(&self) -> Self::HyperExecutor;
 
     #[cfg(feature = "vmm-process")]
     #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
@@ -151,41 +144,4 @@ pub trait RuntimeChild: Sized + Send + Sync + std::fmt::Debug {
     fn take_stderr(&mut self) -> Option<Self::Stderr>;
 
     fn take_stdin(&mut self) -> Option<Self::Stdin>;
-}
-
-/// A utility join set of multiple [RuntimeTask]s that run concurrently and can be waited on to all complete.
-#[derive(Default)]
-pub struct RuntimeJoinSet<O: Send + 'static, R: Runtime> {
-    tasks: Vec<R::Task<Result<(), O>>>,
-    runtime: R,
-}
-
-impl<O: Send + 'static, R: Runtime> RuntimeJoinSet<O, R> {
-    pub fn new(runtime: R) -> Self {
-        Self {
-            tasks: Vec::new(),
-            runtime,
-        }
-    }
-
-    pub fn spawn<F>(&mut self, future: F)
-    where
-        F: Future<Output = Result<(), O>> + Send + 'static,
-    {
-        self.tasks.push(self.runtime.spawn_task(future));
-    }
-
-    pub async fn wait(self) -> Option<Result<(), O>> {
-        for task in self.tasks {
-            match task.join().await {
-                Some(result) => match result {
-                    Ok(()) => {}
-                    Err(err) => return Some(Err(err)),
-                },
-                None => return None,
-            }
-        }
-
-        Some(Ok(()))
-    }
 }

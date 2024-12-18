@@ -8,7 +8,12 @@ use hyper_client_sockets::firecracker::{
     connector::HyperFirecrackerConnector, FirecrackerUriExt, HyperFirecrackerStream,
 };
 
-use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vm::Vm, vmm::executor::VmmExecutor};
+use crate::{
+    process_spawner::ProcessSpawner,
+    runtime::{util::RuntimeHyperExecutor, Runtime},
+    vm::Vm,
+    vmm::executor::VmmExecutor,
+};
 
 /// An error that can be emitted by the HTTP-over-vsock extension.
 #[derive(Debug)]
@@ -119,7 +124,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
     }
 
     fn vsock_create_http_connection_pool(&self, guest_port: u32) -> Result<VsockHttpPool, VsockHttpError> {
-        let client = hyper_util::client::legacy::Client::builder(self.runtime.get_hyper_executor()).build(
+        let client = hyper_util::client::legacy::Client::builder(RuntimeHyperExecutor(self.runtime.clone())).build(
             HyperFirecrackerConnector {
                 backend: self.runtime.get_hyper_client_sockets_backend(),
             },

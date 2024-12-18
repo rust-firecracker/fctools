@@ -4,7 +4,7 @@ use futures_util::TryFutureExt;
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{Runtime, RuntimeChild, RuntimeJoinSet},
+    runtime::{util::RuntimeTaskSet, Runtime, RuntimeChild},
     vmm::{
         arguments::{command_modifier::CommandModifier, jailer::JailerArguments, VmmApiSocket, VmmArguments},
         installation::VmmInstallation,
@@ -94,7 +94,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             .await
             .map_err(VmmExecutorError::FilesystemError)?;
 
-        let mut join_set = RuntimeJoinSet::new(context.runtime.clone());
+        let mut task_set = RuntimeTaskSet::new(context.runtime.clone());
 
         // Ensure socket parent directory exists so that the firecracker process can bind inside of it
         if let VmmApiSocket::Enabled(ref socket_path) = self.vmm_arguments.api_socket {
@@ -103,7 +103,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                 let jail_path = jail_path.clone();
                 let runtime = context.runtime.clone();
 
-                join_set.spawn(async move {
+                task_set.spawn(async move {
                     let expanded_path = jail_path.jail_join(&socket_parent_dir);
 
                     runtime
@@ -124,7 +124,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         }
 
         for created_resource in resource_references.created_resources {
-            join_set.spawn(
+            task_set.spawn(
                 created_resource
                     .initialize(
                         jail_path.jail_join(created_resource.local_path()),
@@ -142,7 +142,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                 .rename_for_jail(moved_resource.source_path())
                 .map_err(VmmExecutorError::JailRenamerFailed)?;
             let effective_path = jail_path.jail_join(&local_path);
-            join_set.spawn(
+            task_set.spawn(
                 moved_resource
                     .initialize(
                         effective_path,
@@ -157,7 +157,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
 
         // Apply produced resources
         for produced_resource in resource_references.produced_resources {
-            join_set.spawn(
+            task_set.spawn(
                 produced_resource
                     .initialize(
                         jail_path.jail_join(produced_resource.local_path()),
@@ -168,7 +168,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             );
         }
 
-        join_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))?;
+        task_set.wait().await.unwrap_or(Err(VmmExecutorError::TaskJoinFailed))?;
 
         downgrade_owner_recursively(&jail_path, context.ownership_model, &context.runtime)
             .await
