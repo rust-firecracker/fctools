@@ -4,7 +4,7 @@ use futures_channel::mpsc;
 use futures_util::{io::BufReader, AsyncBufReadExt, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::{Runtime, RuntimeExecutor, RuntimeFilesystem};
+use crate::runtime::Runtime;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Metrics {
@@ -312,9 +312,9 @@ impl std::fmt::Display for MetricsTaskError {
 
 /// A spawned async task that gathers Firecracker's metrics.
 #[derive(Debug)]
-pub struct MetricsTask<E: RuntimeExecutor> {
+pub struct MetricsTask<R: Runtime> {
     /// The task that can be detached, cancelled or joined on.
-    pub task: E::Task<Result<(), MetricsTaskError>>,
+    pub task: R::Task<Result<(), MetricsTaskError>>,
     /// An asynchronous [mpsc::Receiver] that can be used to fetch the metrics sent out by the task.
     pub receiver: mpsc::Receiver<Metrics>,
 }
@@ -325,14 +325,13 @@ pub fn spawn_metrics_task<R: Runtime>(
     metrics_path: impl AsRef<Path> + Send + 'static,
     buffer: usize,
     runtime: R,
-) -> MetricsTask<R::Executor> {
+) -> MetricsTask<R> {
     let (mut sender, receiver) = mpsc::channel(buffer);
 
-    let task = runtime.executor().spawn(async move {
+    let task = runtime.clone().spawn_task(async move {
         let mut buf_reader = BufReader::new(
             runtime
-                .filesystem()
-                .open_file_for_read(metrics_path.as_ref())
+                .fs_open_file_for_read(metrics_path.as_ref())
                 .await
                 .map_err(MetricsTaskError::FilesystemError)?,
         )

@@ -7,18 +7,18 @@ use std::{
     process::ExitStatus,
 };
 
-use crate::runtime::{Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess};
+use crate::runtime::{Runtime, RuntimeAsyncFd, RuntimeChild};
 
 /// A process handle is a thin abstraction over either an "attached" child process that is a [RuntimeProcess],
 /// or a "detached" certain process that isn't a child and is controlled via a [RuntimeAsyncFd] wrapping a
 /// Linux pidfd.
 #[derive(Debug)]
-pub struct ProcessHandle<P: RuntimeProcess>(ProcessHandleInner<P>);
+pub struct ProcessHandle<R: Runtime>(ProcessHandleInner<R>);
 
 /// The pipes that are extracted from a [ProcessHandle]. These can only be extracted from attached
 /// [ProcessHandle]s that haven't had their pipes dropped to /dev/null.
 #[derive(Debug)]
-pub struct ProcessHandlePipes<P: RuntimeProcess> {
+pub struct ProcessHandlePipes<P: RuntimeChild> {
     pub stdout: P::Stdout,
     pub stderr: P::Stderr,
     pub stdin: P::Stdin,
@@ -50,9 +50,9 @@ impl std::fmt::Display for ProcessHandlePipesError {
 }
 
 #[derive(Debug)]
-enum ProcessHandleInner<P: RuntimeProcess> {
+enum ProcessHandleInner<R: Runtime> {
     Child {
-        process: P,
+        process: R::Child,
         pipes_dropped: bool,
     },
     Pidfd {
@@ -62,27 +62,26 @@ enum ProcessHandleInner<P: RuntimeProcess> {
     },
 }
 
-impl<P: RuntimeProcess> ProcessHandle<P> {
+impl<R: Runtime> ProcessHandle<R> {
     /// Create a [ProcessHandle] from a [RuntimeProcess] that is a child of the current process.
-    pub fn with_child(process: P, pipes_dropped: bool) -> Self {
+    pub fn with_child(process: R::Child, pipes_dropped: bool) -> Self {
         Self(ProcessHandleInner::Child { process, pipes_dropped })
     }
 
     /// Try to create a [ProcessHandle] by allocating a pidfd for the given PID.
-    pub fn with_pidfd<R: Runtime>(pid: i32, runtime: R) -> Result<Self, std::io::Error> {
+    pub fn with_pidfd(pid: i32, runtime: R) -> Result<Self, std::io::Error> {
         let pidfd = crate::syscall::pidfd_open(pid)?;
         let raw_pidfd = pidfd.as_raw_fd();
 
         let (exited_tx, exited_rx) = futures_channel::oneshot::channel();
-        let async_pidfd = runtime.filesystem().create_async_fd(pidfd)?;
+        let async_pidfd = runtime.create_async_fd(pidfd)?;
 
-        let _ = runtime.executor().spawn(async move {
+        runtime.clone().spawn_task(async move {
             if async_pidfd.readable().await.is_ok() {
                 let mut exit_status = ExitStatus::from_raw(0);
 
                 if let Ok(content) = runtime
-                    .filesystem()
-                    .read_to_string(&PathBuf::from(format!("/proc/{pid}/stat")))
+                    .fs_read_to_string(&PathBuf::from(format!("/proc/{pid}/stat")))
                     .await
                 {
                     if let Some(status_raw) = content.split_whitespace().last().and_then(|value| value.parse().ok()) {
@@ -175,7 +174,7 @@ impl<P: RuntimeProcess> ProcessHandle<P> {
 
     /// Try to get the [ProcessHandlePipes] for this process. Only possible for attached (child)
     /// processes that haven't had their pipes dropped when creating.
-    pub fn get_pipes(&mut self) -> Result<ProcessHandlePipes<P>, ProcessHandlePipesError> {
+    pub fn get_pipes(&mut self) -> Result<ProcessHandlePipes<R::Child>, ProcessHandlePipesError> {
         match self.0 {
             ProcessHandleInner::Pidfd {
                 raw_pidfd: _,

@@ -151,7 +151,7 @@ impl ProcessSpawner for FailingRunner {
         _arguments: Vec<String>,
         _pipes_to_null: bool,
         _runtime: &R,
-    ) -> Result<R::Process, std::io::Error> {
+    ) -> Result<R::Child, std::io::Error> {
         Err(std::io::Error::other("Purposeful test failure"))
     }
 }

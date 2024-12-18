@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{Runtime, RuntimeFilesystem},
+    runtime::Runtime,
     vmm::ownership::{downgrade_owner, VmmOwnershipModel},
 };
 
@@ -89,8 +89,7 @@ impl CreatedVmmResource {
         async move {
             if let Some(parent_path) = effective_path.parent() {
                 runtime
-                    .filesystem()
-                    .create_dir_all(&parent_path)
+                    .fs_create_dir_all(&parent_path)
                     .await
                     .map_err(VmmResourceError::FilesystemError)?;
             }
@@ -98,8 +97,7 @@ impl CreatedVmmResource {
             match r#type {
                 CreatedVmmResourceType::File => {
                     runtime
-                        .filesystem()
-                        .create_file(&effective_path)
+                        .fs_create_file(&effective_path)
                         .await
                         .map_err(VmmResourceError::FilesystemError)?;
                 }
@@ -139,8 +137,7 @@ impl CreatedVmmResource {
                 .map_err(VmmResourceError::ChangeOwnerError)?;
 
             runtime
-                .filesystem()
-                .remove_file(&path)
+                .fs_remove_file(&path)
                 .await
                 .map_err(VmmResourceError::FilesystemError)
         }
@@ -235,8 +232,7 @@ impl MovedVmmResource {
                 .map_err(VmmResourceError::ChangeOwnerError)?;
 
             if !runtime
-                .filesystem()
-                .check_exists(&source_path)
+                .fs_exists(&source_path)
                 .await
                 .map_err(VmmResourceError::FilesystemError)?
             {
@@ -245,8 +241,7 @@ impl MovedVmmResource {
 
             if let Some(parent_path) = effective_path.parent() {
                 runtime
-                    .filesystem()
-                    .create_dir_all(parent_path)
+                    .fs_create_dir_all(parent_path)
                     .await
                     .map_err(VmmResourceError::FilesystemError)?;
             }
@@ -254,45 +249,35 @@ impl MovedVmmResource {
             match move_method {
                 VmmResourceMoveMethod::Copy => {
                     runtime
-                        .filesystem()
-                        .copy(&source_path, &effective_path)
+                        .fs_copy(&source_path, &effective_path)
                         .await
                         .map_err(VmmResourceError::FilesystemError)?;
                 }
                 VmmResourceMoveMethod::HardLink => {
                     runtime
-                        .filesystem()
-                        .hard_link(&source_path, &effective_path)
+                        .fs_hard_link(&source_path, &effective_path)
                         .await
                         .map_err(VmmResourceError::FilesystemError)?;
                 }
                 VmmResourceMoveMethod::CopyOrHardLink => {
-                    if runtime.filesystem().copy(&source_path, &effective_path).await.is_err() {
+                    if runtime.fs_copy(&source_path, &effective_path).await.is_err() {
                         runtime
-                            .filesystem()
-                            .hard_link(&source_path, &effective_path)
+                            .fs_hard_link(&source_path, &effective_path)
                             .await
                             .map_err(VmmResourceError::FilesystemError)?;
                     }
                 }
                 VmmResourceMoveMethod::HardLinkOrCopy => {
-                    if runtime
-                        .filesystem()
-                        .hard_link(&source_path, &effective_path)
-                        .await
-                        .is_err()
-                    {
+                    if runtime.fs_hard_link(&source_path, &effective_path).await.is_err() {
                         runtime
-                            .filesystem()
-                            .copy(&source_path, &effective_path)
+                            .fs_copy(&source_path, &effective_path)
                             .await
                             .map_err(VmmResourceError::FilesystemError)?;
                     }
                 }
                 VmmResourceMoveMethod::Rename => {
                     runtime
-                        .filesystem()
-                        .rename_file(&source_path, &effective_path)
+                        .fs_rename(&source_path, &effective_path)
                         .await
                         .map_err(VmmResourceError::FilesystemError)?;
                 }
@@ -320,8 +305,7 @@ impl MovedVmmResource {
                 .map_err(VmmResourceError::ChangeOwnerError)?;
 
             if !runtime
-                .filesystem()
-                .check_exists(&source_path)
+                .fs_exists(&source_path)
                 .await
                 .map_err(VmmResourceError::FilesystemError)?
             {
@@ -422,8 +406,7 @@ impl ProducedVmmResource {
         async move {
             if let Some(parent_path) = path.parent() {
                 runtime
-                    .filesystem()
-                    .create_dir_all(&parent_path)
+                    .fs_create_dir_all(&parent_path)
                     .await
                     .map_err(VmmResourceError::FilesystemError)?;
 
@@ -462,8 +445,7 @@ impl ProducedVmmResource {
                     .map_err(VmmResourceError::ChangeOwnerError)?;
 
                 runtime
-                    .filesystem()
-                    .remove_file(&path)
+                    .fs_remove_file(&path)
                     .await
                     .map_err(VmmResourceError::FilesystemError)?;
             }
@@ -479,10 +461,7 @@ impl ProducedVmmResource {
         runtime: &R,
     ) -> Result<(), std::io::Error> {
         let new_effective_path = new_effective_path.into();
-        runtime
-            .filesystem()
-            .copy(self.effective_path(), &new_effective_path)
-            .await?;
+        runtime.fs_copy(self.effective_path(), &new_effective_path).await?;
         self.effective_path = Some(new_effective_path);
         self.unlink();
         Ok(())
@@ -495,10 +474,7 @@ impl ProducedVmmResource {
         runtime: &R,
     ) -> Result<(), std::io::Error> {
         let new_effective_path = new_effective_path.into();
-        runtime
-            .filesystem()
-            .rename_file(self.effective_path(), &new_effective_path)
-            .await?;
+        runtime.fs_rename(self.effective_path(), &new_effective_path).await?;
         self.effective_path = Some(new_effective_path);
         self.unlink();
         Ok(())
@@ -506,7 +482,7 @@ impl ProducedVmmResource {
 
     /// Attempt to delete the resource, giving back ownership alongside the error if the operation fails.
     pub async fn delete<R: Runtime>(self, runtime: &R) -> Result<(), (std::io::Error, Self)> {
-        if let Err(err) = runtime.filesystem().remove_file(self.effective_path()).await {
+        if let Err(err) = runtime.fs_remove_file(self.effective_path()).await {
             return Err((err, self));
         }
 

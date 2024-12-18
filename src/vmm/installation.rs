@@ -3,7 +3,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-use crate::runtime::{Runtime, RuntimeFilesystem};
+use crate::runtime::Runtime;
 
 /// A [VmmInstallation] encapsulates release binaries of the most important automatable VMM components:
 /// "firecracker", "jailer" and "snapshot-editor". Using a partial installation with only
@@ -81,8 +81,7 @@ async fn verify_imp<R: Runtime>(
     expected_name: &str,
 ) -> Result<(), VmmInstallationError> {
     if !runtime
-        .filesystem()
-        .check_exists(path)
+        .fs_exists(path)
         .await
         .map_err(VmmInstallationError::FilesystemError)?
     {
@@ -97,7 +96,7 @@ async fn verify_imp<R: Runtime>(
         .stdin(Stdio::null());
 
     let output = runtime
-        .run_process(command)
+        .run_child(command)
         .await
         .map_err(|_| VmmInstallationError::BinaryNotExecutable)?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();

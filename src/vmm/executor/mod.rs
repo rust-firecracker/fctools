@@ -100,7 +100,7 @@ pub trait VmmExecutor: Send + Sync {
         &mut self,
         context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
-    ) -> impl Future<Output = Result<ProcessHandle<R::Process>, VmmExecutorError>> + Send;
+    ) -> impl Future<Output = Result<ProcessHandle<R>, VmmExecutorError>> + Send;
 
     /// Clean up all transient resources of the VMM invocation.
     fn cleanup<S: ProcessSpawner, R: Runtime>(

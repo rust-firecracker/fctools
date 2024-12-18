@@ -16,9 +16,7 @@ use async_io::Timer;
 use async_process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use pin_project_lite::pin_project;
 
-use super::{
-    chownr::chownr_recursive, Runtime, RuntimeAsyncFd, RuntimeExecutor, RuntimeFilesystem, RuntimeProcess, RuntimeTask,
-};
+use super::{chownr::chownr_recursive, Runtime, RuntimeAsyncFd, RuntimeChild, RuntimeTask};
 
 #[derive(Clone)]
 enum MaybeStaticExecutor {
@@ -52,73 +50,26 @@ impl SmolRuntime {
 }
 
 impl Runtime for SmolRuntime {
-    type Executor = SmolRuntimeExecutor;
-
-    type Filesystem = SmolRuntimeFilesystem;
-
-    type Process = SmolRuntimeProcess;
+    type Task<O: Send + 'static> = SmolRuntimeTask<O>;
+    type TimeoutError = TimeoutError;
+    type File = async_fs::File;
+    type AsyncFd = SmolRuntimeAsyncFd;
+    type Child = SmolRuntimeChild;
 
     #[cfg(feature = "vmm-process")]
     type HyperExecutor = SmolRuntimeHyperExecutor;
 
     #[cfg(feature = "vmm-process")]
-    fn hyper_executor(&self) -> Self::HyperExecutor {
+    fn get_hyper_executor(&self) -> Self::HyperExecutor {
         SmolRuntimeHyperExecutor(self.0.clone())
     }
 
     #[cfg(feature = "vmm-process")]
-    fn hyper_client_sockets_backend(&self) -> hyper_client_sockets::Backend {
+    fn get_hyper_client_sockets_backend(&self) -> hyper_client_sockets::Backend {
         hyper_client_sockets::Backend::AsyncIo
     }
 
-    fn executor(&self) -> Self::Executor {
-        SmolRuntimeExecutor(self.0.clone())
-    }
-
-    fn filesystem(&self) -> Self::Filesystem {
-        SmolRuntimeFilesystem
-    }
-
-    fn spawn_process(
-        &self,
-        command: std::process::Command,
-        stdout: Stdio,
-        stderr: Stdio,
-        stdin: Stdio,
-    ) -> Result<Self::Process, std::io::Error> {
-        let mut child = async_process::Command::from(command)
-            .stdout(stdout)
-            .stderr(stderr)
-            .stdin(stdin)
-            .spawn()?;
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        let stdin = child.stdin.take();
-
-        Ok(SmolRuntimeProcess {
-            child,
-            stdout,
-            stderr,
-            stdin,
-        })
-    }
-
-    fn run_process(
-        &self,
-        command: std::process::Command,
-    ) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send {
-        async_process::Command::from(command).output()
-    }
-}
-
-pub struct SmolRuntimeExecutor(MaybeStaticExecutor);
-
-impl RuntimeExecutor for SmolRuntimeExecutor {
-    type Task<O: Send + 'static> = SmolRuntimeTask<O>;
-
-    type TimeoutError = TimeoutError;
-
-    fn spawn<F, O>(&self, future: F) -> Self::Task<O>
+    fn spawn_task<F, O>(&self, future: F) -> Self::Task<O>
     where
         F: Future<Output = O> + Send + 'static,
         O: Send + 'static,
@@ -140,6 +91,101 @@ impl RuntimeExecutor for SmolRuntimeExecutor {
             timer: Timer::after(duration),
             future,
         }
+    }
+
+    fn fs_exists(&self, path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send {
+        let path = path.to_owned();
+        blocking::unblock(move || std::fs::exists(&path))
+    }
+
+    fn fs_remove_file(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
+        async_fs::remove_file(path)
+    }
+
+    fn fs_create_dir_all(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
+        async_fs::create_dir_all(path)
+    }
+
+    async fn fs_create_file(&self, path: &Path) -> Result<(), std::io::Error> {
+        async_fs::File::create(path).await.map(|_| ())
+    }
+
+    fn fs_write(&self, path: &Path, content: String) -> impl Future<Output = Result<(), std::io::Error>> + Send {
+        async_fs::write(path, content)
+    }
+
+    fn fs_read_to_string(&self, path: &Path) -> impl Future<Output = Result<String, std::io::Error>> + Send {
+        async_fs::read_to_string(path)
+    }
+
+    fn fs_rename(
+        &self,
+        source_path: &Path,
+        destination_path: &Path,
+    ) -> impl Future<Output = Result<(), std::io::Error>> + Send {
+        async_fs::rename(source_path, destination_path)
+    }
+
+    fn fs_remove_dir_all(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
+        async_fs::remove_dir_all(path)
+    }
+
+    async fn fs_copy(&self, source_path: &Path, destination_path: &Path) -> Result<(), std::io::Error> {
+        async_fs::copy(source_path, destination_path).await.map(|_| ())
+    }
+
+    fn fs_chown_all(&self, path: &Path, uid: u32, gid: u32) -> impl Future<Output = Result<(), std::io::Error>> + Send {
+        let path = path.to_owned();
+        blocking::unblock(move || chownr_recursive(&path, uid, gid))
+    }
+
+    fn fs_hard_link(
+        &self,
+        source_path: &Path,
+        destination_path: &Path,
+    ) -> impl Future<Output = Result<(), std::io::Error>> + Send {
+        async_fs::hard_link(source_path, destination_path)
+    }
+
+    fn fs_open_file_for_read(&self, path: &Path) -> impl Future<Output = Result<Self::File, std::io::Error>> + Send {
+        let mut open_options = async_fs::OpenOptions::new();
+        open_options.read(true);
+        open_options.open(path)
+    }
+
+    fn create_async_fd(&self, fd: OwnedFd) -> Result<Self::AsyncFd, std::io::Error> {
+        Ok(SmolRuntimeAsyncFd(async_io::Async::new(fd)?))
+    }
+
+    fn spawn_child(
+        &self,
+        command: std::process::Command,
+        stdout: Stdio,
+        stderr: Stdio,
+        stdin: Stdio,
+    ) -> Result<Self::Child, std::io::Error> {
+        let mut child = async_process::Command::from(command)
+            .stdout(stdout)
+            .stderr(stderr)
+            .stdin(stdin)
+            .spawn()?;
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let stdin = child.stdin.take();
+
+        Ok(SmolRuntimeChild {
+            child,
+            stdout,
+            stderr,
+            stdin,
+        })
+    }
+
+    fn run_child(
+        &self,
+        command: std::process::Command,
+    ) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send {
+        async_process::Command::from(command).output()
     }
 }
 
@@ -203,78 +249,6 @@ impl<F: Future<Output = O>, O> Future for TimeoutFuture<F, O> {
     }
 }
 
-pub struct SmolRuntimeFilesystem;
-
-impl RuntimeFilesystem for SmolRuntimeFilesystem {
-    type File = async_fs::File;
-
-    type AsyncFd = SmolRuntimeAsyncFd;
-
-    fn check_exists(&self, path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send {
-        let path = path.to_owned();
-        blocking::unblock(move || std::fs::exists(&path))
-    }
-
-    fn remove_file(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
-        async_fs::remove_file(path)
-    }
-
-    fn create_dir_all(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
-        async_fs::create_dir_all(path)
-    }
-
-    async fn create_file(&self, path: &Path) -> Result<(), std::io::Error> {
-        async_fs::File::create(path).await.map(|_| ())
-    }
-
-    fn write_file(&self, path: &Path, content: String) -> impl Future<Output = Result<(), std::io::Error>> + Send {
-        async_fs::write(path, content)
-    }
-
-    fn read_to_string(&self, path: &Path) -> impl Future<Output = Result<String, std::io::Error>> + Send {
-        async_fs::read_to_string(path)
-    }
-
-    fn rename_file(
-        &self,
-        source_path: &Path,
-        destination_path: &Path,
-    ) -> impl Future<Output = Result<(), std::io::Error>> + Send {
-        async_fs::rename(source_path, destination_path)
-    }
-
-    fn remove_dir_all(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send {
-        async_fs::remove_dir_all(path)
-    }
-
-    async fn copy(&self, source_path: &Path, destination_path: &Path) -> Result<(), std::io::Error> {
-        async_fs::copy(source_path, destination_path).await.map(|_| ())
-    }
-
-    fn chownr(&self, path: &Path, uid: u32, gid: u32) -> impl Future<Output = Result<(), std::io::Error>> + Send {
-        let path = path.to_owned();
-        blocking::unblock(move || chownr_recursive(&path, uid, gid))
-    }
-
-    fn hard_link(
-        &self,
-        source_path: &Path,
-        destination_path: &Path,
-    ) -> impl Future<Output = Result<(), std::io::Error>> + Send {
-        async_fs::hard_link(source_path, destination_path)
-    }
-
-    fn open_file_for_read(&self, path: &Path) -> impl Future<Output = Result<Self::File, std::io::Error>> + Send {
-        let mut open_options = async_fs::OpenOptions::new();
-        open_options.read(true);
-        open_options.open(path)
-    }
-
-    fn create_async_fd(&self, fd: OwnedFd) -> Result<Self::AsyncFd, std::io::Error> {
-        Ok(SmolRuntimeAsyncFd(async_io::Async::new(fd)?))
-    }
-}
-
 pub struct SmolRuntimeAsyncFd(async_io::Async<OwnedFd>);
 
 impl RuntimeAsyncFd for SmolRuntimeAsyncFd {
@@ -284,14 +258,14 @@ impl RuntimeAsyncFd for SmolRuntimeAsyncFd {
 }
 
 #[derive(Debug)]
-pub struct SmolRuntimeProcess {
+pub struct SmolRuntimeChild {
     child: Child,
     stdout: Option<ChildStdout>,
     stderr: Option<ChildStderr>,
     stdin: Option<ChildStdin>,
 }
 
-impl RuntimeProcess for SmolRuntimeProcess {
+impl RuntimeChild for SmolRuntimeChild {
     type Stdout = ChildStdout;
 
     type Stderr = ChildStderr;

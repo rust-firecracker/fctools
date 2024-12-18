@@ -4,7 +4,7 @@ use futures_util::AsyncWriteExt;
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{Runtime, RuntimeExecutor},
+    runtime::Runtime,
     vmm::{executor::VmmExecutor, process::VmmProcessError},
 };
 
@@ -166,7 +166,7 @@ pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
         let result = match action.timeout {
             Some(duration) => vm
                 .runtime
-                .executor()
+                .clone()
                 .timeout(duration, action.method.run(vm))
                 .await
                 .unwrap_or(Err(VmShutdownError::Timeout)),

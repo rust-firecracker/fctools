@@ -8,12 +8,7 @@ use hyper_client_sockets::firecracker::{
     connector::HyperFirecrackerConnector, FirecrackerUriExt, HyperFirecrackerStream,
 };
 
-use crate::{
-    process_spawner::ProcessSpawner,
-    runtime::{Runtime, RuntimeExecutor},
-    vm::Vm,
-    vmm::executor::VmmExecutor,
-};
+use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vm::Vm, vmm::executor::VmmExecutor};
 
 /// An error that can be emitted by the HTTP-over-vsock extension.
 #[derive(Debug)]
@@ -112,21 +107,21 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
             .effective_path()
             .to_owned();
         let stream =
-            HyperFirecrackerStream::connect(socket_path, guest_port, self.runtime.hyper_client_sockets_backend())
+            HyperFirecrackerStream::connect(socket_path, guest_port, self.runtime.get_hyper_client_sockets_backend())
                 .await
                 .map_err(VsockHttpError::CannotConnect)?;
         let (send_request, connection) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(stream)
             .await
             .map_err(VsockHttpError::CannotHandshake)?;
-        self.runtime.executor().spawn(connection);
+        self.runtime.spawn_task(connection);
 
         Ok(send_request)
     }
 
     fn vsock_create_http_connection_pool(&self, guest_port: u32) -> Result<VsockHttpPool, VsockHttpError> {
-        let client = hyper_util::client::legacy::Client::builder(self.runtime.hyper_executor()).build(
+        let client = hyper_util::client::legacy::Client::builder(self.runtime.get_hyper_executor()).build(
             HyperFirecrackerConnector {
-                backend: self.runtime.hyper_client_sockets_backend(),
+                backend: self.runtime.get_hyper_client_sockets_backend(),
             },
         );
         let socket_path = self

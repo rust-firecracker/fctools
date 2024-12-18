@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{Runtime, RuntimeFilesystem, RuntimeProcess},
+    runtime::{Runtime, RuntimeChild},
 };
 
 pub(crate) static PROCESS_UID: LazyLock<u32> = LazyLock::new(crate::syscall::geteuid);
@@ -135,8 +135,7 @@ pub async fn downgrade_owner_recursively<R: Runtime>(
 ) -> Result<(), ChangeOwnerError> {
     if let Some((uid, gid)) = ownership_model.as_downgrade() {
         runtime
-            .filesystem()
-            .chownr(path, uid, gid)
+            .fs_chown_all(path, uid, gid)
             .await
             .map_err(ChangeOwnerError::RecursiveChownError)
     } else {

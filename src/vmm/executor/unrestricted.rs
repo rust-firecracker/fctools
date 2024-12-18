@@ -4,7 +4,7 @@ use futures_util::TryFutureExt;
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{Runtime, RuntimeFilesystem, RuntimeJoinSet},
+    runtime::{Runtime, RuntimeJoinSet},
     vmm::{
         arguments::{command_modifier::CommandModifier, VmmApiSocket, VmmArguments},
         id::VmmId,
@@ -101,14 +101,12 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                     .map_err(VmmExecutorError::ChangeOwnerError)?;
 
                 if runtime
-                    .filesystem()
-                    .check_exists(&socket_path)
+                    .fs_exists(&socket_path)
                     .await
                     .map_err(VmmExecutorError::FilesystemError)?
                 {
                     runtime
-                        .filesystem()
-                        .remove_file(&socket_path)
+                        .fs_remove_file(&socket_path)
                         .await
                         .map_err(VmmExecutorError::FilesystemError)?;
                 }
@@ -150,7 +148,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         &mut self,
         context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
-    ) -> Result<ProcessHandle<R::Process>, VmmExecutorError> {
+    ) -> Result<ProcessHandle<R>, VmmExecutorError> {
         let mut arguments = self.vmm_arguments.join(config_path);
         let mut binary_path = context.installation.firecracker_path.clone();
 
@@ -189,14 +187,12 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
                     .map_err(VmmExecutorError::ChangeOwnerError)?;
 
                 if runtime
-                    .filesystem()
-                    .check_exists(&socket_path)
+                    .fs_exists(&socket_path)
                     .await
                     .map_err(VmmExecutorError::FilesystemError)?
                 {
                     runtime
-                        .filesystem()
-                        .remove_file(&socket_path)
+                        .fs_remove_file(&socket_path)
                         .await
                         .map_err(VmmExecutorError::FilesystemError)?;
                 }

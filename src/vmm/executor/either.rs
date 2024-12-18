@@ -64,7 +64,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
         &mut self,
         context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
-    ) -> Result<ProcessHandle<R::Process>, VmmExecutorError> {
+    ) -> Result<ProcessHandle<R>, VmmExecutorError> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => executor.invoke(context, config_path).await,
             EitherVmmExecutor::Jailed(executor) => executor.invoke(context, config_path).await,

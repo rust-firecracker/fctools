@@ -4,7 +4,7 @@ use futures_util::TryFutureExt;
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{Runtime, RuntimeFilesystem, RuntimeJoinSet, RuntimeProcess},
+    runtime::{Runtime, RuntimeChild, RuntimeJoinSet},
     vmm::{
         arguments::{command_modifier::CommandModifier, jailer::JailerArguments, VmmApiSocket, VmmArguments},
         installation::VmmInstallation,
@@ -77,23 +77,20 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
 
         if context
             .runtime
-            .filesystem()
-            .check_exists(&jail_path)
+            .fs_exists(&jail_path)
             .await
             .map_err(VmmExecutorError::FilesystemError)?
         {
             context
                 .runtime
-                .filesystem()
-                .remove_dir_all(&jail_path)
+                .fs_remove_dir_all(&jail_path)
                 .await
                 .map_err(VmmExecutorError::FilesystemError)?;
         }
 
         context
             .runtime
-            .filesystem()
-            .create_dir_all(&jail_path)
+            .fs_create_dir_all(&jail_path)
             .await
             .map_err(VmmExecutorError::FilesystemError)?;
 
@@ -110,8 +107,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                     let expanded_path = jail_path.jail_join(&socket_parent_dir);
 
                     runtime
-                        .filesystem()
-                        .create_dir_all(&expanded_path)
+                        .fs_create_dir_all(&expanded_path)
                         .await
                         .map_err(VmmExecutorError::FilesystemError)
                 });
@@ -185,7 +181,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         &mut self,
         context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
-    ) -> Result<ProcessHandle<R::Process>, VmmExecutorError> {
+    ) -> Result<ProcessHandle<R>, VmmExecutorError> {
         let (uid, gid) = match context.ownership_model.as_downgrade() {
             Some(values) => values,
             None => (*PROCESS_UID, *PROCESS_GID),
@@ -236,7 +232,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             .map_err(VmmExecutorError::ChangeOwnerError)?;
 
             let pid = loop {
-                if let Ok(pid_string) = context.runtime.filesystem().read_to_string(&pid_file_path).await {
+                if let Ok(pid_string) = context.runtime.fs_read_to_string(&pid_file_path).await {
                     if let Ok(pid) = pid_string.trim_end().parse() {
                         break pid;
                     }
@@ -271,8 +267,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
 
         context
             .runtime
-            .filesystem()
-            .remove_dir_all(jail_parent_path)
+            .fs_remove_dir_all(jail_parent_path)
             .await
             .map_err(VmmExecutorError::FilesystemError)
     }

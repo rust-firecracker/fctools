@@ -11,7 +11,7 @@ use std::{
 };
 
 #[cfg(feature = "elevation-process-spawners")]
-use crate::runtime::RuntimeProcess;
+use crate::runtime::RuntimeChild;
 
 #[cfg(any(feature = "direct-process-spawner", feature = "elevation-process-spawners"))]
 use std::process::{Command, Stdio};
@@ -33,7 +33,7 @@ pub trait ProcessSpawner: Clone + Send + Sync + 'static {
         arguments: Vec<String>,
         pipes_to_null: bool,
         runtime: &R,
-    ) -> impl Future<Output = Result<R::Process, std::io::Error>> + Send;
+    ) -> impl Future<Output = Result<R::Child, std::io::Error>> + Send;
 }
 
 /// A [ProcessSpawner] that directly invokes the underlying process.
@@ -61,15 +61,16 @@ impl ProcessSpawner for DirectProcessSpawner {
         arguments: Vec<String>,
         pipes_to_null: bool,
         runtime: &R,
-    ) -> Result<R::Process, std::io::Error> {
+    ) -> Result<R::Child, std::io::Error> {
         let mut command = Command::new(path);
         command.args(arguments);
-        let child = runtime.spawn_process(
+        let child = runtime.spawn_child(
             command,
             get_stdio(pipes_to_null),
             get_stdio(pipes_to_null),
             get_stdio(pipes_to_null),
         )?;
+
         Ok(child)
     }
 }
@@ -107,13 +108,13 @@ impl ProcessSpawner for SuProcessSpawner {
         arguments: Vec<String>,
         pipes_to_null: bool,
         runtime: &R,
-    ) -> Result<R::Process, std::io::Error> {
+    ) -> Result<R::Child, std::io::Error> {
         let command = Command::new(match self.0.su_path {
             Some(ref path) => path.as_os_str(),
             None => SU_OS_STRING.as_os_str(),
         });
 
-        let mut process = runtime.spawn_process(
+        let mut process = runtime.spawn_child(
             command,
             get_stdio(pipes_to_null),
             get_stdio(pipes_to_null),
@@ -170,14 +171,14 @@ impl ProcessSpawner for SudoProcessSpawner {
         arguments: Vec<String>,
         pipes_to_null: bool,
         runtime: &R,
-    ) -> Result<R::Process, std::io::Error> {
+    ) -> Result<R::Child, std::io::Error> {
         let mut command = Command::new(match self.0.sudo_path {
             Some(ref path) => path.as_os_str(),
             None => SUDO_OS_STRING.as_os_str(),
         });
         command.arg("-S").arg("-s").arg(path).args(arguments);
 
-        let mut child = runtime.spawn_process(
+        let mut child = runtime.spawn_child(
             command,
             get_stdio(pipes_to_null),
             get_stdio(pipes_to_null),

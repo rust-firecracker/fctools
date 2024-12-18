@@ -35,7 +35,7 @@ pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     process_spawner: S,
     runtime: R,
     installation: Arc<VmmInstallation>,
-    process_handle: Option<ProcessHandle<R::Process>>,
+    process_handle: Option<ProcessHandle<R>>,
     state: VmmProcessState,
     hyper_client: OnceCell<Client<HyperUnixConnector, Full<Bytes>>>,
 }
@@ -200,8 +200,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
                     .map_err(VmmProcessError::ChangeOwnerError)?;
 
                 Ok(
-                    Client::builder(self.runtime.hyper_executor()).build(HyperUnixConnector {
-                        backend: self.runtime.hyper_client_sockets_backend(),
+                    Client::builder(self.runtime.get_hyper_executor()).build(HyperUnixConnector {
+                        backend: self.runtime.get_hyper_client_sockets_backend(),
                     }),
                 )
             })
@@ -221,7 +221,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     /// Take out the stdout, stdin, stderr pipes of the underlying process. This can be only done once,
     /// if some code takes out the pipes, it now owns them for the remaining lifespan of the process.
     /// Allowed in [VmmProcessState::Started].
-    pub fn take_pipes(&mut self) -> Result<ProcessHandlePipes<R::Process>, VmmProcessError> {
+    pub fn take_pipes(&mut self) -> Result<ProcessHandlePipes<R::Child>, VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
         self.process_handle
             .as_mut()

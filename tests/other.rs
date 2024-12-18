@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use fctools::{
     process_spawner::{DirectProcessSpawner, ProcessSpawner, SuProcessSpawner, SudoProcessSpawner},
-    runtime::{tokio::TokioRuntime, RuntimeProcess},
+    runtime::{tokio::TokioRuntime, RuntimeChild},
     vmm::installation::{VmmInstallation, VmmInstallationError},
 };
 use futures_util::AsyncReadExt;

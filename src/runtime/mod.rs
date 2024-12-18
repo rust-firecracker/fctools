@@ -31,9 +31,11 @@ mod chownr;
 /// so the [Clone] implementation is expected to be cheap and fast, meaning that the underlying structure of a [Runtime]
 /// implementation should either be a ZST or an [Arc](std::sync::Arc) of an inner shared type.
 pub trait Runtime: Clone + Send + Sync + 'static {
-    type Executor: RuntimeExecutor;
-    type Filesystem: RuntimeFilesystem;
-    type Process: RuntimeProcess;
+    type Task<O: Send + 'static>: RuntimeTask<O>;
+    type TimeoutError: std::error::Error + std::fmt::Debug + Send + Sync;
+    type File: AsyncRead + AsyncWrite + Send + Unpin;
+    type AsyncFd: RuntimeAsyncFd;
+    type Child: RuntimeChild;
 
     #[cfg(feature = "vmm-process")]
     #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
@@ -41,36 +43,13 @@ pub trait Runtime: Clone + Send + Sync + 'static {
 
     #[cfg(feature = "vmm-process")]
     #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
-    fn hyper_executor(&self) -> Self::HyperExecutor;
+    fn get_hyper_executor(&self) -> Self::HyperExecutor;
 
     #[cfg(feature = "vmm-process")]
     #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
-    fn hyper_client_sockets_backend(&self) -> hyper_client_sockets::Backend;
+    fn get_hyper_client_sockets_backend(&self) -> hyper_client_sockets::Backend;
 
-    fn executor(&self) -> Self::Executor;
-
-    fn filesystem(&self) -> Self::Filesystem;
-
-    fn spawn_process(
-        &self,
-        command: std::process::Command,
-        stdout: Stdio,
-        stderr: Stdio,
-        stdin: Stdio,
-    ) -> Result<Self::Process, std::io::Error>;
-
-    fn run_process(
-        &self,
-        command: std::process::Command,
-    ) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send;
-}
-
-/// The async task executor part of the runtime.
-pub trait RuntimeExecutor: Send + Sync + 'static {
-    type Task<O: Send + 'static>: RuntimeTask<O>;
-    type TimeoutError: std::error::Error + std::fmt::Debug + Send + Sync;
-
-    fn spawn<F, O>(&self, future: F) -> Self::Task<O>
+    fn spawn_task<F, O>(&self, future: F) -> Self::Task<O>
     where
         F: Future<Output = O> + Send + 'static,
         O: Send + 'static;
@@ -83,6 +62,57 @@ pub trait RuntimeExecutor: Send + Sync + 'static {
     where
         F: Future<Output = O> + Send,
         O: Send;
+
+    fn fs_exists(&self, path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send;
+
+    fn fs_remove_file(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send;
+
+    fn fs_create_dir_all(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send;
+
+    fn fs_create_file(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send;
+
+    fn fs_write(&self, path: &Path, content: String) -> impl Future<Output = Result<(), std::io::Error>> + Send;
+
+    fn fs_read_to_string(&self, path: &Path) -> impl Future<Output = Result<String, std::io::Error>> + Send;
+
+    fn fs_rename(
+        &self,
+        source_path: &Path,
+        destination_path: &Path,
+    ) -> impl Future<Output = Result<(), std::io::Error>> + Send;
+
+    fn fs_remove_dir_all(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send;
+
+    fn fs_copy(
+        &self,
+        source_path: &Path,
+        destination_path: &Path,
+    ) -> impl Future<Output = Result<(), std::io::Error>> + Send;
+
+    fn fs_chown_all(&self, path: &Path, uid: u32, gid: u32) -> impl Future<Output = Result<(), std::io::Error>> + Send;
+
+    fn fs_hard_link(
+        &self,
+        source_path: &Path,
+        destination_path: &Path,
+    ) -> impl Future<Output = Result<(), std::io::Error>> + Send;
+
+    fn fs_open_file_for_read(&self, path: &Path) -> impl Future<Output = Result<Self::File, std::io::Error>> + Send;
+
+    fn create_async_fd(&self, fd: OwnedFd) -> Result<Self::AsyncFd, std::io::Error>;
+
+    fn spawn_child(
+        &self,
+        command: std::process::Command,
+        stdout: Stdio,
+        stderr: Stdio,
+        stdin: Stdio,
+    ) -> Result<Self::Child, std::io::Error>;
+
+    fn run_child(
+        &self,
+        command: std::process::Command,
+    ) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send;
 }
 
 /// An async task that is detached on drop, can be cancelled and joined on.
@@ -92,50 +122,6 @@ pub trait RuntimeTask<O: Send + 'static>: Send {
     fn join(self) -> impl Future<Output = Option<O>> + Send;
 }
 
-/// The async filesystem part of the runtime.
-pub trait RuntimeFilesystem: Send + Sync + 'static {
-    type File: AsyncRead + AsyncWrite + Send + Unpin;
-    type AsyncFd: RuntimeAsyncFd;
-
-    fn check_exists(&self, path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send;
-
-    fn remove_file(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send;
-
-    fn create_dir_all(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send;
-
-    fn create_file(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send;
-
-    fn write_file(&self, path: &Path, content: String) -> impl Future<Output = Result<(), std::io::Error>> + Send;
-
-    fn read_to_string(&self, path: &Path) -> impl Future<Output = Result<String, std::io::Error>> + Send;
-
-    fn rename_file(
-        &self,
-        source_path: &Path,
-        destination_path: &Path,
-    ) -> impl Future<Output = Result<(), std::io::Error>> + Send;
-
-    fn remove_dir_all(&self, path: &Path) -> impl Future<Output = Result<(), std::io::Error>> + Send;
-
-    fn copy(
-        &self,
-        source_path: &Path,
-        destination_path: &Path,
-    ) -> impl Future<Output = Result<(), std::io::Error>> + Send;
-
-    fn chownr(&self, path: &Path, uid: u32, gid: u32) -> impl Future<Output = Result<(), std::io::Error>> + Send;
-
-    fn hard_link(
-        &self,
-        source_path: &Path,
-        destination_path: &Path,
-    ) -> impl Future<Output = Result<(), std::io::Error>> + Send;
-
-    fn open_file_for_read(&self, path: &Path) -> impl Future<Output = Result<Self::File, std::io::Error>> + Send;
-
-    fn create_async_fd(&self, fd: OwnedFd) -> Result<Self::AsyncFd, std::io::Error>;
-}
-
 /// An async file descriptor in the runtime that can be polled for the "readable" interest. Used by
 /// the detached (pidfd) backend in process handles.
 pub trait RuntimeAsyncFd: Send {
@@ -143,7 +129,7 @@ pub trait RuntimeAsyncFd: Send {
 }
 
 /// An async child process in the runtime. Used by the attached backend in process handles.
-pub trait RuntimeProcess: Sized + Send + Sync + std::fmt::Debug {
+pub trait RuntimeChild: Sized + Send + Sync + std::fmt::Debug {
     type Stdout: AsyncRead + Unpin + Send;
     type Stderr: AsyncRead + Unpin + Send;
     type Stdin: AsyncWrite + Unpin + Send;
@@ -170,7 +156,7 @@ pub trait RuntimeProcess: Sized + Send + Sync + std::fmt::Debug {
 /// A utility join set of multiple [RuntimeTask]s that run concurrently and can be waited on to all complete.
 #[derive(Default)]
 pub struct RuntimeJoinSet<O: Send + 'static, R: Runtime> {
-    tasks: Vec<<<R as Runtime>::Executor as RuntimeExecutor>::Task<Result<(), O>>>,
+    tasks: Vec<R::Task<Result<(), O>>>,
     runtime: R,
 }
 
@@ -186,7 +172,7 @@ impl<O: Send + 'static, R: Runtime> RuntimeJoinSet<O, R> {
     where
         F: Future<Output = Result<(), O>> + Send + 'static,
     {
-        self.tasks.push(self.runtime.executor().spawn(future));
+        self.tasks.push(self.runtime.spawn_task(future));
     }
 
     pub async fn wait(self) -> Option<Result<(), O>> {

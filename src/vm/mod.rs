@@ -6,7 +6,7 @@ use std::{path::PathBuf, process::ExitStatus, sync::Arc, time::Duration};
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{Runtime, RuntimeExecutor, RuntimeFilesystem},
+    runtime::Runtime,
     vmm::{
         executor::{process_handle::ProcessHandlePipes, VmmExecutor},
         installation::VmmInstallation,
@@ -227,8 +227,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             .map_err(VmError::ChangeOwnerError)?;
 
             self.runtime
-                .filesystem()
-                .write_file(
+                .fs_write(
                     &config_effective_path,
                     serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
                 )
@@ -241,14 +240,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             .await
             .map_err(VmError::ProcessError)?;
 
-        let client = hyper_util::client::legacy::Builder::new(self.runtime.hyper_executor()).build::<_, Full<Bytes>>(
-            HyperUnixConnector {
-                backend: self.runtime.hyper_client_sockets_backend(),
-            },
-        );
+        let client = hyper_util::client::legacy::Builder::new(self.runtime.get_hyper_executor())
+            .build::<_, Full<Bytes>>(HyperUnixConnector {
+                backend: self.runtime.get_hyper_client_sockets_backend(),
+            });
 
         self.runtime
-            .executor()
             .timeout(socket_wait_timeout, async move {
                 loop {
                     if client
@@ -299,7 +296,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     }
 
     /// Take out the [ProcessHandlePipes] of the underlying process handle if possible.
-    pub fn take_pipes(&mut self) -> Result<ProcessHandlePipes<R::Process>, VmError> {
+    pub fn take_pipes(&mut self) -> Result<ProcessHandlePipes<R::Child>, VmError> {
         self.ensure_paused_or_running().map_err(VmError::StateCheckError)?;
         self.vmm_process.take_pipes().map_err(VmError::ProcessError)
     }

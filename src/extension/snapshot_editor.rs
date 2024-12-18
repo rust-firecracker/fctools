@@ -150,7 +150,7 @@ impl<'p, R: Runtime> SnapshotEditor<'p, R> {
 
         let output = self
             .runtime
-            .run_process(command)
+            .run_child(command)
             .await
             .map_err(SnapshotEditorError::ProcessSpawnFailed)?;
 
