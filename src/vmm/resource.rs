@@ -45,7 +45,7 @@ pub struct VmmResourceReferences<'res> {
     pub produced_resources: Vec<&'res mut ProducedVmmResource>,
 }
 
-impl<'r> VmmResourceReferences<'r> {
+impl<'res> VmmResourceReferences<'res> {
     #[inline]
     pub fn new() -> Self {
         Self {
