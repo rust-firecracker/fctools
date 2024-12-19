@@ -46,6 +46,7 @@ pub struct VmmResourceReferences<'res> {
 }
 
 impl<'r> VmmResourceReferences<'r> {
+    #[inline]
     pub fn new() -> Self {
         Self {
             moved_resources: Vec::new(),
