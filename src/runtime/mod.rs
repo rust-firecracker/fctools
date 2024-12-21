@@ -40,7 +40,7 @@ pub trait Runtime: Clone + Send + Sync + 'static {
 
     #[cfg(feature = "vmm-process")]
     #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
-    fn get_hyper_client_sockets_backend(&self) -> hyper_client_sockets::Backend;
+    type SocketBackend: hyper_client_sockets::Backend + Send + Sync + std::fmt::Debug;
 
     fn spawn_task<F, O>(&self, future: F) -> Self::Task<O>
     where

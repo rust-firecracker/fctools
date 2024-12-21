@@ -45,9 +45,8 @@ impl Runtime for SmolRuntime {
     type Child = SmolRuntimeChild;
 
     #[cfg(feature = "vmm-process")]
-    fn get_hyper_client_sockets_backend(&self) -> hyper_client_sockets::Backend {
-        hyper_client_sockets::Backend::AsyncIo
-    }
+    #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
+    type SocketBackend = hyper_client_sockets::async_io::AsyncIoBackend;
 
     fn spawn_task<F, O>(&self, future: F) -> Self::Task<O>
     where

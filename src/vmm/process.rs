@@ -5,7 +5,7 @@ use bytes::{Bytes, BytesMut};
 use http::{Request, Response, StatusCode, Uri};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
-use hyper_client_sockets::unix::{connector::HyperUnixConnector, UnixUriExt};
+use hyper_client_sockets::{connector::unix::UnixConnector, uri::UnixUri};
 use hyper_util::client::legacy::Client;
 
 use crate::{
@@ -37,7 +37,7 @@ pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     installation: Arc<VmmInstallation>,
     process_handle: Option<ProcessHandle<R>>,
     state: VmmProcessState,
-    hyper_client: OnceCell<Client<HyperUnixConnector, Full<Bytes>>>,
+    hyper_client: OnceCell<Client<UnixConnector<R::SocketBackend>, Full<Bytes>>>,
 }
 
 /// The state of a [VmmProcess].
@@ -199,11 +199,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
                     .await
                     .map_err(VmmProcessError::ChangeOwnerError)?;
 
-                Ok(
-                    Client::builder(RuntimeHyperExecutor(self.runtime.clone())).build(HyperUnixConnector {
-                        backend: self.runtime.get_hyper_client_sockets_backend(),
-                    }),
-                )
+                Ok(Client::builder(RuntimeHyperExecutor(self.runtime.clone())).build(UnixConnector::new()))
             })
             .await?;
 

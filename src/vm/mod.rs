@@ -19,7 +19,7 @@ use bytes::Bytes;
 use configuration::{InitMethod, VmConfiguration};
 use http::Uri;
 use http_body_util::Full;
-use hyper_client_sockets::unix::{connector::HyperUnixConnector, UnixUriExt};
+use hyper_client_sockets::{connector::unix::UnixConnector, uri::UnixUri};
 use shutdown::{VmShutdownAction, VmShutdownError, VmShutdownOutcome};
 
 pub mod api;
@@ -241,9 +241,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             .map_err(VmError::ProcessError)?;
 
         let client = hyper_util::client::legacy::Builder::new(RuntimeHyperExecutor(self.runtime.clone()))
-            .build::<_, Full<Bytes>>(HyperUnixConnector {
-                backend: self.runtime.get_hyper_client_sockets_backend(),
-            });
+            .build::<_, Full<Bytes>>(UnixConnector::<R::SocketBackend>::new());
 
         self.runtime
             .timeout(socket_wait_timeout, async move {

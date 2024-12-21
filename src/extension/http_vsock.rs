@@ -4,9 +4,7 @@ use bytes::Bytes;
 use http::{Request, Response, Uri};
 use http_body_util::Full;
 use hyper::{body::Incoming, client::conn::http1::SendRequest};
-use hyper_client_sockets::firecracker::{
-    connector::HyperFirecrackerConnector, FirecrackerUriExt, HyperFirecrackerStream,
-};
+use hyper_client_sockets::{connector::firecracker::FirecrackerConnector, uri::FirecrackerUri};
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -57,13 +55,13 @@ impl std::fmt::Display for VsockHttpPoolError {
 
 /// A managed HTTP connection pool using vsock. Currently the underlying implementation is backed by hyper-util,
 /// but this may change in the future without any changes to the exposed API.
-pub struct VsockHttpPool {
-    client: hyper_util::client::legacy::Client<HyperFirecrackerConnector, Full<Bytes>>,
+pub struct VsockHttpPool<B: hyper_client_sockets::Backend + Send + Sync + 'static> {
+    client: hyper_util::client::legacy::Client<FirecrackerConnector<B>, Full<Bytes>>,
     socket_path: PathBuf,
     guest_port: u32,
 }
 
-impl VsockHttpPool {
+impl<B: hyper_client_sockets::Backend + Send + Sync + 'static> VsockHttpPool<B> {
     /// Send a HTTP request via this pool. Since this is a pool and not a single connection, only shared access to
     /// the pool is needed.
     pub async fn send_request(
@@ -80,6 +78,7 @@ impl VsockHttpPool {
             }
         })?;
         *request.uri_mut() = actual_uri;
+
         self.client
             .request(request)
             .await
@@ -90,6 +89,9 @@ impl VsockHttpPool {
 /// An extension that allows connecting to guest applications that expose a plain-HTTP (REST or any other) server being tunneled over
 /// the Firecracker vsock device.
 pub trait VsockHttpExt {
+    /// The [hyper_client_sockets::Backend] used for connection pooling by this extension.
+    type SocketBackend: hyper_client_sockets::Backend + Send + Sync;
+
     /// Eagerly make a single HTTP connection to the given guest port, without support for connection pooling.
     fn vsock_connect_over_http(
         &self,
@@ -97,10 +99,15 @@ pub trait VsockHttpExt {
     ) -> impl Future<Output = Result<SendRequest<Full<Bytes>>, VsockHttpError>> + Send;
 
     /// Make a lazy HTTP connection pool (backed by hyper-util) that pools multiple connections internally to the given guest port.
-    fn vsock_create_http_connection_pool(&self, guest_port: u32) -> Result<VsockHttpPool, VsockHttpError>;
+    fn vsock_create_http_connection_pool(
+        &self,
+        guest_port: u32,
+    ) -> Result<VsockHttpPool<Self::SocketBackend>, VsockHttpError>;
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R> {
+    type SocketBackend = R::SocketBackend;
+
     async fn vsock_connect_over_http(&self, guest_port: u32) -> Result<SendRequest<Full<Bytes>>, VsockHttpError> {
         let socket_path = self
             .configuration()
@@ -111,10 +118,13 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
             .uds
             .effective_path()
             .to_owned();
-        let stream =
-            HyperFirecrackerStream::connect(socket_path, guest_port, self.runtime.get_hyper_client_sockets_backend())
-                .await
-                .map_err(VsockHttpError::CannotConnect)?;
+        let stream = <R::SocketBackend as hyper_client_sockets::Backend>::connect_to_firecracker_socket(
+            &socket_path,
+            guest_port,
+        )
+        .await
+        .map_err(VsockHttpError::CannotConnect)?;
+
         let (send_request, connection) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(stream)
             .await
             .map_err(VsockHttpError::CannotHandshake)?;
@@ -123,12 +133,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
         Ok(send_request)
     }
 
-    fn vsock_create_http_connection_pool(&self, guest_port: u32) -> Result<VsockHttpPool, VsockHttpError> {
-        let client = hyper_util::client::legacy::Client::builder(RuntimeHyperExecutor(self.runtime.clone())).build(
-            HyperFirecrackerConnector {
-                backend: self.runtime.get_hyper_client_sockets_backend(),
-            },
-        );
+    fn vsock_create_http_connection_pool(
+        &self,
+        guest_port: u32,
+    ) -> Result<VsockHttpPool<R::SocketBackend>, VsockHttpError> {
+        let client = hyper_util::client::legacy::Client::builder(RuntimeHyperExecutor(self.runtime.clone()))
+            .build(FirecrackerConnector::<R::SocketBackend>::new());
         let socket_path = self
             .configuration()
             .data()
@@ -138,6 +148,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
             .uds
             .effective_path()
             .to_owned();
+
         Ok(VsockHttpPool {
             client,
             socket_path,

@@ -6,10 +6,9 @@ use fctools::vmm::{
     resource::MovedVmmResource,
 };
 use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};
-use http::Uri;
 use http_body_util::Full;
 use hyper::Request;
-use hyper_client_sockets::unix::{HyperUnixStream, UnixUriExt};
+use hyper_client_sockets::Backend;
 use test_framework::{get_resource_references_for_vec, run_vmm_process_test, TestOptions, TestVmmProcess};
 
 mod test_framework;
@@ -157,7 +156,7 @@ async fn vmm_get_socket_path_returns_correct_path() {
             .unwrap();
 
         let (mut send_request, connection) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(
-            HyperUnixStream::connect(&socket_path, hyper_client_sockets::Backend::Tokio)
+            hyper_client_sockets::tokio::TokioBackend::connect_to_unix_socket(&socket_path)
                 .await
                 .unwrap(),
         )
@@ -169,7 +168,7 @@ async fn vmm_get_socket_path_returns_correct_path() {
             .send_request(
                 Request::builder()
                     .method("GET")
-                    .uri(Uri::unix(socket_path, "/actions").unwrap())
+                    .uri("/")
                     .body(Full::new(Bytes::new()))
                     .unwrap(),
             )

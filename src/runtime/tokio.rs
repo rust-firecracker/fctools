@@ -22,9 +22,8 @@ impl Runtime for TokioRuntime {
     type Child = TokioRuntimeChild;
 
     #[cfg(feature = "vmm-process")]
-    fn get_hyper_client_sockets_backend(&self) -> hyper_client_sockets::Backend {
-        hyper_client_sockets::Backend::Tokio
-    }
+    #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
+    type SocketBackend = hyper_client_sockets::tokio::TokioBackend;
 
     fn spawn_task<F, O>(&self, future: F) -> Self::Task<O>
     where
