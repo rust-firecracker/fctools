@@ -52,7 +52,7 @@ impl std::fmt::Display for ProcessHandlePipesError {
 #[derive(Debug)]
 enum ProcessHandleInner<R: Runtime> {
     Child {
-        process: R::Child,
+        child: R::Child,
         pipes_dropped: bool,
     },
     Pidfd {
@@ -63,9 +63,9 @@ enum ProcessHandleInner<R: Runtime> {
 }
 
 impl<R: Runtime> ProcessHandle<R> {
-    /// Create a [ProcessHandle] from a [RuntimeProcess] that is a child of the current process.
-    pub fn with_child(process: R::Child, pipes_dropped: bool) -> Self {
-        Self(ProcessHandleInner::Child { process, pipes_dropped })
+    /// Create a [ProcessHandle] from a [RuntimeChild] that is attached to the current process.
+    pub fn with_child(child: R::Child, pipes_dropped: bool) -> Self {
+        Self(ProcessHandleInner::Child { child, pipes_dropped })
     }
 
     /// Try to create a [ProcessHandle] by allocating a pidfd for the given PID.
@@ -104,9 +104,9 @@ impl<R: Runtime> ProcessHandle<R> {
     pub fn send_sigkill(&mut self) -> Result<(), std::io::Error> {
         match self.0 {
             ProcessHandleInner::Child {
-                ref mut process,
+                ref mut child,
                 pipes_dropped: _,
-            } => process.kill(),
+            } => child.kill(),
             ProcessHandleInner::Pidfd {
                 raw_pidfd,
                 exited_rx: _,
@@ -125,9 +125,9 @@ impl<R: Runtime> ProcessHandle<R> {
     pub async fn wait(&mut self) -> Result<ExitStatus, std::io::Error> {
         match self.0 {
             ProcessHandleInner::Child {
-                ref mut process,
+                ref mut child,
                 pipes_dropped: _,
-            } => process.wait().await,
+            } => child.wait().await,
             ProcessHandleInner::Pidfd {
                 raw_pidfd: _,
                 ref mut exited_rx,
@@ -150,9 +150,9 @@ impl<R: Runtime> ProcessHandle<R> {
     pub fn try_wait(&mut self) -> Result<Option<ExitStatus>, std::io::Error> {
         match self.0 {
             ProcessHandleInner::Child {
-                ref mut process,
+                ref mut child,
                 pipes_dropped: _,
-            } => process.try_wait(),
+            } => child.try_wait(),
             ProcessHandleInner::Pidfd {
                 raw_pidfd: _,
                 ref mut exited_rx,
@@ -182,20 +182,20 @@ impl<R: Runtime> ProcessHandle<R> {
                 exited: _,
             } => Err(ProcessHandlePipesError::ProcessIsDetached),
             ProcessHandleInner::Child {
-                ref mut process,
+                ref mut child,
                 pipes_dropped,
             } => {
                 if pipes_dropped {
                     return Err(ProcessHandlePipesError::PipesWereDropped);
                 }
 
-                let stdout = process
+                let stdout = child
                     .take_stdout()
                     .ok_or(ProcessHandlePipesError::PipesWereAlreadyTaken)?;
-                let stderr = process
+                let stderr = child
                     .take_stderr()
                     .ok_or(ProcessHandlePipesError::PipesWereAlreadyTaken)?;
-                let stdin = process
+                let stdin = child
                     .take_stdin()
                     .ok_or(ProcessHandlePipesError::PipesWereAlreadyTaken)?;
 
