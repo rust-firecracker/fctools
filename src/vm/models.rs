@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::vmm::{
     arguments::VmmLogLevel,
-    resource::{CreatedVmmResource, MovedVmmResource, ProducedVmmResource},
+    resource::{created::CreatedVmmResource, moved::MovedVmmResource, produced::ProducedVmmResource},
 };
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]

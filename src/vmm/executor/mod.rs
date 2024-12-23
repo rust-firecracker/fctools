@@ -9,7 +9,7 @@ use crate::{process_spawner::ProcessSpawner, runtime::Runtime};
 use super::{
     installation::VmmInstallation,
     ownership::{ChangeOwnerError, VmmOwnershipModel},
-    resource::{VmmResourceError, VmmResourceReferences},
+    resource::{set::VmmResourceSet, VmmResourceError},
 };
 
 #[cfg(feature = "either-vmm-executor")]
@@ -87,32 +87,31 @@ pub trait VmmExecutor: Send + Sync {
     fn local_to_effective_path(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf;
 
     /// Prepare all transient resources for the VMM invocation.
-    fn prepare<S: ProcessSpawner, R: Runtime>(
+    fn prepare<S: ProcessSpawner, R: Runtime, RS: VmmResourceSet>(
         &mut self,
-        context: VmmExecutorContext<S, R>,
-        resource_references: VmmResourceReferences<'_>,
+        context: VmmExecutorContext<'_, S, R, RS>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 
     /// Invoke the VMM on the given [VmmInstallation] and return the [ProcessHandle] that performs a connection to
     /// the created process, regardless of it possibly being not a child and rather having been unshare()-d into
     /// a separate PID namespace.
-    fn invoke<S: ProcessSpawner, R: Runtime>(
+    fn invoke<S: ProcessSpawner, R: Runtime, RS: VmmResourceSet>(
         &mut self,
-        context: VmmExecutorContext<S, R>,
+        context: VmmExecutorContext<'_, S, R, RS>,
         config_path: Option<PathBuf>,
     ) -> impl Future<Output = Result<ProcessHandle<R>, VmmExecutorError>> + Send;
 
     /// Clean up all transient resources of the VMM invocation.
-    fn cleanup<S: ProcessSpawner, R: Runtime>(
+    fn cleanup<S: ProcessSpawner, R: Runtime, RS: VmmResourceSet>(
         &mut self,
-        context: VmmExecutorContext<S, R>,
-        resource_references: VmmResourceReferences<'_>,
+        context: VmmExecutorContext<'_, S, R, RS>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
-pub struct VmmExecutorContext<S: ProcessSpawner, R: Runtime> {
+pub struct VmmExecutorContext<'r, S: ProcessSpawner, R: Runtime, RS: VmmResourceSet> {
     pub installation: Arc<VmmInstallation>,
     pub process_spawner: S,
     pub runtime: R,
     pub ownership_model: VmmOwnershipModel,
+    pub resource_set: &'r mut RS,
 }

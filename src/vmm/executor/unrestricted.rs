@@ -10,7 +10,7 @@ use crate::{
         id::VmmId,
         installation::VmmInstallation,
         ownership::upgrade_owner,
-        resource::VmmResourceReferences,
+        resource::set::VmmResourceSet,
     },
 };
 
@@ -70,15 +70,14 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         local_path
     }
 
-    async fn prepare<S: ProcessSpawner, R: Runtime>(
+    async fn prepare<S: ProcessSpawner, R: Runtime, RS: VmmResourceSet>(
         &mut self,
-        context: VmmExecutorContext<S, R>,
-        mut resource_references: VmmResourceReferences<'_>,
+        context: VmmExecutorContext<'_, S, R, RS>,
     ) -> Result<(), VmmExecutorError> {
         let mut task_set = RuntimeTaskSet::new(context.runtime.clone());
 
-        // Apply moved resources
-        for moved_resource in resource_references.moved_resources {
+        // Initialize moved resources
+        for moved_resource in context.resource_set.moved_resources() {
             task_set.spawn(
                 moved_resource
                     .initialize_with_same_path(
@@ -115,16 +114,18 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             });
         }
 
-        // Apply created resources
+        // Initialize created resources
+        let mut created_resources = context.resource_set.created_resources().into_iter().collect::<Vec<_>>();
+
         if let Some(ref mut logs) = self.vmm_arguments.logs {
-            resource_references.created_resources.push(logs);
+            created_resources.push(logs);
         }
 
         if let Some(ref mut metrics) = self.vmm_arguments.metrics {
-            resource_references.created_resources.push(metrics);
+            created_resources.push(metrics);
         }
 
-        for created_resource in resource_references.created_resources {
+        for created_resource in created_resources {
             task_set.spawn(
                 created_resource
                     .initialize_with_same_path::<R>(context.ownership_model, context.runtime.clone())
@@ -132,7 +133,8 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             );
         }
 
-        for produced_resource in resource_references.produced_resources {
+        // Initialize produced resources
+        for produced_resource in context.resource_set.produced_resources() {
             task_set.spawn(
                 produced_resource
                     .initialize_with_same_path::<R>(context.ownership_model, context.runtime.clone())
@@ -144,9 +146,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         Ok(())
     }
 
-    async fn invoke<S: ProcessSpawner, R: Runtime>(
+    async fn invoke<S: ProcessSpawner, R: Runtime, RS: VmmResourceSet>(
         &mut self,
-        context: VmmExecutorContext<S, R>,
+        context: VmmExecutorContext<'_, S, R, RS>,
         config_path: Option<PathBuf>,
     ) -> Result<ProcessHandle<R>, VmmExecutorError> {
         let mut arguments = self.vmm_arguments.join(config_path);
@@ -169,10 +171,9 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         Ok(ProcessHandle::with_child(child, self.pipes_to_null))
     }
 
-    async fn cleanup<S: ProcessSpawner, R: Runtime>(
+    async fn cleanup<S: ProcessSpawner, R: Runtime, RS: VmmResourceSet>(
         &mut self,
-        context: VmmExecutorContext<S, R>,
-        mut resource_references: VmmResourceReferences<'_>,
+        context: VmmExecutorContext<'_, S, R, RS>,
     ) -> Result<(), VmmExecutorError> {
         let mut task_set = RuntimeTaskSet::new(context.runtime.clone());
 
@@ -201,15 +202,17 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             });
         }
 
+        let mut created_resources = context.resource_set.created_resources().into_iter().collect::<Vec<_>>();
+
         if let Some(ref mut logs) = self.vmm_arguments.logs {
-            resource_references.created_resources.push(logs);
+            created_resources.push(logs);
         }
 
         if let Some(ref mut metrics) = self.vmm_arguments.metrics {
-            resource_references.created_resources.push(metrics);
+            created_resources.push(metrics);
         }
 
-        for created_resource in resource_references.created_resources {
+        for created_resource in created_resources {
             task_set.spawn(
                 created_resource
                     .dispose(
@@ -221,7 +224,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             );
         }
 
-        for produced_resource in resource_references.produced_resources {
+        for produced_resource in context.resource_set.produced_resources() {
             task_set.spawn(
                 produced_resource
                     .dispose(

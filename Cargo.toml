@@ -162,6 +162,7 @@ unrestricted-vmm-executor = ["runtime-util", "vmm-executor"]
 either-vmm-executor = ["unrestricted-vmm-executor", "jailed-vmm-executor"]
 # L4: VMM process
 vmm-process = [
+    "runtime-util",
     "vmm-executor",
     "dep:async-once-cell",
     "dep:hyper",

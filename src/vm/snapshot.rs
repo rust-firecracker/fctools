@@ -2,7 +2,10 @@ use std::path::PathBuf;
 
 use crate::{
     runtime::Runtime,
-    vmm::resource::{MovedVmmResource, ProducedVmmResource, VmmResourceMoveMethod},
+    vmm::resource::{
+        moved::{MovedVmmResource, VmmResourceMoveMethod},
+        produced::ProducedVmmResource,
+    },
 };
 
 use super::{
