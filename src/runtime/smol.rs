@@ -6,7 +6,7 @@ use std::{
     os::unix::prelude::OwnedFd,
     path::Path,
     pin::Pin,
-    process::Stdio,
+    process::{ExitStatus, Stdio},
     sync::Arc,
     task::Poll,
     time::{Duration, Instant},
@@ -251,11 +251,11 @@ impl RuntimeChild for SmolRuntimeChild {
 
     type Stdin = ChildStdin;
 
-    fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, std::io::Error> {
+    fn try_wait(&mut self) -> Result<Option<ExitStatus>, std::io::Error> {
         self.child.try_status()
     }
 
-    fn wait(&mut self) -> impl Future<Output = Result<std::process::ExitStatus, std::io::Error>> + Send {
+    fn wait(&mut self) -> impl Future<Output = Result<ExitStatus, std::io::Error>> + Send {
         self.child.status()
     }
 
