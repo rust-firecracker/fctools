@@ -36,7 +36,7 @@ pub mod snapshot;
 /// to these components with opinionated functionality.
 #[derive(Debug)]
 pub struct Vm<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
-    vmm_process: VmmProcess<E, S, R>,
+    vmm_process: VmmProcess<E, S, R, VmConfiguration>,
     process_spawner: S,
     ownership_model: VmmOwnershipModel,
     pub(crate) runtime: R,
@@ -173,7 +173,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         );
 
         vmm_process
-            .prepare(configuration.resource_references())
+            .prepare(&mut configuration)
             .await
             .map_err(VmError::ProcessError)?;
 
@@ -236,7 +236,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         }
 
         self.vmm_process
-            .invoke(config_path)
+            .invoke(&mut self.configuration, config_path)
             .await
             .map_err(VmError::ProcessError)?;
 
@@ -288,7 +288,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     pub async fn cleanup(&mut self) -> Result<(), VmError> {
         self.ensure_exited_or_crashed().map_err(VmError::StateCheckError)?;
         self.vmm_process
-            .cleanup(self.configuration.resource_references())
+            .cleanup(&mut self.configuration)
             .await
             .map_err(VmError::ProcessError)
     }
