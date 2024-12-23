@@ -156,14 +156,9 @@ elevation-process-spawners = ["process-spawner"]
 # L2: VMM core
 vmm-core = ["process-spawner", "dep:futures-util"]
 # L3: VMM executor
-vmm-executor = [
-    "runtime-util",
-    "vmm-core",
-    "process-spawner",
-    "dep:futures-channel",
-]
-jailed-vmm-executor = ["vmm-executor"]
-unrestricted-vmm-executor = ["vmm-executor"]
+vmm-executor = ["vmm-core", "process-spawner", "dep:futures-channel"]
+jailed-vmm-executor = ["runtime-util", "vmm-executor"]
+unrestricted-vmm-executor = ["runtime-util", "vmm-executor"]
 either-vmm-executor = ["unrestricted-vmm-executor", "jailed-vmm-executor"]
 # L4: VMM process
 vmm-process = [
