@@ -1,11 +1,14 @@
 use std::path::PathBuf;
 
+use created::CreatedVmmResource;
+use moved::MovedVmmResource;
+use produced::ProducedVmmResource;
+
 use super::ownership::ChangeOwnerError;
 
 pub mod created;
 pub mod moved;
 pub mod produced;
-pub mod set;
 
 /// An error that can be produced by an operation on a VMM resource.
 #[derive(Debug)]
@@ -31,4 +34,12 @@ impl std::fmt::Display for VmmResourceError {
             }
         }
     }
+}
+
+pub trait VmmResourceManager: Send {
+    fn moved_resources(&mut self) -> impl Iterator<Item = &mut MovedVmmResource> + Send;
+
+    fn created_resources(&mut self) -> impl Iterator<Item = &mut CreatedVmmResource> + Send;
+
+    fn produced_resources(&mut self) -> impl Iterator<Item = &mut ProducedVmmResource> + Send;
 }

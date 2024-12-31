@@ -36,8 +36,10 @@ use fctools::{
         ownership::VmmOwnershipModel,
         process::VmmProcessState,
         resource::{
-            CreatedVmmResource, CreatedVmmResourceType, MovedVmmResource, ProducedVmmResource, VmmResourceMoveMethod,
-            VmmResourceReferences,
+            created::{CreatedVmmResource, CreatedVmmResourceType},
+            moved::{MovedVmmResource, VmmResourceMoveMethod},
+            produced::ProducedVmmResource,
+            VmmResourceManager,
         },
     },
 };
@@ -158,64 +160,72 @@ impl ProcessSpawner for FailingRunner {
 
 // VMM TEST FRAMEWORK
 
-#[allow(unused)]
-pub type TestVmmProcess =
-    fctools::vmm::process::VmmProcess<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime>;
+pub struct TestVmmResourceManager(pub Vec<MovedVmmResource>);
 
-#[allow(unused)]
-pub fn get_resource_references_for_vec(resources: &mut Vec<MovedVmmResource>) -> VmmResourceReferences<'_> {
-    VmmResourceReferences {
-        moved_resources: resources.iter_mut().collect(),
-        created_resources: Vec::new(),
-        produced_resources: Vec::new(),
+impl VmmResourceManager for TestVmmResourceManager {
+    fn moved_resources(&mut self) -> impl Iterator<Item = &mut MovedVmmResource> + Send {
+        self.0.iter_mut()
+    }
+
+    fn created_resources(&mut self) -> impl Iterator<Item = &mut CreatedVmmResource> + Send {
+        std::iter::empty()
+    }
+
+    fn produced_resources(&mut self) -> impl Iterator<Item = &mut ProducedVmmResource> + Send {
+        std::iter::empty()
     }
 }
 
 #[allow(unused)]
+pub type TestVmmProcess = fctools::vmm::process::VmmProcess<
+    EitherVmmExecutor<FlatJailRenamer>,
+    DirectProcessSpawner,
+    TokioRuntime,
+    TestVmmResourceManager,
+>;
+
+#[allow(unused)]
 pub async fn run_vmm_process_test<F, Fut>(no_new_pid_ns: bool, closure: F)
 where
-    F: Fn(TestVmmProcess, Vec<MovedVmmResource>) -> Fut,
+    F: Fn(TestVmmProcess, TestVmmResourceManager) -> Fut,
     F: 'static,
     Fut: Future<Output = ()>,
 {
     async fn init_process(
         process: &mut TestVmmProcess,
         config_path: impl Into<PathBuf>,
-        resources: &mut Vec<MovedVmmResource>,
+        resource_manager: &mut TestVmmResourceManager,
     ) {
         process.wait_for_exit().await.unwrap_err();
         process.send_ctrl_alt_del().await.unwrap_err();
         process.send_sigkill().unwrap_err();
         process.take_pipes().unwrap_err();
-        process
-            .cleanup(get_resource_references_for_vec(resources))
-            .await
-            .unwrap_err();
+        process.cleanup(resource_manager).await.unwrap_err();
 
         assert_eq!(process.state(), VmmProcessState::AwaitingPrepare);
+        process.prepare(resource_manager).await.unwrap();
+        assert_eq!(process.state(), VmmProcessState::AwaitingStart);
         process
-            .prepare(get_resource_references_for_vec(resources))
+            .invoke(resource_manager, Some(config_path.into()))
             .await
             .unwrap();
-        assert_eq!(process.state(), VmmProcessState::AwaitingStart);
-        process.invoke(Some(config_path.into())).await.unwrap();
         assert_eq!(process.state(), VmmProcessState::Started);
     }
 
-    let (mut unrestricted_process, mut unrestricted_resources, mut jailed_process, mut jailed_resources) =
+    let (mut unrestricted_process, mut unrestricted_resource_manager, mut jailed_process, mut jailed_resource_manager) =
         get_vmm_processes(no_new_pid_ns).await;
 
-    init_process(&mut jailed_process, "/jailed.json", &mut jailed_resources).await;
+    init_process(&mut jailed_process, "/jailed.json", &mut jailed_resource_manager).await;
     init_process(
         &mut unrestricted_process,
         get_test_path("configs/unrestricted.json"),
-        &mut unrestricted_resources,
+        &mut unrestricted_resource_manager,
     )
     .await;
     tokio::time::sleep(Duration::from_millis(TestOptions::get().await.waits.boot_wait_ms)).await;
-    closure(unrestricted_process, unrestricted_resources).await;
+    closure(unrestricted_process, unrestricted_resource_manager).await;
     println!("Succeeded with unrestricted VM");
-    closure(jailed_process, jailed_resources).await;
+    closure(jailed_process, jailed_resource_manager).await;
     println!("Succeeded with jailed VM");
 }
 
@@ -223,9 +233,9 @@ async fn get_vmm_processes(
     no_new_pid_ns: bool,
 ) -> (
     TestVmmProcess,
-    Vec<MovedVmmResource>,
+    TestVmmResourceManager,
     TestVmmProcess,
-    Vec<MovedVmmResource>,
+    TestVmmResourceManager,
 ) {
     let socket_path = get_tmp_path();
 
@@ -273,7 +283,7 @@ async fn get_vmm_processes(
             ownership_model,
             Arc::new(get_real_firecracker_installation()),
         ),
-        unrestricted_resources,
+        TestVmmResourceManager(unrestricted_resources),
         TestVmmProcess::new(
             EitherVmmExecutor::Jailed(jailed_executor),
             DirectProcessSpawner,
@@ -281,7 +291,7 @@ async fn get_vmm_processes(
             ownership_model,
             Arc::new(get_real_firecracker_installation()),
         ),
-        jailed_resources,
+        TestVmmResourceManager(jailed_resources),
     )
 }
 

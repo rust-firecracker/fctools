@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::vmm::resource::{
-    created::CreatedVmmResource, moved::MovedVmmResource, produced::ProducedVmmResource, set::VmmResourceSet,
+    created::CreatedVmmResource, moved::MovedVmmResource, produced::ProducedVmmResource, VmmResourceManager,
 };
 
 use super::models::{
@@ -58,23 +58,8 @@ impl VmConfiguration {
     }
 }
 
-impl VmmResourceSet for VmConfiguration {
-    type MovedResources<'r>
-        = Vec<&'r mut MovedVmmResource>
-    where
-        Self: 'r;
-
-    type CreatedResources<'r>
-        = Vec<&'r mut CreatedVmmResource>
-    where
-        Self: 'r;
-
-    type ProducedResources<'r>
-        = Vec<&'r mut ProducedVmmResource>
-    where
-        Self: 'r;
-
-    fn moved_resources(&mut self) -> Self::MovedResources<'_> {
+impl VmmResourceManager for VmConfiguration {
+    fn moved_resources(&mut self) -> impl Iterator<Item = &mut MovedVmmResource> + Send {
         let mut resources = Vec::with_capacity(1);
 
         let data = match self {
@@ -103,10 +88,10 @@ impl VmmResourceSet for VmConfiguration {
             }
         }
 
-        resources
+        resources.into_iter()
     }
 
-    fn created_resources(&mut self) -> Self::CreatedResources<'_> {
+    fn created_resources(&mut self) -> impl Iterator<Item = &mut CreatedVmmResource> + Send {
         let mut resources = Vec::new();
         let data = self.data_mut();
 
@@ -120,17 +105,17 @@ impl VmmResourceSet for VmConfiguration {
             resources.push(&mut metrics_system.metrics);
         }
 
-        resources
+        resources.into_iter()
     }
 
-    fn produced_resources(&mut self) -> Self::ProducedResources<'_> {
+    fn produced_resources(&mut self) -> impl Iterator<Item = &mut ProducedVmmResource> + Send {
         let mut resources = Vec::new();
 
         if let Some(ref mut vsock_device) = self.data_mut().vsock_device {
             resources.push(&mut vsock_device.uds);
         }
 
-        resources
+        resources.into_iter()
     }
 }
 

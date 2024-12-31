@@ -6,7 +6,7 @@ use fctools::{
         models::{UpdateBalloonDevice, UpdateBalloonStatistics},
         VmState,
     },
-    vmm::{process::HyperResponseExt, resource::CreatedVmmResourceType},
+    vmm::{process::HyperResponseExt, resource::created::CreatedVmmResourceType},
 };
 use http::{Request, StatusCode};
 use http_body_util::Full;

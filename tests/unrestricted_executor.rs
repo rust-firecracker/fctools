@@ -7,10 +7,6 @@ use fctools::{
         arguments::{VmmApiSocket, VmmArguments},
         executor::{unrestricted::UnrestrictedVmmExecutor, VmmExecutor, VmmExecutorContext},
         ownership::VmmOwnershipModel,
-        resource::{
-            CreatedVmmResource, CreatedVmmResourceType, MovedVmmResource, ProducedVmmResource, VmmResourceMoveMethod,
-            VmmResourceReferences,
-        },
     },
 };
 use test_framework::{get_fake_firecracker_installation, get_tmp_path};
