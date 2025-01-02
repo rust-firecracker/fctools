@@ -256,12 +256,10 @@ async fn get_vmm_processes(
             get_test_path("configs/unrestricted.json"),
             VmmResourceMoveMethod::Copy,
         ));
-    unrestricted_resource_manager
-        .moved_resources
-        .push(MovedVmmResource::new(
-            get_test_path("configs/jailed.json"),
-            VmmResourceMoveMethod::Copy,
-        ));
+    jailed_resource_manager.moved_resources.push(MovedVmmResource::new(
+        get_test_path("configs/jailed.json"),
+        VmmResourceMoveMethod::Copy,
+    ));
 
     (
         TestVmmProcess::new(
