@@ -36,10 +36,37 @@ impl std::fmt::Display for VmmResourceError {
     }
 }
 
+/// A [VmmResourceManager] represents a storage of all resources associated with a VMM. This trait is used by VMM
+/// executors in order to initialize, as well as dispose of all resources.
 pub trait VmmResourceManager: Send {
+    /// Get an iterator of mutable references to the [MovedVmmResource]s from this manager.
     fn moved_resources(&mut self) -> impl Iterator<Item = &mut MovedVmmResource> + Send;
 
+    /// Get an iterator of mutable references to the [CreatedVmmResource]s from this manager.
     fn created_resources(&mut self) -> impl Iterator<Item = &mut CreatedVmmResource> + Send;
 
+    /// Get an iterator of mutable references to the [ProducedVmmResource]s from this manager.
     fn produced_resources(&mut self) -> impl Iterator<Item = &mut ProducedVmmResource> + Send;
+}
+
+/// A simple [VmmResourceManager] that operates over three [Vec]s for storing resources internally.
+#[derive(Debug, Clone, Default)]
+pub struct SimpleVmmResourceManager {
+    pub moved_resources: Vec<MovedVmmResource>,
+    pub created_resources: Vec<CreatedVmmResource>,
+    pub produced_resources: Vec<ProducedVmmResource>,
+}
+
+impl VmmResourceManager for SimpleVmmResourceManager {
+    fn moved_resources(&mut self) -> impl Iterator<Item = &mut MovedVmmResource> + Send {
+        self.moved_resources.iter_mut()
+    }
+
+    fn created_resources(&mut self) -> impl Iterator<Item = &mut CreatedVmmResource> + Send {
+        self.created_resources.iter_mut()
+    }
+
+    fn produced_resources(&mut self) -> impl Iterator<Item = &mut ProducedVmmResource> + Send {
+        self.produced_resources.iter_mut()
+    }
 }

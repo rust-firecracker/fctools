@@ -39,7 +39,7 @@ use fctools::{
             created::{CreatedVmmResource, CreatedVmmResourceType},
             moved::{MovedVmmResource, VmmResourceMoveMethod},
             produced::ProducedVmmResource,
-            VmmResourceManager,
+            SimpleVmmResourceManager,
         },
     },
 };
@@ -160,41 +160,25 @@ impl ProcessSpawner for FailingRunner {
 
 // VMM TEST FRAMEWORK
 
-pub struct TestVmmResourceManager(pub Vec<MovedVmmResource>);
-
-impl VmmResourceManager for TestVmmResourceManager {
-    fn moved_resources(&mut self) -> impl Iterator<Item = &mut MovedVmmResource> + Send {
-        self.0.iter_mut()
-    }
-
-    fn created_resources(&mut self) -> impl Iterator<Item = &mut CreatedVmmResource> + Send {
-        std::iter::empty()
-    }
-
-    fn produced_resources(&mut self) -> impl Iterator<Item = &mut ProducedVmmResource> + Send {
-        std::iter::empty()
-    }
-}
-
 #[allow(unused)]
 pub type TestVmmProcess = fctools::vmm::process::VmmProcess<
     EitherVmmExecutor<FlatJailRenamer>,
     DirectProcessSpawner,
     TokioRuntime,
-    TestVmmResourceManager,
+    SimpleVmmResourceManager,
 >;
 
 #[allow(unused)]
 pub async fn run_vmm_process_test<F, Fut>(no_new_pid_ns: bool, closure: F)
 where
-    F: Fn(TestVmmProcess, TestVmmResourceManager) -> Fut,
+    F: Fn(TestVmmProcess, SimpleVmmResourceManager) -> Fut,
     F: 'static,
     Fut: Future<Output = ()>,
 {
     async fn init_process(
         process: &mut TestVmmProcess,
         config_path: impl Into<PathBuf>,
-        resource_manager: &mut TestVmmResourceManager,
+        resource_manager: &mut SimpleVmmResourceManager,
     ) {
         process.wait_for_exit().await.unwrap_err();
         process.send_ctrl_alt_del().await.unwrap_err();
@@ -233,9 +217,9 @@ async fn get_vmm_processes(
     no_new_pid_ns: bool,
 ) -> (
     TestVmmProcess,
-    TestVmmResourceManager,
+    SimpleVmmResourceManager,
     TestVmmProcess,
-    TestVmmResourceManager,
+    SimpleVmmResourceManager,
 ) {
     let socket_path = get_tmp_path();
 
@@ -255,25 +239,29 @@ async fn get_vmm_processes(
         gid: TestOptions::get().await.jailer_gid.into(),
     };
 
-    let mut jailed_resources = Vec::new();
-    jailed_resources.push(MovedVmmResource::new(
+    let mut jailed_resource_manager = SimpleVmmResourceManager::default();
+    jailed_resource_manager.moved_resources.push(MovedVmmResource::new(
         get_test_path("assets/kernel"),
         VmmResourceMoveMethod::Copy,
     ));
-    jailed_resources.push(MovedVmmResource::new(
+    jailed_resource_manager.moved_resources.push(MovedVmmResource::new(
         get_test_path("assets/rootfs.ext4"),
         VmmResourceMoveMethod::Copy,
     ));
 
-    let mut unrestricted_resources = jailed_resources.clone();
-    unrestricted_resources.push(MovedVmmResource::new(
-        get_test_path("configs/unrestricted.json"),
-        VmmResourceMoveMethod::Copy,
-    ));
-    jailed_resources.push(MovedVmmResource::new(
-        get_test_path("configs/jailed.json"),
-        VmmResourceMoveMethod::Copy,
-    ));
+    let mut unrestricted_resource_manager = SimpleVmmResourceManager::default();
+    unrestricted_resource_manager
+        .moved_resources
+        .push(MovedVmmResource::new(
+            get_test_path("configs/unrestricted.json"),
+            VmmResourceMoveMethod::Copy,
+        ));
+    unrestricted_resource_manager
+        .moved_resources
+        .push(MovedVmmResource::new(
+            get_test_path("configs/jailed.json"),
+            VmmResourceMoveMethod::Copy,
+        ));
 
     (
         TestVmmProcess::new(
@@ -283,7 +271,7 @@ async fn get_vmm_processes(
             ownership_model,
             Arc::new(get_real_firecracker_installation()),
         ),
-        TestVmmResourceManager(unrestricted_resources),
+        unrestricted_resource_manager,
         TestVmmProcess::new(
             EitherVmmExecutor::Jailed(jailed_executor),
             DirectProcessSpawner,
@@ -291,7 +279,7 @@ async fn get_vmm_processes(
             ownership_model,
             Arc::new(get_real_firecracker_installation()),
         ),
-        TestVmmResourceManager(jailed_resources),
+        jailed_resource_manager,
     )
 }
 

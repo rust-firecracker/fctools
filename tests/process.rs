@@ -1,12 +1,15 @@
 use std::time::Duration;
 
 use bytes::Bytes;
-use fctools::vmm::process::{HyperResponseExt, VmmProcessState};
+use fctools::vmm::{
+    process::{HyperResponseExt, VmmProcessState},
+    resource::SimpleVmmResourceManager,
+};
 use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};
 use http_body_util::Full;
 use hyper::Request;
 use hyper_client_sockets::Backend;
-use test_framework::{run_vmm_process_test, TestOptions, TestVmmProcess, TestVmmResourceManager};
+use test_framework::{run_vmm_process_test, TestOptions, TestVmmProcess};
 
 mod test_framework;
 
@@ -179,7 +182,7 @@ async fn vmm_inner_to_outer_path_performs_transformation() {
     .await;
 }
 
-async fn shutdown(process: &mut TestVmmProcess, resource_manager: &mut TestVmmResourceManager) {
+async fn shutdown(process: &mut TestVmmProcess, resource_manager: &mut SimpleVmmResourceManager) {
     if tokio::time::timeout(
         Duration::from_millis(TestOptions::get().await.waits.shutdown_timeout_ms),
         async {
