@@ -9,7 +9,7 @@ use fctools::{
     },
     runtime::{tokio::TokioRuntime, RuntimeTask},
     vm::{api::VmApi, models::SnapshotType},
-    vmm::{process::HyperResponseExt, resource::CreatedVmmResourceType},
+    vmm::{process::HyperResponseExt, resource::created::CreatedVmmResourceType},
 };
 use futures_util::StreamExt;
 use http_body_util::Full;

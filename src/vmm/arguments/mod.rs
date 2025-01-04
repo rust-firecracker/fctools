@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::resource::{CreatedVmmResource, MovedVmmResource};
+use super::resource::{created::CreatedVmmResource, moved::MovedVmmResource};
 
 pub mod command_modifier;
 pub mod jailer;
@@ -227,7 +227,10 @@ mod tests {
         runtime::tokio::TokioRuntime,
         vmm::{
             ownership::VmmOwnershipModel,
-            resource::{CreatedVmmResource, CreatedVmmResourceType, MovedVmmResource, VmmResourceMoveMethod},
+            resource::{
+                created::{CreatedVmmResource, CreatedVmmResourceType},
+                moved::{MovedVmmResource, VmmResourceMoveMethod},
+            },
         },
     };
 

@@ -18,7 +18,7 @@ use fctools::{
             unrestricted::UnrestrictedVmmExecutor,
         },
         ownership::VmmOwnershipModel,
-        resource::{CreatedVmmResourceType, VmmResourceMoveMethod},
+        resource::{created::CreatedVmmResourceType, moved::VmmResourceMoveMethod},
     },
 };
 use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};

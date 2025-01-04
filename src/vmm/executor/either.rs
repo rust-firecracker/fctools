@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
-    vmm::{installation::VmmInstallation, resource::VmmResourceReferences},
+    vmm::{installation::VmmInstallation, resource::VmmResourceManager},
 };
 
 use super::{
@@ -49,20 +49,19 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
         }
     }
 
-    async fn prepare<S: ProcessSpawner, R: Runtime>(
+    async fn prepare<S: ProcessSpawner, R: Runtime, RM: VmmResourceManager>(
         &mut self,
-        context: VmmExecutorContext<S, R>,
-        resource_references: VmmResourceReferences<'_>,
+        context: VmmExecutorContext<'_, S, R, RM>,
     ) -> Result<(), VmmExecutorError> {
         match self {
-            EitherVmmExecutor::Unrestricted(executor) => executor.prepare(context, resource_references).await,
-            EitherVmmExecutor::Jailed(executor) => executor.prepare(context, resource_references).await,
+            EitherVmmExecutor::Unrestricted(executor) => executor.prepare(context).await,
+            EitherVmmExecutor::Jailed(executor) => executor.prepare(context).await,
         }
     }
 
-    async fn invoke<S: ProcessSpawner, R: Runtime>(
+    async fn invoke<S: ProcessSpawner, R: Runtime, RM: VmmResourceManager>(
         &mut self,
-        context: VmmExecutorContext<S, R>,
+        context: VmmExecutorContext<'_, S, R, RM>,
         config_path: Option<PathBuf>,
     ) -> Result<ProcessHandle<R>, VmmExecutorError> {
         match self {
@@ -71,14 +70,13 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
         }
     }
 
-    async fn cleanup<S: ProcessSpawner, R: Runtime>(
+    async fn cleanup<S: ProcessSpawner, R: Runtime, RM: VmmResourceManager>(
         &mut self,
-        context: VmmExecutorContext<S, R>,
-        resource_references: VmmResourceReferences<'_>,
+        context: VmmExecutorContext<'_, S, R, RM>,
     ) -> Result<(), VmmExecutorError> {
         match self {
-            EitherVmmExecutor::Unrestricted(executor) => executor.cleanup(context, resource_references).await,
-            EitherVmmExecutor::Jailed(executor) => executor.cleanup(context, resource_references).await,
+            EitherVmmExecutor::Unrestricted(executor) => executor.cleanup(context).await,
+            EitherVmmExecutor::Jailed(executor) => executor.cleanup(context).await,
         }
     }
 }

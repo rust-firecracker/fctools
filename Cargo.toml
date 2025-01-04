@@ -1,6 +1,6 @@
 [package]
 name = "fctools"
-version = "0.6.0-beta.0"
+version = "0.6.0-beta.1"
 edition = "2021"
 description = "An exhaustive, highly modular and extensible host SDK for the Firecracker microVM manager."
 license = "MIT"
@@ -162,6 +162,7 @@ unrestricted-vmm-executor = ["runtime-util", "vmm-executor"]
 either-vmm-executor = ["unrestricted-vmm-executor", "jailed-vmm-executor"]
 # L4: VMM process
 vmm-process = [
+    "runtime-util",
     "vmm-executor",
     "dep:async-once-cell",
     "dep:hyper",

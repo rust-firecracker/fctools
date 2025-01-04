@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::vmm::resource::VmmResourceReferences;
+use crate::vmm::resource::{
+    created::CreatedVmmResource, moved::MovedVmmResource, produced::ProducedVmmResource, VmmResourceManager,
+};
 
 use super::models::{
     BalloonDevice, BootSource, CpuTemplate, Drive, EntropyDevice, LoadSnapshot, LoggerSystem, MachineConfiguration,
@@ -54,54 +56,66 @@ impl VmConfiguration {
             } => data,
         }
     }
+}
 
-    /// Create a set of [VmmResourceReferences] from this [VmConfiguration] by correctly mapping all internal resources
-    /// in all configuration structures. This will mutably borrow the [VmConfiguration] and the returned value will be
-    /// bound to its lifetime.
-    pub fn resource_references(&mut self) -> VmmResourceReferences<'_> {
-        let mut references = VmmResourceReferences::new();
+impl VmmResourceManager for VmConfiguration {
+    fn moved_resources(&mut self) -> impl Iterator<Item = &mut MovedVmmResource> + Send {
+        let mut resources = Vec::with_capacity(1);
 
         let data = match self {
+            VmConfiguration::New { init_method: _, data } => data,
             VmConfiguration::RestoredFromSnapshot { load_snapshot, data } => {
-                references.moved_resources.push(&mut load_snapshot.snapshot);
-                references.moved_resources.push(&mut load_snapshot.mem_backend.backend);
+                resources.push(&mut load_snapshot.snapshot);
+                resources.push(&mut load_snapshot.mem_backend.backend);
 
                 data
             }
-            VmConfiguration::New { init_method: _, data } => data,
         };
 
-        references.moved_resources.push(&mut data.boot_source.kernel_image);
+        resources.push(&mut data.boot_source.kernel_image);
 
         if let Some(ref mut initrd) = data.boot_source.initrd {
-            references.moved_resources.push(initrd);
+            resources.push(initrd);
         }
 
         for drive in &mut data.drives {
             if let Some(ref mut block) = drive.block {
-                references.moved_resources.push(block);
+                resources.push(block);
             }
 
             if let Some(ref mut socket) = drive.socket {
-                references.moved_resources.push(socket);
+                resources.push(socket);
             }
         }
 
-        if let Some(ref mut vsock_device) = data.vsock_device {
-            references.produced_resources.push(&mut vsock_device.uds);
-        }
+        resources.into_iter()
+    }
+
+    fn created_resources(&mut self) -> impl Iterator<Item = &mut CreatedVmmResource> + Send {
+        let mut resources = Vec::new();
+        let data = self.data_mut();
 
         if let Some(ref mut logger_system) = data.logger_system {
             if let Some(ref mut logs) = logger_system.logs {
-                references.created_resources.push(logs);
+                resources.push(logs);
             }
         }
 
         if let Some(ref mut metrics_system) = data.metrics_system {
-            references.created_resources.push(&mut metrics_system.metrics);
+            resources.push(&mut metrics_system.metrics);
         }
 
-        references
+        resources.into_iter()
+    }
+
+    fn produced_resources(&mut self) -> impl Iterator<Item = &mut ProducedVmmResource> + Send {
+        let mut resources = Vec::new();
+
+        if let Some(ref mut vsock_device) = self.data_mut().vsock_device {
+            resources.push(&mut vsock_device.uds);
+        }
+
+        resources.into_iter()
     }
 }
 
