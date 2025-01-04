@@ -108,6 +108,9 @@ pub trait VmmExecutor: Send + Sync {
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
+/// A [VmmExecutorContext] encapsulates the data that a [VmmExecutor] prepare/invoke/cleanup invocation needs in
+/// order to function. Creating a [VmmExecutorContext] is mainly simple, except for needing to pass in an exclusive
+/// mutable reference to a [VmmResourceManager] tied to the 'r lifetime.
 pub struct VmmExecutorContext<'r, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> {
     pub installation: Arc<VmmInstallation>,
     pub process_spawner: S,
