@@ -1,6 +1,6 @@
 [package]
 name = "fctools"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 edition = "2021"
 description = "An exhaustive, highly modular and extensible host SDK for the Firecracker microVM manager."
 license = "MIT"
@@ -152,7 +152,7 @@ smol-runtime = [
 # L1: process spawner
 process-spawner = []
 direct-process-spawner = ["process-spawner"]
-elevation-process-spawners = ["process-spawner"]
+elevation-process-spawners = ["process-spawner", "dep:futures-util"]
 # L2: VMM core
 vmm-core = ["process-spawner", "dep:futures-util"]
 # L3: VMM executor

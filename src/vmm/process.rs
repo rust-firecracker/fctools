@@ -27,7 +27,7 @@ use super::{
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
-/// tied to the given [VmmExecutor] E, [ProcessSpawner] S and [Runtime] R.
+/// tied to the given [VmmExecutor] E, [ProcessSpawner] S, [Runtime] R and [VmmResourceManager] RM.
 #[derive(Debug)]
 pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> {
     executor: E,
@@ -136,7 +136,7 @@ impl std::fmt::Display for VmmProcessError {
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> VmmProcess<E, S, R, RM> {
     /// Create a new [VmmProcess] from the necessary set of components:
-    /// [VmmExecutor], [ProcessSpawner], [Runtime], [VmmOwnershipModel], [Arc<VmmInstallation>]
+    /// [VmmExecutor], [ProcessSpawner], [Runtime], [VmmOwnershipModel], [VmmInstallation], [VmmResourceManager].
     pub fn new(
         executor: E,
         process_spawner: S,
