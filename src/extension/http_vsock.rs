@@ -4,7 +4,7 @@ use bytes::Bytes;
 use http::{Request, Response, Uri};
 use http_body_util::Full;
 use hyper::{body::Incoming, client::conn::http1::SendRequest};
-use hyper_client_sockets::{connector::firecracker::FirecrackerConnector, uri::FirecrackerUri};
+use hyper_client_sockets::{connector::FirecrackerConnector, uri::FirecrackerUri};
 
 use crate::{
     process_spawner::ProcessSpawner,

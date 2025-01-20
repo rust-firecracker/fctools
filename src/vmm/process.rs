@@ -5,7 +5,7 @@ use bytes::{Bytes, BytesMut};
 use http::{Request, Response, StatusCode, Uri};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
-use hyper_client_sockets::{connector::unix::UnixConnector, uri::UnixUri};
+use hyper_client_sockets::{connector::UnixConnector, uri::UnixUri};
 use hyper_util::client::legacy::Client;
 
 use crate::{

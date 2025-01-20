@@ -19,7 +19,7 @@ use bytes::Bytes;
 use configuration::{InitMethod, VmConfiguration};
 use http::Uri;
 use http_body_util::Full;
-use hyper_client_sockets::{connector::unix::UnixConnector, uri::UnixUri};
+use hyper_client_sockets::{connector::UnixConnector, uri::UnixUri};
 use shutdown::{VmShutdownAction, VmShutdownError, VmShutdownOutcome};
 
 pub mod api;

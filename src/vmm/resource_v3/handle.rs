@@ -6,26 +6,13 @@ use std::{
 
 use futures_channel::mpsc;
 
-use crate::runtime::Runtime;
-
 use super::{system::ResourceError, ResourceData, ResourceInitData, ResourceRequest, ResourceResponse, ResourceType};
 
 #[derive(Clone)]
-pub struct MovedResourceHandle<R: Runtime>(ResourceHandle<R>);
+pub struct MovedResourceHandle(ResourceHandle);
 
-impl<R: Runtime> Deref for MovedResourceHandle<R> {
-    type Target = ResourceHandle<R>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-#[derive(Clone)]
-pub struct CreatedResourceHandle<R: Runtime>(ResourceHandle<R>);
-
-impl<R: Runtime> Deref for CreatedResourceHandle<R> {
-    type Target = ResourceHandle<R>;
+impl Deref for MovedResourceHandle {
+    type Target = ResourceHandle;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -33,10 +20,10 @@ impl<R: Runtime> Deref for CreatedResourceHandle<R> {
 }
 
 #[derive(Clone)]
-pub struct ProducedResourceHandle<R: Runtime>(ResourceHandle<R>);
+pub struct CreatedResourceHandle(ResourceHandle);
 
-impl<R: Runtime> Deref for ProducedResourceHandle<R> {
-    type Target = ResourceHandle<R>;
+impl Deref for CreatedResourceHandle {
+    type Target = ResourceHandle;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -44,15 +31,26 @@ impl<R: Runtime> Deref for ProducedResourceHandle<R> {
 }
 
 #[derive(Clone)]
-pub struct ResourceHandle<R: Runtime> {
-    request_tx: mpsc::UnboundedSender<ResourceRequest<R>>,
+pub struct ProducedResourceHandle(ResourceHandle);
+
+impl Deref for ProducedResourceHandle {
+    type Target = ResourceHandle;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Clone)]
+pub struct ResourceHandle {
+    request_tx: mpsc::UnboundedSender<ResourceRequest>,
     response_rx: async_broadcast::Receiver<ResourceResponse>,
     data: Arc<ResourceData>,
     init_lock: OnceLock<(Arc<ResourceInitData>, Result<(), ResourceError>)>,
     dispose_lock: OnceLock<Result<(), ResourceError>>,
 }
 
-impl<R: Runtime> ResourceHandle<R> {
+impl ResourceHandle {
     #[inline]
     pub fn get_state(&self) -> ResourceHandleState {
         self.poll_responses();
@@ -85,12 +83,7 @@ impl<R: Runtime> ResourceHandle<R> {
         self.init_lock.get().and_then(|(data, _)| data.local_path.clone())
     }
 
-    pub async fn initialize(
-        &self,
-        runtime: R,
-        effective_path: PathBuf,
-        local_path: Option<PathBuf>,
-    ) -> Result<(), ResourceError> {
+    pub async fn initialize(&self, effective_path: PathBuf, local_path: Option<PathBuf>) -> Result<(), ResourceError> {
         Ok(())
     }
 
