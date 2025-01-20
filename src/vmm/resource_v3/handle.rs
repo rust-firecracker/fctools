@@ -10,6 +10,7 @@ use crate::runtime::Runtime;
 
 use super::{system::ResourceError, ResourceData, ResourceInitData, ResourceRequest, ResourceResponse, ResourceType};
 
+#[derive(Clone)]
 pub struct MovedResourceHandle<R: Runtime>(ResourceHandle<R>);
 
 impl<R: Runtime> Deref for MovedResourceHandle<R> {
@@ -20,6 +21,7 @@ impl<R: Runtime> Deref for MovedResourceHandle<R> {
     }
 }
 
+#[derive(Clone)]
 pub struct CreatedResourceHandle<R: Runtime>(ResourceHandle<R>);
 
 impl<R: Runtime> Deref for CreatedResourceHandle<R> {
@@ -30,6 +32,7 @@ impl<R: Runtime> Deref for CreatedResourceHandle<R> {
     }
 }
 
+#[derive(Clone)]
 pub struct ProducedResourceHandle<R: Runtime>(ResourceHandle<R>);
 
 impl<R: Runtime> Deref for ProducedResourceHandle<R> {
