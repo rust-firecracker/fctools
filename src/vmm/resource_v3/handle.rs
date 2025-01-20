@@ -1,5 +1,6 @@
 use std::{
     ops::Deref,
+    path::PathBuf,
     sync::{Arc, OnceLock},
 };
 
@@ -7,7 +8,7 @@ use futures_channel::mpsc;
 
 use crate::runtime::Runtime;
 
-use super::{system::ResourceSystemError, ResourceData, ResourceInitData, ResourceRequest, ResourceResponse};
+use super::{system::ResourceError, ResourceData, ResourceInitData, ResourceRequest, ResourceResponse, ResourceType};
 
 pub struct MovedResourceHandle<R: Runtime>(ResourceHandle<R>);
 
@@ -44,13 +45,13 @@ pub struct ResourceHandle<R: Runtime> {
     request_tx: mpsc::UnboundedSender<ResourceRequest<R>>,
     response_rx: async_broadcast::Receiver<ResourceResponse>,
     data: Arc<ResourceData>,
-    init_lock: OnceLock<(Arc<ResourceInitData>, Result<(), ResourceSystemError>)>,
-    dispose_lock: OnceLock<Result<(), ResourceSystemError>>,
+    init_lock: OnceLock<(Arc<ResourceInitData>, Result<(), ResourceError>)>,
+    dispose_lock: OnceLock<Result<(), ResourceError>>,
 }
 
 impl<R: Runtime> ResourceHandle<R> {
     #[inline]
-    pub fn state(&self) -> ResourceHandleState {
+    pub fn get_state(&self) -> ResourceHandleState {
         self.poll_responses();
 
         if self.dispose_lock.get().is_some() {
@@ -61,6 +62,33 @@ impl<R: Runtime> ResourceHandle<R> {
             Some(_) => ResourceHandleState::Initialized,
             None => ResourceHandleState::Uninitialized,
         }
+    }
+
+    pub fn get_type(&self) -> ResourceType {
+        self.data.r#type
+    }
+
+    pub fn get_source_path(&self) -> PathBuf {
+        self.data.source_path.clone()
+    }
+
+    pub fn get_effective_path(&self) -> Option<PathBuf> {
+        self.poll_responses();
+        self.init_lock.get().map(|(data, _)| data.effective_path.clone())
+    }
+
+    pub fn get_local_path(&self) -> Option<PathBuf> {
+        self.poll_responses();
+        self.init_lock.get().and_then(|(data, _)| data.local_path.clone())
+    }
+
+    pub async fn initialize(
+        &self,
+        runtime: R,
+        effective_path: PathBuf,
+        local_path: Option<PathBuf>,
+    ) -> Result<(), ResourceError> {
+        Ok(())
     }
 
     pub async fn ping(&self) -> bool {

@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use futures_channel::mpsc;
-use system::ResourceSystemError;
+use system::ResourceError;
 
 use crate::runtime::Runtime;
 
@@ -32,9 +32,9 @@ pub enum MovedResourceType {
 
 enum ResourceState<R: Runtime> {
     Uninitialized,
-    Initializing(R::Task<ResourceSystemError>),
+    Initializing(R::Task<ResourceError>),
     Initialized,
-    Disposing(R::Task<ResourceSystemError>),
+    Disposing(R::Task<ResourceError>),
     Disposed,
 }
 
@@ -47,7 +47,7 @@ struct Resource<R: Runtime> {
 }
 
 struct ResourceData {
-    path: PathBuf,
+    source_path: PathBuf,
     r#type: ResourceType,
 }
 
@@ -71,9 +71,9 @@ enum ResourceRequest<R: Runtime> {
 #[derive(Clone)]
 enum ResourceResponse {
     Initialized {
-        result: Result<(), ResourceSystemError>,
+        result: Result<(), ResourceError>,
         init_data: Arc<ResourceInitData>,
     },
-    Disposed(Result<(), ResourceSystemError>),
+    Disposed(Result<(), ResourceError>),
     Pong,
 }

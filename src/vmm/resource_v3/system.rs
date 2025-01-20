@@ -10,7 +10,7 @@ use super::Resource;
 pub struct ResourceSystem<R: Runtime> {
     resource_tx: mpsc::UnboundedSender<Resource<R>>,
     shutdown_tx: Option<oneshot::Sender<()>>,
-    shutdown_finished_rx: Option<oneshot::Receiver<Result<(), ResourceSystemError>>>,
+    shutdown_finished_rx: Option<oneshot::Receiver<Result<(), ResourceError>>>,
 }
 
 impl<R: Runtime> ResourceSystem<R> {
@@ -42,18 +42,18 @@ impl<R: Runtime> ResourceSystem<R> {
         }
     }
 
-    pub async fn shutdown(mut self) -> Result<(), ResourceSystemError> {
+    pub async fn shutdown(mut self) -> Result<(), ResourceError> {
         self.shutdown_tx
             .take()
-            .ok_or(ResourceSystemError::ChannelNotFound)?
+            .ok_or(ResourceError::ChannelNotFound)?
             .send(())
-            .map_err(|_| ResourceSystemError::ChannelBroken)?;
+            .map_err(|_| ResourceError::ChannelBroken)?;
 
         self.shutdown_finished_rx
             .take()
-            .ok_or(ResourceSystemError::ChannelNotFound)?
+            .ok_or(ResourceError::ChannelNotFound)?
             .await
-            .map_err(|_| ResourceSystemError::ChannelBroken)?
+            .map_err(|_| ResourceError::ChannelBroken)?
     }
 }
 
@@ -66,7 +66,7 @@ impl<R: Runtime> Drop for ResourceSystem<R> {
 }
 
 #[derive(Clone)]
-pub enum ResourceSystemError {
+pub enum ResourceError {
     ChannelBroken,
     ChannelNotFound,
 }
@@ -74,7 +74,7 @@ pub enum ResourceSystemError {
 async fn resource_system_main_task<R: Runtime>(
     mut resource_rx: mpsc::UnboundedReceiver<Resource<R>>,
     mut shutdown_rx: oneshot::Receiver<()>,
-    shutdown_finished_tx: oneshot::Sender<Result<(), ResourceSystemError>>,
+    shutdown_finished_tx: oneshot::Sender<Result<(), ResourceError>>,
     mut resources: Vec<Resource<R>>,
 ) {
     enum Incoming<R: Runtime> {
