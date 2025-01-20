@@ -1,4 +1,11 @@
-use std::{future::poll_fn, marker::PhantomData, task::Poll};
+use std::{
+    future::poll_fn,
+    marker::PhantomData,
+    path::PathBuf,
+    pin::pin,
+    sync::{Arc, OnceLock},
+    task::Poll,
+};
 
 use futures_channel::{mpsc, oneshot};
 use futures_util::{FutureExt, StreamExt};
@@ -6,10 +13,16 @@ use futures_util::{FutureExt, StreamExt};
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
-    vmm::{ownership::VmmOwnershipModel, resource_v3::ResourceRequest},
+    vmm::{
+        ownership::VmmOwnershipModel,
+        resource_v3::{ResourceData, ResourceRequest, ResourceResponse},
+    },
 };
 
-use super::Resource;
+use super::{
+    handle::{MovedResourceHandle, ResourceHandle, ResourceHandleState},
+    MovedResourceType, Resource, ResourceState, ResourceType,
+};
 
 pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
     resource_tx: mpsc::UnboundedSender<Resource<R>>,
@@ -17,6 +30,8 @@ pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
     shutdown_finished_rx: Option<oneshot::Receiver<Result<(), ResourceError>>>,
     marker: PhantomData<S>,
 }
+
+const RESPONSE_BROADCAST_CAPACITY: usize = 10;
 
 impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
     pub fn new(process_spawner: S, runtime: R, ownership_model: VmmOwnershipModel) -> Self {
@@ -61,13 +76,49 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             .take()
             .ok_or(ResourceError::ChannelNotFound)?
             .send(())
-            .map_err(|_| ResourceError::ChannelBroken)?;
+            .map_err(|_| ResourceError::ChannelDisconnected)?;
 
         self.shutdown_finished_rx
             .take()
             .ok_or(ResourceError::ChannelNotFound)?
             .await
-            .map_err(|_| ResourceError::ChannelBroken)?
+            .map_err(|_| ResourceError::ChannelDisconnected)?
+    }
+
+    pub fn create_moved_resource(
+        &self,
+        source_path: PathBuf,
+        r#type: MovedResourceType,
+    ) -> Result<MovedResourceHandle, ResourceError> {
+        self.create_resource(source_path, ResourceType::Moved(r#type))
+            .map(|inner| MovedResourceHandle(inner))
+    }
+
+    #[inline(always)]
+    fn create_resource(&self, source_path: PathBuf, r#type: ResourceType) -> Result<ResourceHandle, ResourceError> {
+        let (request_tx, request_rx) = mpsc::unbounded();
+        let (response_tx, response_rx) = async_broadcast::broadcast(RESPONSE_BROADCAST_CAPACITY);
+        let resource: Resource<R> = Resource {
+            state: ResourceState::Uninitialized,
+            request_rx,
+            response_tx,
+            data: Arc::new(ResourceData { source_path, r#type }),
+            init_data: None,
+        };
+
+        let data = resource.data.clone();
+
+        self.resource_tx
+            .unbounded_send(resource)
+            .map_err(|_| ResourceError::ChannelDisconnected)?;
+
+        Ok(ResourceHandle {
+            request_tx,
+            response_rx,
+            data,
+            init_lock: OnceLock::new(),
+            dispose_lock: OnceLock::new(),
+        })
     }
 }
 
@@ -79,10 +130,15 @@ impl<S: ProcessSpawner, R: Runtime> Drop for ResourceSystem<S, R> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum ResourceError {
-    ChannelBroken,
+    IncorrectHandleState {
+        expected: ResourceHandleState,
+        actual: ResourceHandleState,
+    },
+    ChannelDisconnected,
     ChannelNotFound,
+    IncorrectResponseReceived,
 }
 
 async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
@@ -121,9 +177,33 @@ async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
         .await;
 
         match incoming {
-            Incoming::Shutdown => todo!(),
-            Incoming::Resource(resource) => todo!(),
-            Incoming::ResourceRequest(_, resource_action) => todo!(),
+            Incoming::Shutdown => {
+                let _ = shutdown_finished_tx.send(Ok(()));
+                return;
+            }
+            Incoming::Resource(resource) => {
+                resources.push(resource);
+            }
+            Incoming::ResourceRequest(resource_index, resource_action) => {
+                let resource = resources
+                    .get_mut(resource_index)
+                    .expect("resource_index is invalid. Internal library bug");
+
+                match resource_action {
+                    ResourceRequest::Ping => {
+                        schedule_response(&runtime, resource, ResourceResponse::Pong);
+                    }
+                    _ => {}
+                }
+            }
         }
     }
+}
+
+#[inline(always)]
+fn schedule_response<R: Runtime>(runtime: &R, resource: &mut Resource<R>, response: ResourceResponse) {
+    let sender = resource.response_tx.clone();
+    runtime.spawn_task(async move {
+        let _ = pin!(sender.broadcast_direct(response)).await;
+    });
 }
