@@ -1,46 +1,88 @@
-use std::sync::Arc;
+use std::{
+    ops::Deref,
+    sync::{Arc, OnceLock},
+};
 
 use futures_channel::mpsc;
 
 use crate::runtime::Runtime;
 
-use super::{ResourceAction, ResourceData, ResourceInitData};
+use super::{system::ResourceSystemError, ResourceData, ResourceInitData, ResourceRequest, ResourceResponse};
+
+pub struct MovedResourceHandle<R: Runtime>(ResourceHandle<R>);
+
+impl<R: Runtime> Deref for MovedResourceHandle<R> {
+    type Target = ResourceHandle<R>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+pub struct CreatedResourceHandle<R: Runtime>(ResourceHandle<R>);
+
+impl<R: Runtime> Deref for CreatedResourceHandle<R> {
+    type Target = ResourceHandle<R>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+pub struct ProducedResourceHandle<R: Runtime>(ResourceHandle<R>);
+
+impl<R: Runtime> Deref for ProducedResourceHandle<R> {
+    type Target = ResourceHandle<R>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[derive(Clone)]
 pub struct ResourceHandle<R: Runtime> {
-    action_tx: mpsc::UnboundedSender<ResourceAction<R>>,
-    init_rx: async_broadcast::Receiver<Arc<ResourceInitData>>,
-    disposed_rx: async_broadcast::Receiver<()>,
+    request_tx: mpsc::UnboundedSender<ResourceRequest<R>>,
+    response_rx: async_broadcast::Receiver<ResourceResponse>,
     data: Arc<ResourceData>,
-    init_data: Option<Arc<ResourceInitData>>,
-    disposed: bool,
+    init_lock: OnceLock<(Arc<ResourceInitData>, Result<(), ResourceSystemError>)>,
+    dispose_lock: OnceLock<Result<(), ResourceSystemError>>,
 }
 
 impl<R: Runtime> ResourceHandle<R> {
     #[inline]
-    pub fn poll(&mut self) -> ResourceHandleState {
-        if self.disposed {
+    pub fn state(&self) -> ResourceHandleState {
+        self.poll_responses();
+
+        if self.dispose_lock.get().is_some() {
             return ResourceHandleState::Disposed;
         }
 
-        if let Ok(_) = self.disposed_rx.try_recv() {
-            self.disposed = true;
-            return ResourceHandleState::Disposed;
-        }
-
-        self.poll_init_data();
-
-        match self.init_data {
+        match self.init_lock.get() {
             Some(_) => ResourceHandleState::Initialized,
             None => ResourceHandleState::Uninitialized,
         }
     }
 
+    pub async fn ping(&self) -> bool {
+        if self.request_tx.unbounded_send(ResourceRequest::Ping).is_err() {
+            return false;
+        }
+
+        let response = self.response_rx.new_receiver().recv().await;
+        matches!(response, Ok(ResourceResponse::Pong))
+    }
+
     #[inline(always)]
-    fn poll_init_data(&mut self) {
-        if self.init_data.is_none() {
-            if let Ok(init_data) = self.init_rx.try_recv() {
-                self.init_data = Some(init_data);
+    fn poll_responses(&self) {
+        if let Ok(response) = self.response_rx.new_receiver().try_recv() {
+            match response {
+                ResourceResponse::Initialized { result, init_data } => {
+                    let _ = self.init_lock.set((init_data, result));
+                }
+                ResourceResponse::Disposed(result) => {
+                    let _ = self.dispose_lock.set(result);
+                }
+                _ => {}
             }
         }
     }

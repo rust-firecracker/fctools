@@ -40,9 +40,8 @@ enum ResourceState<R: Runtime> {
 
 struct Resource<R: Runtime> {
     state: ResourceState<R>,
-    action_rx: mpsc::UnboundedReceiver<ResourceAction<R>>,
-    init_tx: async_broadcast::Sender<Arc<ResourceInitData>>,
-    disposed_tx: async_broadcast::Sender<()>,
+    request_rx: mpsc::UnboundedReceiver<ResourceRequest<R>>,
+    response_tx: async_broadcast::Sender<ResourceResponse>,
     data: Arc<ResourceData>,
     init_data: Option<Arc<ResourceInitData>>,
 }
@@ -57,7 +56,7 @@ struct ResourceInitData {
     local_path: Option<PathBuf>,
 }
 
-enum ResourceAction<R: Runtime> {
+enum ResourceRequest<R: Runtime> {
     Initialize {
         effective_path: PathBuf,
         local_path: Option<PathBuf>,
@@ -66,4 +65,15 @@ enum ResourceAction<R: Runtime> {
     Dispose {
         runtime: R,
     },
+    Ping,
+}
+
+#[derive(Clone)]
+enum ResourceResponse {
+    Initialized {
+        result: Result<(), ResourceSystemError>,
+        init_data: Arc<ResourceInitData>,
+    },
+    Disposed(Result<(), ResourceSystemError>),
+    Pong,
 }

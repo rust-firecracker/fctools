@@ -3,7 +3,7 @@ use std::{future::poll_fn, task::Poll};
 use futures_channel::{mpsc, oneshot};
 use futures_util::{FutureExt, StreamExt};
 
-use crate::{runtime::Runtime, vmm::resource_v3::ResourceAction};
+use crate::{runtime::Runtime, vmm::resource_v3::ResourceRequest};
 
 use super::Resource;
 
@@ -65,6 +65,7 @@ impl<R: Runtime> Drop for ResourceSystem<R> {
     }
 }
 
+#[derive(Clone)]
 pub enum ResourceSystemError {
     ChannelBroken,
     ChannelNotFound,
@@ -79,7 +80,7 @@ async fn resource_system_main_task<R: Runtime>(
     enum Incoming<R: Runtime> {
         Shutdown,
         Resource(Resource<R>),
-        ResourceAction(usize, ResourceAction<R>),
+        ResourceRequest(usize, ResourceRequest<R>),
     }
 
     loop {
@@ -93,8 +94,8 @@ async fn resource_system_main_task<R: Runtime>(
             }
 
             for (resource_index, resource) in resources.iter_mut().enumerate() {
-                if let Poll::Ready(Some(resource_action)) = resource.action_rx.poll_next_unpin(cx) {
-                    return Poll::Ready(Incoming::ResourceAction(resource_index, resource_action));
+                if let Poll::Ready(Some(resource_action)) = resource.request_rx.poll_next_unpin(cx) {
+                    return Poll::Ready(Incoming::ResourceRequest(resource_index, resource_action));
                 }
             }
 
@@ -105,7 +106,7 @@ async fn resource_system_main_task<R: Runtime>(
         match incoming {
             Incoming::Shutdown => todo!(),
             Incoming::Resource(resource) => todo!(),
-            Incoming::ResourceAction(_, resource_action) => todo!(),
+            Incoming::ResourceRequest(_, resource_action) => todo!(),
         }
     }
 }
