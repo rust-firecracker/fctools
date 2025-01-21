@@ -15,19 +15,19 @@ use crate::{
     runtime::Runtime,
     vmm::{
         ownership::VmmOwnershipModel,
-        resource_v3::{ResourceData, ResourceRequest, ResourceResponse},
+        resource_v3::internal::{ResourceRequest, ResourceResponse},
     },
 };
 
 use super::{
-    handle::{MovedResourceHandle, ResourceHandle, ResourceHandleState},
-    MovedResourceType, Resource, ResourceState, ResourceType,
+    internal::{OwnedResource, OwnedResourceState, ResourceData},
+    MovedResource, MovedResourceType, Resource, ResourceHandleState, ResourceType,
 };
 
 pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
-    resource_tx: mpsc::UnboundedSender<Resource<R>>,
+    resource_tx: mpsc::UnboundedSender<OwnedResource<R>>,
     shutdown_tx: Option<oneshot::Sender<()>>,
-    shutdown_finished_rx: Option<oneshot::Receiver<Result<(), ResourceError>>>,
+    shutdown_finished_rx: Option<oneshot::Receiver<Result<(), ResourceSystemError>>>,
     marker: PhantomData<S>,
 }
 
@@ -44,7 +44,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
 
     #[inline(always)]
     fn new_inner(
-        resources: Vec<Resource<R>>,
+        resources: Vec<OwnedResource<R>>,
         process_spawner: S,
         runtime: R,
         ownership_model: VmmOwnershipModel,
@@ -71,35 +71,35 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         }
     }
 
-    pub async fn shutdown(mut self) -> Result<(), ResourceError> {
+    pub async fn shutdown(mut self) -> Result<(), ResourceSystemError> {
         self.shutdown_tx
             .take()
-            .ok_or(ResourceError::ChannelNotFound)?
+            .ok_or(ResourceSystemError::ChannelNotFound)?
             .send(())
-            .map_err(|_| ResourceError::ChannelDisconnected)?;
+            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
         self.shutdown_finished_rx
             .take()
-            .ok_or(ResourceError::ChannelNotFound)?
+            .ok_or(ResourceSystemError::ChannelNotFound)?
             .await
-            .map_err(|_| ResourceError::ChannelDisconnected)?
+            .map_err(|_| ResourceSystemError::ChannelDisconnected)?
     }
 
     pub fn create_moved_resource(
         &self,
         source_path: PathBuf,
         r#type: MovedResourceType,
-    ) -> Result<MovedResourceHandle, ResourceError> {
+    ) -> Result<MovedResource, ResourceSystemError> {
         self.create_resource(source_path, ResourceType::Moved(r#type))
-            .map(|inner| MovedResourceHandle(inner))
+            .map(|inner| MovedResource(inner))
     }
 
     #[inline(always)]
-    fn create_resource(&self, source_path: PathBuf, r#type: ResourceType) -> Result<ResourceHandle, ResourceError> {
+    fn create_resource(&self, source_path: PathBuf, r#type: ResourceType) -> Result<Resource, ResourceSystemError> {
         let (request_tx, request_rx) = mpsc::unbounded();
         let (response_tx, response_rx) = async_broadcast::broadcast(RESPONSE_BROADCAST_CAPACITY);
-        let resource: Resource<R> = Resource {
-            state: ResourceState::Uninitialized,
+        let resource: OwnedResource<R> = OwnedResource {
+            state: OwnedResourceState::Uninitialized,
             request_rx,
             response_tx,
             data: Arc::new(ResourceData { source_path, r#type }),
@@ -110,9 +110,9 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
 
         self.resource_tx
             .unbounded_send(resource)
-            .map_err(|_| ResourceError::ChannelDisconnected)?;
+            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
-        Ok(ResourceHandle {
+        Ok(Resource {
             request_tx,
             response_rx,
             data,
@@ -131,7 +131,7 @@ impl<S: ProcessSpawner, R: Runtime> Drop for ResourceSystem<S, R> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum ResourceError {
+pub enum ResourceSystemError {
     IncorrectHandleState {
         expected: ResourceHandleState,
         actual: ResourceHandleState,
@@ -142,17 +142,17 @@ pub enum ResourceError {
 }
 
 async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
-    mut resource_rx: mpsc::UnboundedReceiver<Resource<R>>,
+    mut resource_rx: mpsc::UnboundedReceiver<OwnedResource<R>>,
     mut shutdown_rx: oneshot::Receiver<()>,
-    shutdown_finished_tx: oneshot::Sender<Result<(), ResourceError>>,
-    mut resources: Vec<Resource<R>>,
+    shutdown_finished_tx: oneshot::Sender<Result<(), ResourceSystemError>>,
+    mut resources: Vec<OwnedResource<R>>,
     process_spawner: S,
     runtime: R,
     ownership_model: VmmOwnershipModel,
 ) {
     enum Incoming<R: Runtime> {
         Shutdown,
-        Resource(Resource<R>),
+        Resource(OwnedResource<R>),
         ResourceRequest(usize, ResourceRequest),
     }
 
@@ -201,7 +201,7 @@ async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
 }
 
 #[inline(always)]
-fn schedule_response<R: Runtime>(runtime: &R, resource: &mut Resource<R>, response: ResourceResponse) {
+fn schedule_response<R: Runtime>(runtime: &R, resource: &mut OwnedResource<R>, response: ResourceResponse) {
     let sender = resource.response_tx.clone();
     runtime.spawn_task(async move {
         let _ = pin!(sender.broadcast_direct(response)).await;
