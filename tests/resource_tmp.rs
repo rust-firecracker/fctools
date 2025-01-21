@@ -13,7 +13,7 @@ use fctools::{
 async fn resource_system_v3() {
     let system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
     let handle = system
-        .create_moved_resource(PathBuf::from("/home/kanpov/test.txt"), MovedResourceType::Copied)
+        .new_moved_resource(PathBuf::from("/home/kanpov/test.txt"), MovedResourceType::Copied)
         .unwrap();
 
     handle.ping().await.unwrap();

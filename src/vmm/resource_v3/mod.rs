@@ -6,7 +6,7 @@ use std::{
 };
 
 use futures_channel::mpsc;
-use internal::{ResourceData, ResourceInitData, ResourceRequest, ResourceResponse};
+use internal::{InternalResourceData, InternalResourceInitData, ResourceRequest, ResourceResponse};
 use system::ResourceSystemError;
 
 pub mod internal;
@@ -71,8 +71,8 @@ impl Deref for ProducedResource {
 pub struct Resource {
     pub(super) request_tx: mpsc::UnboundedSender<ResourceRequest>,
     pub(super) response_rx: async_broadcast::Receiver<ResourceResponse>,
-    pub(super) data: Arc<ResourceData>,
-    pub(super) init_lock: OnceLock<(Arc<ResourceInitData>, Result<(), ResourceSystemError>)>,
+    pub(super) data: Arc<InternalResourceData>,
+    pub(super) init_lock: OnceLock<(Arc<InternalResourceInitData>, Result<(), ResourceSystemError>)>,
     pub(super) dispose_lock: OnceLock<Result<(), ResourceSystemError>>,
 }
 
@@ -117,10 +117,10 @@ impl Resource {
         self.assert_state(ResourceHandleState::Uninitialized)?;
 
         self.request_tx
-            .unbounded_send(ResourceRequest::Initialize {
+            .unbounded_send(ResourceRequest::Initialize(InternalResourceInitData {
                 effective_path,
                 local_path,
-            })
+            }))
             .map_err(|_| ResourceSystemError::ChannelDisconnected)
     }
 
