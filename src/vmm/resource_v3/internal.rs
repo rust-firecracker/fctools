@@ -104,7 +104,10 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
 
                 match resource_action {
                     ResourceRequest::Ping => {
-                        schedule_response(&runtime, resource, ResourceResponse::Pong);
+                        let resource_request_tx = resource.response_tx.clone();
+                        runtime.spawn_task(async move {
+                            let _ = pin!(resource_request_tx.broadcast_direct(ResourceResponse::Pong)).await;
+                        });
                     }
                     ResourceRequest::Initialize(init_data) => {
                         resource.init_data = Some(Arc::new(init_data));
@@ -114,12 +117,4 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
             }
         }
     }
-}
-
-#[inline(always)]
-fn schedule_response<R: Runtime>(runtime: &R, resource: &mut InternalResource<R>, response: ResourceResponse) {
-    let sender = resource.response_tx.clone();
-    runtime.spawn_task(async move {
-        let _ = pin!(sender.broadcast_direct(response)).await;
-    });
 }

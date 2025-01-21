@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use futures_channel::{mpsc, oneshot};
+use futures_channel::mpsc;
 use futures_util::StreamExt;
 
 use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vmm::ownership::VmmOwnershipModel};
