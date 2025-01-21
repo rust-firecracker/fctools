@@ -1,11 +1,12 @@
-use std::{future::poll_fn, path::PathBuf, pin::pin, sync::Arc, task::Poll};
+use std::{future::poll_fn, path::PathBuf, pin::Pin, sync::Arc, task::Poll};
 
-use futures_channel::mpsc;
-use futures_util::StreamExt;
+use crate::{
+    process_spawner::ProcessSpawner,
+    runtime::Runtime,
+    vmm::{ownership::VmmOwnershipModel, resource_v3::bus::BusServer},
+};
 
-use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vmm::ownership::VmmOwnershipModel};
-
-use super::{system::ResourceSystemError, ResourceType};
+use super::{bus::Bus, system::ResourceSystemError, ResourceType};
 
 pub enum InternalResourceState<R: Runtime> {
     Uninitialized,
@@ -15,10 +16,9 @@ pub enum InternalResourceState<R: Runtime> {
     Disposed,
 }
 
-pub struct InternalResource<R: Runtime> {
+pub struct InternalResource<R: Runtime, B: Bus> {
     pub state: InternalResourceState<R>,
-    pub request_rx: mpsc::UnboundedReceiver<ResourceRequest>,
-    pub response_tx: async_broadcast::Sender<ResourceResponse>,
+    pub bus_server: B::Server<ResourceRequest, ResourceResponse>,
     pub data: Arc<InternalResourceData>,
     pub init_data: Option<Arc<InternalResourceInitData>>,
 }
@@ -49,37 +49,37 @@ pub enum ResourceResponse {
     Pong,
 }
 
-pub enum ResourceSystemRequest<R: Runtime> {
-    AddResource(InternalResource<R>),
+pub enum ResourceSystemRequest<R: Runtime, B: Bus> {
+    AddResource(InternalResource<R, B>),
     Shutdown,
 }
 
+#[derive(Clone, Copy)]
 pub enum ResourceSystemResponse {
     ShutdownFinished,
 }
 
-pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
-    mut request_rx: mpsc::UnboundedReceiver<ResourceSystemRequest<R>>,
-    response_tx: mpsc::UnboundedSender<ResourceSystemResponse>,
-    mut internal_resources: Vec<InternalResource<R>>,
+pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime, B: Bus>(
+    mut bus_server: B::Server<ResourceSystemRequest<R, B>, ResourceSystemResponse>,
+    mut internal_resources: Vec<InternalResource<R, B>>,
     process_spawner: S,
     runtime: R,
     ownership_model: VmmOwnershipModel,
 ) {
-    enum Incoming<R: Runtime> {
-        SystemRequest(ResourceSystemRequest<R>),
+    enum Incoming<R: Runtime, B: Bus> {
+        SystemRequest(ResourceSystemRequest<R, B>),
         ResourceRequest(usize, ResourceRequest),
     }
 
     loop {
         let incoming = poll_fn(|cx| {
-            if let Poll::Ready(Some(request)) = request_rx.poll_next_unpin(cx) {
+            if let Poll::Ready(Some(request)) = Pin::new(&mut bus_server).poll(cx) {
                 return Poll::Ready(Incoming::SystemRequest(request));
             }
 
             for (resource_index, resource) in internal_resources.iter_mut().enumerate() {
-                if let Poll::Ready(Some(resource_action)) = resource.request_rx.poll_next_unpin(cx) {
-                    return Poll::Ready(Incoming::ResourceRequest(resource_index, resource_action));
+                if let Poll::Ready(Some(request)) = Pin::new(&mut resource.bus_server).poll(cx) {
+                    return Poll::Ready(Incoming::ResourceRequest(resource_index, request));
                 }
             }
 
@@ -93,21 +93,18 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                     internal_resources.push(internal_resource);
                 }
                 ResourceSystemRequest::Shutdown => {
-                    let _ = response_tx.unbounded_send(ResourceSystemResponse::ShutdownFinished);
+                    let _ = bus_server.respond(ResourceSystemResponse::ShutdownFinished);
                     return;
                 }
             },
-            Incoming::ResourceRequest(resource_index, resource_action) => {
+            Incoming::ResourceRequest(resource_index, request) => {
                 let resource = internal_resources
                     .get_mut(resource_index)
                     .expect("resource_index is invalid. Internal library bug");
 
-                match resource_action {
+                match request {
                     ResourceRequest::Ping => {
-                        let resource_request_tx = resource.response_tx.clone();
-                        runtime.spawn_task(async move {
-                            let _ = pin!(resource_request_tx.broadcast_direct(ResourceResponse::Pong)).await;
-                        });
+                        resource.bus_server.respond(ResourceResponse::Pong).await;
                     }
                     ResourceRequest::Initialize(init_data) => {
                         resource.init_data = Some(Arc::new(init_data));

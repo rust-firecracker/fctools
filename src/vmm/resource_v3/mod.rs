@@ -1,14 +1,14 @@
 use std::{
-    ops::Deref,
+    ops::{Deref, DerefMut},
     path::PathBuf,
-    pin::pin,
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 
-use futures_channel::mpsc;
+use bus::{Bus, BusClient};
 use internal::{InternalResourceData, InternalResourceInitData, ResourceRequest, ResourceResponse};
 use system::ResourceSystemError;
 
+pub mod bus;
 pub mod internal;
 pub mod system;
 
@@ -35,180 +35,175 @@ pub enum MovedResourceType {
 }
 
 #[derive(Clone)]
-pub struct MovedResource(pub(super) Resource);
+pub struct MovedResource<B: Bus>(pub(super) Resource<B>);
 
-impl Deref for MovedResource {
-    type Target = Resource;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-#[derive(Clone)]
-pub struct CreatedResource(pub(super) Resource);
-
-impl Deref for CreatedResource {
-    type Target = Resource;
+impl<B: Bus> Deref for MovedResource<B> {
+    type Target = Resource<B>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-#[derive(Clone)]
-pub struct ProducedResource(pub(super) Resource);
+impl<B: Bus> DerefMut for MovedResource<B> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
-impl Deref for ProducedResource {
-    type Target = Resource;
+#[derive(Clone)]
+pub struct CreatedResource<B: Bus>(pub(super) Resource<B>);
+
+impl<B: Bus> Deref for CreatedResource<B> {
+    type Target = Resource<B>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
+impl<B: Bus> DerefMut for CreatedResource<B> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 #[derive(Clone)]
-pub struct Resource {
-    pub(super) request_tx: mpsc::UnboundedSender<ResourceRequest>,
-    pub(super) response_rx: async_broadcast::Receiver<ResourceResponse>,
+pub struct ProducedResource<B: Bus>(pub(super) Resource<B>);
+
+impl<B: Bus> Deref for ProducedResource<B> {
+    type Target = Resource<B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<B: Bus> DerefMut for ProducedResource<B> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[derive(Clone)]
+pub struct Resource<B: Bus> {
+    pub(super) bus_client: B::Client<ResourceRequest, ResourceResponse>,
     pub(super) data: Arc<InternalResourceData>,
-    pub(super) init_lock: OnceLock<(Arc<InternalResourceInitData>, Result<(), ResourceSystemError>)>,
-    pub(super) dispose_lock: OnceLock<Result<(), ResourceSystemError>>,
+    pub(super) init: Option<(Arc<InternalResourceInitData>, Result<(), ResourceSystemError>)>,
+    pub(super) dispose: Option<Result<(), ResourceSystemError>>,
 }
 
-impl Resource {
+impl<B: Bus> Resource<B> {
     #[inline]
-    pub fn get_state(&self) -> ResourceHandleState {
-        self.poll();
-
-        if self.dispose_lock.get().is_some() {
+    pub fn get_state(&mut self) -> ResourceHandleState {
+        if self.dispose.is_some() {
             return ResourceHandleState::Disposed;
         }
 
-        match self.init_lock.get() {
+        match self.init {
             Some(_) => ResourceHandleState::Initialized,
             None => ResourceHandleState::Uninitialized,
         }
     }
 
-    pub fn get_type(&self) -> ResourceType {
+    pub fn get_type(&mut self) -> ResourceType {
         self.data.r#type
     }
 
-    pub fn get_source_path(&self) -> PathBuf {
+    pub fn get_source_path(&mut self) -> PathBuf {
         self.data.source_path.clone()
     }
 
-    pub fn get_effective_path(&self) -> Option<PathBuf> {
-        self.poll();
-        self.init_lock.get().map(|(data, _)| data.effective_path.clone())
+    pub fn get_effective_path(&mut self) -> Option<PathBuf> {
+        self.init.as_mut().map(|(data, _)| data.effective_path.clone())
     }
 
-    pub fn get_local_path(&self) -> Option<PathBuf> {
-        self.poll();
-        self.init_lock.get().and_then(|(data, _)| data.local_path.clone())
+    pub fn get_local_path(&mut self) -> Option<PathBuf> {
+        self.init.as_mut().and_then(|(data, _)| data.local_path.clone())
     }
 
     pub fn begin_initialization(
-        &self,
+        &mut self,
         effective_path: PathBuf,
         local_path: Option<PathBuf>,
     ) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceHandleState::Uninitialized)?;
 
-        self.request_tx
-            .unbounded_send(ResourceRequest::Initialize(InternalResourceInitData {
+        match self
+            .bus_client
+            .start_request(ResourceRequest::Initialize(InternalResourceInitData {
                 effective_path,
                 local_path,
-            }))
-            .map_err(|_| ResourceSystemError::ChannelDisconnected)
+            })) {
+            true => Ok(()),
+            false => Err(ResourceSystemError::BusDisconnected),
+        }
     }
 
     pub async fn initialize(
-        &self,
+        &mut self,
         effective_path: PathBuf,
         local_path: Option<PathBuf>,
     ) -> Result<(), ResourceSystemError> {
-        self.begin_initialization(effective_path, local_path)?;
+        self.assert_state(ResourceHandleState::Uninitialized)?;
 
-        match pin!(self.response_rx.new_receiver().recv_direct())
+        match self
+            .bus_client
+            .request(ResourceRequest::Initialize(InternalResourceInitData {
+                effective_path,
+                local_path,
+            }))
             .await
-            .map_err(|_| ResourceSystemError::ChannelDisconnected)?
         {
-            ResourceResponse::Initialized { result, init_data } => {
-                let _ = self.init_lock.set((init_data, result));
+            Some(ResourceResponse::Initialized { result, init_data }) => {
+                self.init = Some((init_data, result));
                 result?;
                 Ok(())
             }
-            _ => Err(ResourceSystemError::IncorrectResponseReceived),
+            Some(_) => Err(ResourceSystemError::IncorrectResponseReceived),
+            None => Err(ResourceSystemError::BusDisconnected),
         }
     }
 
-    pub fn begin_disposal(&self) -> Result<(), ResourceSystemError> {
+    pub fn begin_disposal(&mut self) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceHandleState::Initialized)?;
 
-        self.request_tx
-            .unbounded_send(ResourceRequest::Dispose)
-            .map_err(|_| ResourceSystemError::ChannelDisconnected)
-    }
-
-    pub async fn dispose(&self) -> Result<(), ResourceSystemError> {
-        self.begin_disposal()?;
-
-        match pin!(self.response_rx.new_receiver().recv_direct())
-            .await
-            .map_err(|_| ResourceSystemError::ChannelDisconnected)?
-        {
-            ResourceResponse::Disposed(result) => {
-                let _ = self.dispose_lock.set(result);
-                result?;
-                Ok(())
-            }
-            _ => Err(ResourceSystemError::IncorrectResponseReceived),
+        match self.bus_client.start_request(ResourceRequest::Dispose) {
+            true => Ok(()),
+            false => Err(ResourceSystemError::BusDisconnected),
         }
     }
 
-    pub async fn ping(&self) -> Result<(), ResourceSystemError> {
-        self.request_tx
-            .unbounded_send(ResourceRequest::Ping)
-            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
+    pub async fn dispose(&mut self) -> Result<(), ResourceSystemError> {
+        self.assert_state(ResourceHandleState::Initialized)?;
 
-        let response = self
-            .response_rx
-            .new_receiver()
-            .recv()
-            .await
-            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
+        match self.bus_client.request(ResourceRequest::Dispose).await {
+            Some(ResourceResponse::Disposed(result)) => {
+                self.dispose = Some(result);
+                result?;
+                Ok(())
+            }
+            Some(_) => Err(ResourceSystemError::IncorrectResponseReceived),
+            None => Err(ResourceSystemError::BusDisconnected),
+        }
+    }
 
-        match response {
-            ResourceResponse::Pong => Ok(()),
-            _ => Err(ResourceSystemError::IncorrectResponseReceived),
+    pub async fn ping(&mut self) -> Result<(), ResourceSystemError> {
+        match self.bus_client.request(ResourceRequest::Ping).await {
+            Some(ResourceResponse::Pong) => Ok(()),
+            Some(_) => Err(ResourceSystemError::IncorrectResponseReceived),
+            None => Err(ResourceSystemError::BusDisconnected),
         }
     }
 
     #[inline(always)]
-    fn assert_state(&self, expected: ResourceHandleState) -> Result<(), ResourceSystemError> {
+    fn assert_state(&mut self, expected: ResourceHandleState) -> Result<(), ResourceSystemError> {
         let actual = self.get_state();
 
         if actual != expected {
             Err(ResourceSystemError::IncorrectHandleState { expected, actual })
         } else {
             Ok(())
-        }
-    }
-
-    #[inline(always)]
-    fn poll(&self) {
-        if let Ok(response) = self.response_rx.new_receiver().try_recv() {
-            match response {
-                ResourceResponse::Initialized { result, init_data } => {
-                    let _ = self.init_lock.set((init_data, result));
-                }
-                ResourceResponse::Disposed(result) => {
-                    let _ = self.dispose_lock.set(result);
-                }
-                _ => {}
-            }
         }
     }
 }

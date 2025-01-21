@@ -1,15 +1,9 @@
-use std::{
-    marker::PhantomData,
-    path::PathBuf,
-    sync::{Arc, OnceLock},
-};
-
-use futures_channel::mpsc;
-use futures_util::StreamExt;
+use std::{marker::PhantomData, path::PathBuf, sync::Arc};
 
 use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vmm::ownership::VmmOwnershipModel};
 
 use super::{
+    bus::{Bus, BusClient},
     internal::{
         resource_system_main_task, InternalResource, InternalResourceData, InternalResourceState,
         ResourceSystemRequest, ResourceSystemResponse,
@@ -18,15 +12,12 @@ use super::{
     ResourceHandleState, ResourceType,
 };
 
-pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
-    request_tx: mpsc::UnboundedSender<ResourceSystemRequest<R>>,
-    response_rx: mpsc::UnboundedReceiver<ResourceSystemResponse>,
-    marker: PhantomData<S>,
+pub struct ResourceSystem<S: ProcessSpawner, R: Runtime, B: Bus> {
+    bus_client: B::Client<ResourceSystemRequest<R, B>, ResourceSystemResponse>,
+    marker: PhantomData<(S, B)>,
 }
 
-const RESPONSE_BROADCAST_CAPACITY: usize = 10;
-
-impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
+impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
     pub fn new(process_spawner: S, runtime: R, ownership_model: VmmOwnershipModel) -> Self {
         Self::new_inner(Vec::new(), process_spawner, runtime, ownership_model)
     }
@@ -37,17 +28,15 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
 
     #[inline(always)]
     fn new_inner(
-        internal_resources: Vec<InternalResource<R>>,
+        internal_resources: Vec<InternalResource<R, B>>,
         process_spawner: S,
         runtime: R,
         ownership_model: VmmOwnershipModel,
     ) -> Self {
-        let (request_tx, request_rx) = mpsc::unbounded();
-        let (response_tx, response_rx) = mpsc::unbounded();
+        let (bus_client, bus_server) = B::new();
 
-        runtime.clone().spawn_task(resource_system_main_task(
-            request_rx,
-            response_tx,
+        runtime.clone().spawn_task(resource_system_main_task::<S, R, B>(
+            bus_server,
             internal_resources,
             process_spawner,
             runtime,
@@ -55,78 +44,73 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         ));
 
         Self {
-            request_tx,
-            response_rx,
+            bus_client,
             marker: PhantomData,
         }
     }
 
     pub async fn shutdown(mut self) -> Result<(), ResourceSystemError> {
-        self.request_tx
-            .unbounded_send(ResourceSystemRequest::Shutdown)
-            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
-
-        if let Some(ResourceSystemResponse::ShutdownFinished) = self.response_rx.next().await {
-            Ok(())
-        } else {
-            Err(ResourceSystemError::IncorrectResponseReceived)
+        match self.bus_client.request(ResourceSystemRequest::Shutdown).await {
+            Some(ResourceSystemResponse::ShutdownFinished) => Ok(()),
+            Some(_) => Err(ResourceSystemError::IncorrectResponseReceived),
+            _ => Err(ResourceSystemError::BusDisconnected),
         }
     }
 
     pub fn new_moved_resource(
-        &self,
+        &mut self,
         source_path: PathBuf,
         r#type: MovedResourceType,
-    ) -> Result<MovedResource, ResourceSystemError> {
+    ) -> Result<MovedResource<B>, ResourceSystemError> {
         self.new_resource(source_path, ResourceType::Moved(r#type))
             .map(MovedResource)
     }
 
     pub fn new_created_resource(
-        &self,
+        &mut self,
         source_path: PathBuf,
         r#type: CreatedResourceType,
-    ) -> Result<CreatedResource, ResourceSystemError> {
+    ) -> Result<CreatedResource<B>, ResourceSystemError> {
         self.new_resource(source_path, ResourceType::Created(r#type))
             .map(CreatedResource)
     }
 
-    pub fn new_produced_resource(&self, source_path: PathBuf) -> Result<ProducedResource, ResourceSystemError> {
+    pub fn new_produced_resource(&mut self, source_path: PathBuf) -> Result<ProducedResource<B>, ResourceSystemError> {
         self.new_resource(source_path, ResourceType::Produced)
             .map(ProducedResource)
     }
 
     #[inline(always)]
-    fn new_resource(&self, source_path: PathBuf, r#type: ResourceType) -> Result<Resource, ResourceSystemError> {
-        let (request_tx, request_rx) = mpsc::unbounded();
-        let (response_tx, response_rx) = async_broadcast::broadcast(RESPONSE_BROADCAST_CAPACITY);
-        let internal_resource: InternalResource<R> = InternalResource {
+    fn new_resource(&mut self, source_path: PathBuf, r#type: ResourceType) -> Result<Resource<B>, ResourceSystemError> {
+        let (bus_client, bus_server) = B::new();
+        let internal_resource = InternalResource {
             state: InternalResourceState::Uninitialized,
-            request_rx,
-            response_tx,
+            bus_server,
             data: Arc::new(InternalResourceData { source_path, r#type }),
             init_data: None,
         };
 
         let data = internal_resource.data.clone();
 
-        self.request_tx
-            .unbounded_send(ResourceSystemRequest::AddResource(internal_resource))
-            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
+        if !self
+            .bus_client
+            .start_request(ResourceSystemRequest::AddResource(internal_resource))
+        {
+            return Err(ResourceSystemError::BusDisconnected);
+        }
 
         Ok(Resource {
-            request_tx,
-            response_rx,
+            bus_client,
             data,
-            init_lock: OnceLock::new(),
-            dispose_lock: OnceLock::new(),
+            init: None,
+            dispose: None,
         })
     }
 }
 
-impl<S: ProcessSpawner, R: Runtime> Drop for ResourceSystem<S, R> {
+impl<S: ProcessSpawner, R: Runtime, B: Bus> Drop for ResourceSystem<S, R, B> {
     fn drop(&mut self) {
-        let _ = self.request_tx.unbounded_send(ResourceSystemRequest::Shutdown);
+        self.bus_client.start_request(ResourceSystemRequest::Shutdown);
     }
 }
 
@@ -136,6 +120,7 @@ pub enum ResourceSystemError {
         expected: ResourceHandleState,
         actual: ResourceHandleState,
     },
+    BusDisconnected,
     ChannelDisconnected,
     ChannelNotFound,
     IncorrectResponseReceived,
