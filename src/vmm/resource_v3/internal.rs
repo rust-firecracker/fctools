@@ -36,7 +36,6 @@ pub struct InternalResourceInitData {
 pub enum ResourceRequest {
     Initialize(InternalResourceInitData),
     Dispose,
-    Ping,
 }
 
 #[derive(Clone)]
@@ -46,7 +45,6 @@ pub enum ResourceResponse {
         init_data: Arc<InternalResourceInitData>,
     },
     Disposed(Result<(), ResourceSystemError>),
-    Pong,
 }
 
 pub enum ResourceSystemRequest<R: Runtime, B: Bus> {
@@ -103,9 +101,6 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime, B: Bus>(
                     .expect("resource_index is invalid. Internal library bug");
 
                 match request {
-                    ResourceRequest::Ping => {
-                        runtime.spawn_task(resource.bus_server.response(ResourceResponse::Pong));
-                    }
                     ResourceRequest::Initialize(init_data) => {
                         resource.init_data = Some(Arc::new(init_data));
                     }

@@ -5,11 +5,7 @@ use fctools::{
     runtime::tokio::TokioRuntime,
     vmm::{
         ownership::VmmOwnershipModel,
-        resource_v3::{
-            bus::{default::DefaultBus, tokio::TokioBus},
-            system::ResourceSystem,
-            MovedResourceType,
-        },
+        resource_v3::{bus::tokio::TokioBus, system::ResourceSystem, MovedResourceType},
     },
 };
 
@@ -17,10 +13,15 @@ use fctools::{
 async fn resource_system_v3() {
     let mut system =
         ResourceSystem::<_, _, TokioBus>::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
-    let mut handle = system
+    let mut resource = system
         .new_moved_resource(PathBuf::from("/home/kanpov/test.txt"), MovedResourceType::Copied)
         .unwrap();
 
-    handle.ping().await.unwrap();
+    resource
+        .clone()
+        .start_initialization(PathBuf::from("/a"), Some(PathBuf::from("/b")))
+        .unwrap();
+    dbg!(resource.get_state());
+
     system.shutdown().await.unwrap();
 }

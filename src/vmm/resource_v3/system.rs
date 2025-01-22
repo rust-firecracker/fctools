@@ -8,8 +8,8 @@ use super::{
         resource_system_main_task, InternalResource, InternalResourceData, InternalResourceState,
         ResourceSystemRequest, ResourceSystemResponse,
     },
-    CreatedResource, CreatedResourceType, MovedResource, MovedResourceType, ProducedResource, Resource,
-    ResourceHandleState, ResourceType,
+    CreatedResource, CreatedResourceType, MovedResource, MovedResourceType, ProducedResource, Resource, ResourceState,
+    ResourceType,
 };
 
 pub struct ResourceSystem<S: ProcessSpawner, R: Runtime, B: Bus> {
@@ -116,9 +116,9 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> Drop for ResourceSystem<S, R, B> {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ResourceSystemError {
-    IncorrectHandleState {
-        expected: ResourceHandleState,
-        actual: ResourceHandleState,
+    IncorrectState {
+        expected: ResourceState,
+        actual: ResourceState,
     },
     BusDisconnected,
     MalformedResponse,

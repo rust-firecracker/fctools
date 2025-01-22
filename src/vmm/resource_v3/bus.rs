@@ -3,7 +3,7 @@ use std::{
     task::{Context, Poll},
 };
 
-pub trait Bus: 'static {
+pub trait Bus: Clone + 'static {
     type Client<Req: Send, Res: Send + Clone + 'static>: BusClient<Req, Res>;
     type Server<Req: Send, Res: Send + Clone + 'static>: BusServer<Req, Res>;
 
@@ -11,6 +11,8 @@ pub trait Bus: 'static {
 }
 
 pub trait BusClient<Req: Send, Res: Send + Clone + 'static>: Send + Clone {
+    fn poll(&mut self) -> Option<Res>;
+
     fn start_request(&mut self, request: Req) -> bool;
 
     fn request(&mut self, request: Req) -> impl Future<Output = Option<Res>> + Send;
@@ -38,6 +40,7 @@ pub mod default {
 
     const DEFAULT_BUS_CAPACITY: usize = 25;
 
+    #[derive(Clone, Copy)]
     pub struct DefaultBus;
 
     impl Bus for DefaultBus {
@@ -68,6 +71,10 @@ pub mod default {
     }
 
     impl<Req: Send, Res: Send + Clone + 'static> BusClient<Req, Res> for DefaultBusClient<Req, Res> {
+        fn poll(&mut self) -> Option<Res> {
+            self.response_rx.try_recv().ok()
+        }
+
         fn start_request(&mut self, request: Req) -> bool {
             self.request_tx.unbounded_send(request).is_ok()
         }
@@ -118,6 +125,7 @@ pub mod tokio {
 
     const TOKIO_BUS_CAPACITY: usize = 25;
 
+    #[derive(Clone, Copy)]
     pub struct TokioBus;
 
     impl Bus for TokioBus {
@@ -148,6 +156,10 @@ pub mod tokio {
     }
 
     impl<Req: Send, Res: Send + Clone + 'static> BusClient<Req, Res> for TokioBusClient<Req, Res> {
+        fn poll(&mut self) -> Option<Res> {
+            self.response_rx.try_recv().ok()
+        }
+
         fn start_request(&mut self, request: Req) -> bool {
             self.request_tx.send(request).is_ok()
         }

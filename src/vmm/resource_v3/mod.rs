@@ -95,14 +95,16 @@ pub struct Resource<B: Bus> {
 
 impl<B: Bus> Resource<B> {
     #[inline]
-    pub fn get_state(&mut self) -> ResourceHandleState {
+    pub fn get_state(&mut self) -> ResourceState {
+        self.poll();
+
         if self.dispose.is_some() {
-            return ResourceHandleState::Disposed;
+            return ResourceState::Disposed;
         }
 
         match self.init {
-            Some(_) => ResourceHandleState::Initialized,
-            None => ResourceHandleState::Uninitialized,
+            Some(_) => ResourceState::Initialized,
+            None => ResourceState::Uninitialized,
         }
     }
 
@@ -115,19 +117,21 @@ impl<B: Bus> Resource<B> {
     }
 
     pub fn get_effective_path(&mut self) -> Option<PathBuf> {
-        self.init.as_mut().map(|(data, _)| data.effective_path.clone())
+        self.poll();
+        self.init.as_ref().map(|(data, _)| data.effective_path.clone())
     }
 
     pub fn get_local_path(&mut self) -> Option<PathBuf> {
-        self.init.as_mut().and_then(|(data, _)| data.local_path.clone())
+        self.poll();
+        self.init.as_ref().and_then(|(data, _)| data.local_path.clone())
     }
 
-    pub fn begin_initialization(
+    pub fn start_initialization(
         &mut self,
         effective_path: PathBuf,
         local_path: Option<PathBuf>,
     ) -> Result<(), ResourceSystemError> {
-        self.assert_state(ResourceHandleState::Uninitialized)?;
+        self.assert_state(ResourceState::Uninitialized)?;
 
         match self
             .bus_client
@@ -145,7 +149,7 @@ impl<B: Bus> Resource<B> {
         effective_path: PathBuf,
         local_path: Option<PathBuf>,
     ) -> Result<(), ResourceSystemError> {
-        self.assert_state(ResourceHandleState::Uninitialized)?;
+        self.assert_state(ResourceState::Uninitialized)?;
 
         match self
             .bus_client
@@ -165,8 +169,8 @@ impl<B: Bus> Resource<B> {
         }
     }
 
-    pub fn begin_disposal(&mut self) -> Result<(), ResourceSystemError> {
-        self.assert_state(ResourceHandleState::Initialized)?;
+    pub fn start_disposal(&mut self) -> Result<(), ResourceSystemError> {
+        self.assert_state(ResourceState::Initialized)?;
 
         match self.bus_client.start_request(ResourceRequest::Dispose) {
             true => Ok(()),
@@ -175,7 +179,7 @@ impl<B: Bus> Resource<B> {
     }
 
     pub async fn dispose(&mut self) -> Result<(), ResourceSystemError> {
-        self.assert_state(ResourceHandleState::Initialized)?;
+        self.assert_state(ResourceState::Initialized)?;
 
         match self.bus_client.request(ResourceRequest::Dispose).await {
             Some(ResourceResponse::Disposed(result)) => {
@@ -188,20 +192,26 @@ impl<B: Bus> Resource<B> {
         }
     }
 
-    pub async fn ping(&mut self) -> Result<(), ResourceSystemError> {
-        match self.bus_client.request(ResourceRequest::Ping).await {
-            Some(ResourceResponse::Pong) => Ok(()),
-            Some(_) => Err(ResourceSystemError::MalformedResponse),
-            None => Err(ResourceSystemError::BusDisconnected),
+    #[inline(always)]
+    fn poll(&mut self) {
+        if let Some(response) = self.bus_client.poll() {
+            match response {
+                ResourceResponse::Initialized { result, init_data } => {
+                    self.init = Some((init_data, result));
+                }
+                ResourceResponse::Disposed(result) => {
+                    self.dispose = Some(result);
+                }
+            }
         }
     }
 
     #[inline(always)]
-    fn assert_state(&mut self, expected: ResourceHandleState) -> Result<(), ResourceSystemError> {
+    fn assert_state(&mut self, expected: ResourceState) -> Result<(), ResourceSystemError> {
         let actual = self.get_state();
 
         if actual != expected {
-            Err(ResourceSystemError::IncorrectHandleState { expected, actual })
+            Err(ResourceSystemError::IncorrectState { expected, actual })
         } else {
             Ok(())
         }
@@ -209,7 +219,7 @@ impl<B: Bus> Resource<B> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResourceHandleState {
+pub enum ResourceState {
     Uninitialized,
     Initialized,
     Disposed,
