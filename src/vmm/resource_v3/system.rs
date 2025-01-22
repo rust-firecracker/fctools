@@ -50,7 +50,7 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
     }
 
     pub async fn shutdown(mut self) -> Result<(), ResourceSystemError> {
-        match self.bus_client.request(ResourceSystemRequest::Shutdown).await {
+        match self.bus_client.make_request(ResourceSystemRequest::Shutdown).await {
             Some(ResourceSystemResponse::ShutdownFinished) => Ok(()),
             Some(_) => Err(ResourceSystemError::MalformedResponse),
             _ => Err(ResourceSystemError::BusDisconnected),
@@ -94,7 +94,7 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
 
         if !self
             .bus_client
-            .start_request(ResourceSystemRequest::AddResource(internal_resource))
+            .send_request(ResourceSystemRequest::AddResource(internal_resource))
         {
             return Err(ResourceSystemError::BusDisconnected);
         }
@@ -110,7 +110,7 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
 
 impl<S: ProcessSpawner, R: Runtime, B: Bus> Drop for ResourceSystem<S, R, B> {
     fn drop(&mut self) {
-        self.bus_client.start_request(ResourceSystemRequest::Shutdown);
+        self.bus_client.send_request(ResourceSystemRequest::Shutdown);
     }
 }
 

@@ -135,7 +135,7 @@ impl<B: Bus> Resource<B> {
 
         match self
             .bus_client
-            .start_request(ResourceRequest::Initialize(InternalResourceInitData {
+            .send_request(ResourceRequest::Initialize(InternalResourceInitData {
                 effective_path,
                 local_path,
             })) {
@@ -153,7 +153,7 @@ impl<B: Bus> Resource<B> {
 
         match self
             .bus_client
-            .request(ResourceRequest::Initialize(InternalResourceInitData {
+            .make_request(ResourceRequest::Initialize(InternalResourceInitData {
                 effective_path,
                 local_path,
             }))
@@ -172,7 +172,7 @@ impl<B: Bus> Resource<B> {
     pub fn start_disposal(&mut self) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Initialized)?;
 
-        match self.bus_client.start_request(ResourceRequest::Dispose) {
+        match self.bus_client.send_request(ResourceRequest::Dispose) {
             true => Ok(()),
             false => Err(ResourceSystemError::BusDisconnected),
         }
@@ -181,7 +181,7 @@ impl<B: Bus> Resource<B> {
     pub async fn dispose(&mut self) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Initialized)?;
 
-        match self.bus_client.request(ResourceRequest::Dispose).await {
+        match self.bus_client.make_request(ResourceRequest::Dispose).await {
             Some(ResourceResponse::Disposed(result)) => {
                 self.dispose = Some(result);
                 result?;
@@ -194,7 +194,7 @@ impl<B: Bus> Resource<B> {
 
     #[inline(always)]
     fn poll(&mut self) {
-        if let Some(response) = self.bus_client.poll() {
+        if let Some(response) = self.bus_client.try_get_response() {
             match response {
                 ResourceResponse::Initialized { result, init_data } => {
                     self.init = Some((init_data, result));

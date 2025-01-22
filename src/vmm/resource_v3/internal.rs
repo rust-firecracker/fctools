@@ -71,12 +71,12 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime, B: Bus>(
 
     loop {
         let incoming = poll_fn(|cx| {
-            if let Poll::Ready(Some(request)) = Pin::new(&mut bus_server).poll(cx) {
+            if let Poll::Ready(Some(request)) = Pin::new(&mut bus_server).poll_request(cx) {
                 return Poll::Ready(Incoming::SystemRequest(request));
             }
 
             for (resource_index, resource) in internal_resources.iter_mut().enumerate() {
-                if let Poll::Ready(Some(request)) = Pin::new(&mut resource.bus_server).poll(cx) {
+                if let Poll::Ready(Some(request)) = Pin::new(&mut resource.bus_server).poll_request(cx) {
                     return Poll::Ready(Incoming::ResourceRequest(resource_index, request));
                 }
             }
@@ -91,7 +91,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime, B: Bus>(
                     internal_resources.push(internal_resource);
                 }
                 ResourceSystemRequest::Shutdown => {
-                    runtime.spawn_task(bus_server.response(ResourceSystemResponse::ShutdownFinished));
+                    runtime.spawn_task(bus_server.send_response(ResourceSystemResponse::ShutdownFinished));
                     return;
                 }
             },

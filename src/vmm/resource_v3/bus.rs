@@ -11,17 +11,17 @@ pub trait Bus: Clone + 'static {
 }
 
 pub trait BusClient<Req: Send, Res: Send + Clone + 'static>: Send + Clone {
-    fn poll(&mut self) -> Option<Res>;
+    fn try_get_response(&mut self) -> Option<Res>;
 
-    fn start_request(&mut self, request: Req) -> bool;
+    fn send_request(&mut self, request: Req) -> bool;
 
-    fn request(&mut self, request: Req) -> impl Future<Output = Option<Res>> + Send;
+    fn make_request(&mut self, request: Req) -> impl Future<Output = Option<Res>> + Send;
 }
 
 pub trait BusServer<Req: Send, Res: Send + Clone + 'static>: Send + Unpin {
-    fn poll(&mut self, cx: &mut Context) -> Poll<Option<Req>>;
+    fn poll_request(&mut self, cx: &mut Context) -> Poll<Option<Req>>;
 
-    fn response(&mut self, response: Res) -> impl Future<Output = bool> + Send + 'static;
+    fn send_response(&mut self, response: Res) -> impl Future<Output = bool> + Send + 'static;
 }
 
 #[cfg(feature = "vmm-resource-default-bus")]
@@ -71,15 +71,15 @@ pub mod default {
     }
 
     impl<Req: Send, Res: Send + Clone + 'static> BusClient<Req, Res> for DefaultBusClient<Req, Res> {
-        fn poll(&mut self) -> Option<Res> {
+        fn try_get_response(&mut self) -> Option<Res> {
             self.response_rx.try_recv().ok()
         }
 
-        fn start_request(&mut self, request: Req) -> bool {
+        fn send_request(&mut self, request: Req) -> bool {
             self.request_tx.unbounded_send(request).is_ok()
         }
 
-        async fn request(&mut self, request: Req) -> Option<Res> {
+        async fn make_request(&mut self, request: Req) -> Option<Res> {
             self.request_tx.unbounded_send(request).ok()?;
             pin!(self.response_rx.recv_direct()).await.ok()
         }
@@ -100,11 +100,11 @@ pub mod default {
     }
 
     impl<Req: Send, Res: Send + Clone + 'static> BusServer<Req, Res> for DefaultBusServer<Req, Res> {
-        fn poll(&mut self, cx: &mut Context) -> Poll<Option<Req>> {
+        fn poll_request(&mut self, cx: &mut Context) -> Poll<Option<Req>> {
             self.request_rx.poll_next_unpin(cx)
         }
 
-        fn response(&mut self, response: Res) -> impl Future<Output = bool> + Send + 'static {
+        fn send_response(&mut self, response: Res) -> impl Future<Output = bool> + Send + 'static {
             let tx = self.response_tx.clone();
             async move { pin!(tx.broadcast_direct(response)).await.is_ok() }
         }
@@ -156,15 +156,15 @@ pub mod tokio {
     }
 
     impl<Req: Send, Res: Send + Clone + 'static> BusClient<Req, Res> for TokioBusClient<Req, Res> {
-        fn poll(&mut self) -> Option<Res> {
+        fn try_get_response(&mut self) -> Option<Res> {
             self.response_rx.try_recv().ok()
         }
 
-        fn start_request(&mut self, request: Req) -> bool {
+        fn send_request(&mut self, request: Req) -> bool {
             self.request_tx.send(request).is_ok()
         }
 
-        async fn request(&mut self, request: Req) -> Option<Res> {
+        async fn make_request(&mut self, request: Req) -> Option<Res> {
             self.request_tx.send(request).ok()?;
             self.response_rx.recv().await.ok()
         }
@@ -185,11 +185,11 @@ pub mod tokio {
     }
 
     impl<Req: Send, Res: Send + Clone + 'static> BusServer<Req, Res> for TokioBusServer<Req, Res> {
-        fn poll(&mut self, cx: &mut Context) -> Poll<Option<Req>> {
+        fn poll_request(&mut self, cx: &mut Context) -> Poll<Option<Req>> {
             self.request_rx.poll_recv(cx)
         }
 
-        fn response(&mut self, response: Res) -> impl Future<Output = bool> + Send + 'static {
+        fn send_response(&mut self, response: Res) -> impl Future<Output = bool> + Send + 'static {
             let tx = self.response_tx.clone();
             std::future::ready(tx.send(response).is_ok())
         }
