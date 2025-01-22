@@ -18,4 +18,5 @@ async fn resource_system_v3() {
         .unwrap();
 
     handle.ping().await.unwrap();
+    system.shutdown().await.unwrap();
 }

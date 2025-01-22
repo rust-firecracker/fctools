@@ -160,7 +160,7 @@ impl<B: Bus> Resource<B> {
                 result?;
                 Ok(())
             }
-            Some(_) => Err(ResourceSystemError::IncorrectResponseReceived),
+            Some(_) => Err(ResourceSystemError::MalformedResponse),
             None => Err(ResourceSystemError::BusDisconnected),
         }
     }
@@ -183,7 +183,7 @@ impl<B: Bus> Resource<B> {
                 result?;
                 Ok(())
             }
-            Some(_) => Err(ResourceSystemError::IncorrectResponseReceived),
+            Some(_) => Err(ResourceSystemError::MalformedResponse),
             None => Err(ResourceSystemError::BusDisconnected),
         }
     }
@@ -191,7 +191,7 @@ impl<B: Bus> Resource<B> {
     pub async fn ping(&mut self) -> Result<(), ResourceSystemError> {
         match self.bus_client.request(ResourceRequest::Ping).await {
             Some(ResourceResponse::Pong) => Ok(()),
-            Some(_) => Err(ResourceSystemError::IncorrectResponseReceived),
+            Some(_) => Err(ResourceSystemError::MalformedResponse),
             None => Err(ResourceSystemError::BusDisconnected),
         }
     }

@@ -93,7 +93,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime, B: Bus>(
                     internal_resources.push(internal_resource);
                 }
                 ResourceSystemRequest::Shutdown => {
-                    let _ = bus_server.respond(ResourceSystemResponse::ShutdownFinished);
+                    runtime.spawn_task(bus_server.response(ResourceSystemResponse::ShutdownFinished));
                     return;
                 }
             },
@@ -104,7 +104,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime, B: Bus>(
 
                 match request {
                     ResourceRequest::Ping => {
-                        resource.bus_server.respond(ResourceResponse::Pong).await;
+                        runtime.spawn_task(resource.bus_server.response(ResourceResponse::Pong));
                     }
                     ResourceRequest::Initialize(init_data) => {
                         resource.init_data = Some(Arc::new(init_data));
