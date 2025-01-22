@@ -8,8 +8,9 @@ use bus::{Bus, BusClient};
 use internal::{InternalResourceData, InternalResourceInitData, ResourceRequest, ResourceResponse};
 use system::ResourceSystemError;
 
+mod internal;
+
 pub mod bus;
-pub mod internal;
 pub mod system;
 
 #[derive(Clone, Copy)]

@@ -1,4 +1,4 @@
-use std::{future::poll_fn, path::PathBuf, pin::Pin, sync::Arc, task::Poll};
+use std::{future::poll_fn, path::PathBuf, sync::Arc, task::Poll};
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -71,12 +71,12 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime, B: Bus>(
 
     loop {
         let incoming = poll_fn(|cx| {
-            if let Poll::Ready(Some(request)) = Pin::new(&mut bus_server).poll_request(cx) {
+            if let Poll::Ready(Some(request)) = bus_server.poll_request(cx) {
                 return Poll::Ready(Incoming::SystemRequest(request));
             }
 
             for (resource_index, resource) in internal_resources.iter_mut().enumerate() {
-                if let Poll::Ready(Some(request)) = Pin::new(&mut resource.bus_server).poll_request(cx) {
+                if let Poll::Ready(Some(request)) = resource.bus_server.poll_request(cx) {
                     return Poll::Ready(Incoming::ResourceRequest(resource_index, request));
                 }
             }

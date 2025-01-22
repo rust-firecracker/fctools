@@ -52,7 +52,6 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
     pub async fn shutdown(mut self) -> Result<(), ResourceSystemError> {
         match self.bus_client.make_request(ResourceSystemRequest::Shutdown).await {
             Some(ResourceSystemResponse::ShutdownFinished) => Ok(()),
-            Some(_) => Err(ResourceSystemError::MalformedResponse),
             _ => Err(ResourceSystemError::BusDisconnected),
         }
     }
