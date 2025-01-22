@@ -14,7 +14,7 @@ use super::{
 
 pub struct ResourceSystem<S: ProcessSpawner, R: Runtime, B: Bus> {
     bus_client: B::Client<ResourceSystemRequest<R, B>, ResourceSystemResponse>,
-    marker: PhantomData<(S, B)>,
+    marker: PhantomData<S>,
 }
 
 impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
