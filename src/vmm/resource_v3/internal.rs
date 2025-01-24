@@ -6,7 +6,11 @@ use crate::{
     vmm::{ownership::VmmOwnershipModel, resource_v3::bus::BusServer},
 };
 
-use super::{bus::Bus, system::ResourceSystemError, ResourceType};
+use super::{
+    bus::{Bus, BusOutgoing},
+    system::ResourceSystemError,
+    ResourceType,
+};
 
 pub enum InternalResourceState<R: Runtime> {
     Uninitialized,
@@ -64,20 +68,15 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime, B: Bus>(
     runtime: R,
     ownership_model: VmmOwnershipModel,
 ) {
-    enum Incoming<R: Runtime, B: Bus> {
-        SystemRequest(ResourceSystemRequest<R, B>),
-        ResourceRequest(usize, ResourceRequest),
-    }
-
     loop {
-        let incoming = poll_fn(|cx| {
-            if let Poll::Ready(Some(request)) = bus_server.poll_request(cx) {
-                return Poll::Ready(Incoming::SystemRequest(request));
+        let (system, resource) = poll_fn(|cx| {
+            if let Poll::Ready(Some(tuple)) = bus_server.poll(cx) {
+                return Poll::Ready((Some(tuple), None));
             }
 
             for (resource_index, resource) in internal_resources.iter_mut().enumerate() {
-                if let Poll::Ready(Some(request)) = resource.bus_server.poll_request(cx) {
-                    return Poll::Ready(Incoming::ResourceRequest(resource_index, request));
+                if let Poll::Ready(Some(tuple)) = resource.bus_server.poll(cx) {
+                    return Poll::Ready((None, Some((resource_index, tuple.0, tuple.1))));
                 }
             }
 
@@ -85,27 +84,23 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime, B: Bus>(
         })
         .await;
 
-        match incoming {
-            Incoming::SystemRequest(request) => match request {
+        if let Some((request, outgoing)) = system {
+            match request {
+                ResourceSystemRequest::Shutdown => {
+                    runtime.spawn_task(outgoing.write(ResourceSystemResponse::ShutdownFinished));
+                }
                 ResourceSystemRequest::AddResource(internal_resource) => {
                     internal_resources.push(internal_resource);
                 }
-                ResourceSystemRequest::Shutdown => {
-                    runtime.spawn_task(bus_server.send_response(ResourceSystemResponse::ShutdownFinished));
-                    return;
-                }
-            },
-            Incoming::ResourceRequest(resource_index, request) => {
-                let resource = internal_resources
-                    .get_mut(resource_index)
-                    .expect("resource_index is invalid. Internal library bug");
+            }
+        } else if let Some((resource_idx, request, outgoing)) = resource {
+            let resource = internal_resources
+                .get_mut(resource_idx)
+                .expect("resource_idx is incorrect");
 
-                match request {
-                    ResourceRequest::Initialize(init_data) => {
-                        resource.init_data = Some(Arc::new(init_data));
-                    }
-                    _ => {}
-                }
+            match request {
+                ResourceRequest::Initialize(init_data) => todo!(),
+                ResourceRequest::Dispose => todo!(),
             }
         }
     }

@@ -1,4 +1,8 @@
-use std::{marker::PhantomData, path::PathBuf, sync::Arc};
+use std::{
+    marker::PhantomData,
+    path::PathBuf,
+    sync::{Arc, OnceLock},
+};
 
 use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vmm::ownership::VmmOwnershipModel};
 
@@ -49,15 +53,15 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
         }
     }
 
-    pub async fn shutdown(mut self) -> Result<(), ResourceSystemError> {
-        match self.bus_client.make_request(ResourceSystemRequest::Shutdown).await {
+    pub async fn shutdown(self) -> Result<(), ResourceSystemError> {
+        match self.bus_client.request_and_read(ResourceSystemRequest::Shutdown).await {
             Some(ResourceSystemResponse::ShutdownFinished) => Ok(()),
             _ => Err(ResourceSystemError::BusDisconnected),
         }
     }
 
     pub fn new_moved_resource(
-        &mut self,
+        &self,
         source_path: PathBuf,
         r#type: MovedResourceType,
     ) -> Result<MovedResource<B>, ResourceSystemError> {
@@ -66,7 +70,7 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
     }
 
     pub fn new_created_resource(
-        &mut self,
+        &self,
         source_path: PathBuf,
         r#type: CreatedResourceType,
     ) -> Result<CreatedResource<B>, ResourceSystemError> {
@@ -74,13 +78,13 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
             .map(CreatedResource)
     }
 
-    pub fn new_produced_resource(&mut self, source_path: PathBuf) -> Result<ProducedResource<B>, ResourceSystemError> {
+    pub fn new_produced_resource(&self, source_path: PathBuf) -> Result<ProducedResource<B>, ResourceSystemError> {
         self.new_resource(source_path, ResourceType::Produced)
             .map(ProducedResource)
     }
 
     #[inline(always)]
-    fn new_resource(&mut self, source_path: PathBuf, r#type: ResourceType) -> Result<Resource<B>, ResourceSystemError> {
+    fn new_resource(&self, source_path: PathBuf, r#type: ResourceType) -> Result<Resource<B>, ResourceSystemError> {
         let (bus_client, bus_server) = B::new();
         let internal_resource = InternalResource {
             state: InternalResourceState::Uninitialized,
@@ -91,9 +95,10 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
 
         let data = internal_resource.data.clone();
 
-        if !self
+        if self
             .bus_client
-            .send_request(ResourceSystemRequest::AddResource(internal_resource))
+            .request(ResourceSystemRequest::AddResource(internal_resource))
+            .is_none()
         {
             return Err(ResourceSystemError::BusDisconnected);
         }
@@ -101,15 +106,15 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
         Ok(Resource {
             bus_client,
             data,
-            init: None,
-            dispose: None,
+            init: OnceLock::new(),
+            dispose: OnceLock::new(),
         })
     }
 }
 
 impl<S: ProcessSpawner, R: Runtime, B: Bus> Drop for ResourceSystem<S, R, B> {
     fn drop(&mut self) {
-        self.bus_client.send_request(ResourceSystemRequest::Shutdown);
+        self.bus_client.request(ResourceSystemRequest::Shutdown);
     }
 }
 
