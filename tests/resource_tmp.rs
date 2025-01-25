@@ -16,7 +16,7 @@ async fn resource_system_v3() {
         .new_moved_resource(PathBuf::from("/home/kanpov/test.txt"), MovedResourceType::Copied)
         .unwrap();
 
-    dbg!(resource.state());
+    dbg!(resource.get_state());
 
     system.shutdown().await.unwrap();
 }

@@ -74,14 +74,6 @@ impl DerefMut for CreatedResource {
 #[derive(Clone)]
 pub struct ProducedResource(pub(super) Resource);
 
-impl ProducedResource {
-    pub fn unlink(&self) -> Result<(), ResourceSystemError> {
-        self.push_tx
-            .unbounded_send(ResourcePush::Unlink)
-            .map_err(|_| ResourceSystemError::ChannelDisconnected)
-    }
-}
-
 impl Deref for ProducedResource {
     type Target = Resource;
 
@@ -102,15 +94,15 @@ pub struct Resource {
     pub(super) pull_rx: async_broadcast::Receiver<ResourcePull>,
     pub(super) data: Arc<ResourceData>,
     pub(super) init_data: OnceLock<Arc<ResourceInitData>>,
-    pub(super) is_disposed: Arc<AtomicBool>,
+    pub(super) disposed: Arc<AtomicBool>,
 }
 
 impl Resource {
     #[inline]
-    pub fn state(&self) -> ResourceState {
+    pub fn get_state(&self) -> ResourceState {
         self.poll();
 
-        if self.is_disposed.load(Ordering::Acquire) {
+        if self.disposed.load(Ordering::Acquire) {
             return ResourceState::Disposed;
         }
 
@@ -120,20 +112,28 @@ impl Resource {
         }
     }
 
-    pub fn r#type(&self) -> ResourceType {
+    pub fn is_linked(&self) -> bool {
+        self.data.linked.load(Ordering::Acquire)
+    }
+
+    pub fn unlink(&self) {
+        self.data.linked.store(false, Ordering::Release);
+    }
+
+    pub fn get_type(&self) -> ResourceType {
         self.data.r#type
     }
 
-    pub fn source_path(&self) -> PathBuf {
+    pub fn get_source_path(&self) -> PathBuf {
         self.data.source_path.clone()
     }
 
-    pub fn effective_path(&self) -> Option<PathBuf> {
+    pub fn get_effective_path(&self) -> Option<PathBuf> {
         self.poll();
         self.init_data.get().map(|data| data.effective_path.clone())
     }
 
-    pub fn local_path(&self) -> Option<PathBuf> {
+    pub fn get_local_path(&self) -> Option<PathBuf> {
         self.poll();
         self.init_data.get().and_then(|data| data.local_path.clone())
     }
@@ -169,7 +169,7 @@ impl Resource {
                     let _ = self.init_data.set(init_data);
                 }
                 ResourcePull::Disposed(Ok(_)) => {
-                    self.is_disposed.store(true, Ordering::Release);
+                    self.disposed.store(true, Ordering::Release);
                 }
                 _ => {}
             }
@@ -178,7 +178,7 @@ impl Resource {
 
     #[inline(always)]
     fn assert_state(&self, expected: ResourceState) -> Result<(), ResourceSystemError> {
-        let actual = self.state();
+        let actual = self.get_state();
 
         if actual != expected {
             Err(ResourceSystemError::IncorrectState { expected, actual })

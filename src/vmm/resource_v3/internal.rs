@@ -1,4 +1,10 @@
-use std::{future::poll_fn, path::PathBuf, pin::pin, sync::Arc, task::Poll};
+use std::{
+    future::poll_fn,
+    path::PathBuf,
+    pin::pin,
+    sync::{atomic::AtomicBool, Arc},
+    task::Poll,
+};
 
 use futures_channel::mpsc;
 use futures_util::StreamExt;
@@ -25,12 +31,12 @@ pub struct OwnedResource<R: Runtime> {
     pub pull_tx: async_broadcast::Sender<ResourcePull>,
     pub data: Arc<ResourceData>,
     pub init_data: Option<Arc<ResourceInitData>>,
-    pub linked: bool,
 }
 
 pub struct ResourceData {
     pub source_path: PathBuf,
     pub r#type: ResourceType,
+    pub linked: AtomicBool,
 }
 
 pub struct ResourceInitData {
@@ -41,7 +47,6 @@ pub struct ResourceInitData {
 pub enum ResourcePush {
     Initialize(ResourceInitData),
     Dispose,
-    Unlink,
 }
 
 #[derive(Clone)]
@@ -137,9 +142,6 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                         ));
 
                         resource.state = OwnedResourceState::Disposing(dispose_task);
-                    }
-                    ResourcePush::Unlink => {
-                        resource.linked = false;
                     }
                 }
             }

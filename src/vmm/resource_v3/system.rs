@@ -110,9 +110,12 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             state: OwnedResourceState::Uninitialized,
             push_rx,
             pull_tx,
-            data: Arc::new(ResourceData { source_path, r#type }),
+            data: Arc::new(ResourceData {
+                source_path,
+                r#type,
+                linked: AtomicBool::new(true),
+            }),
             init_data: None,
-            linked: true,
         };
 
         let data = owned_resource.data.clone();
@@ -126,7 +129,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             pull_rx,
             data,
             init_data: OnceLock::new(),
-            is_disposed: Arc::new(AtomicBool::new(false)),
+            disposed: Arc::new(AtomicBool::new(false)),
         })
     }
 }
