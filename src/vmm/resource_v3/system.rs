@@ -7,7 +7,11 @@ use std::{
 use futures_channel::mpsc;
 use futures_util::StreamExt;
 
-use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vmm::ownership::VmmOwnershipModel};
+use crate::{
+    process_spawner::ProcessSpawner,
+    runtime::Runtime,
+    vmm::ownership::{ChangeOwnerError, VmmOwnershipModel},
+};
 
 use super::{
     internal::{
@@ -132,7 +136,7 @@ impl<S: ProcessSpawner, R: Runtime> Drop for ResourceSystem<S, R> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum ResourceSystemError {
     IncorrectState {
         expected: ResourceState,
@@ -140,4 +144,7 @@ pub enum ResourceSystemError {
     },
     ChannelDisconnected,
     MalformedResponse,
+    ChangeOwnerError(Arc<ChangeOwnerError>),
+    FilesystemError(Arc<std::io::Error>),
+    SourcePathMissing,
 }
