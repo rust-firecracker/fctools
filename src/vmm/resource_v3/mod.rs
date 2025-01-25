@@ -7,6 +7,7 @@ use std::{
     },
 };
 
+use async_broadcast::TryRecvError;
 use futures_channel::mpsc;
 use internal::{ResourceData, ResourceInitData, ResourcePull, ResourcePush};
 use system::ResourceSystemError;
@@ -38,7 +39,7 @@ pub enum MovedResourceType {
 }
 
 #[derive(Debug, Clone)]
-pub struct MovedResource(pub(super) Resource);
+pub struct MovedResource(Resource);
 
 impl Deref for MovedResource {
     type Target = Resource;
@@ -49,7 +50,7 @@ impl Deref for MovedResource {
 }
 
 #[derive(Debug, Clone)]
-pub struct CreatedResource(pub(super) Resource);
+pub struct CreatedResource(Resource);
 
 impl Deref for CreatedResource {
     type Target = Resource;
@@ -60,7 +61,7 @@ impl Deref for CreatedResource {
 }
 
 #[derive(Debug, Clone)]
-pub struct ProducedResource(pub(super) Resource);
+pub struct ProducedResource(Resource);
 
 impl Deref for ProducedResource {
     type Target = Resource;
@@ -72,11 +73,11 @@ impl Deref for ProducedResource {
 
 #[derive(Debug)]
 pub struct Resource {
-    pub(super) push_tx: mpsc::UnboundedSender<ResourcePush>,
-    pub(super) pull_rx: Mutex<async_broadcast::Receiver<ResourcePull>>,
-    pub(super) data: Arc<ResourceData>,
-    pub(super) init_data: OnceLock<Arc<ResourceInitData>>,
-    pub(super) disposed: Arc<AtomicBool>,
+    push_tx: mpsc::UnboundedSender<ResourcePush>,
+    pull_rx: Mutex<async_broadcast::Receiver<ResourcePull>>,
+    data: Arc<ResourceData>,
+    init_data: OnceLock<Arc<ResourceInitData>>,
+    disposed: Arc<AtomicBool>,
 }
 
 impl Clone for Resource {
@@ -157,16 +158,14 @@ impl Resource {
 
     #[inline(always)]
     fn poll(&self) {
-        if let Ok(pull) = self.pull_rx.lock().unwrap().try_recv() {
-            match pull {
-                ResourcePull::Initialized(Ok(init_data)) => {
-                    let _ = self.init_data.set(init_data);
-                }
-                ResourcePull::Disposed(Ok(_)) => {
-                    self.disposed.store(true, Ordering::Release);
-                }
-                _ => {}
+        match self.pull_rx.lock().unwrap().try_recv() {
+            Ok(ResourcePull::Disposed(Ok(_))) | Err(TryRecvError::Closed) => {
+                self.disposed.store(true, Ordering::Release);
             }
+            Ok(ResourcePull::Initialized(Ok(init_data))) => {
+                let _ = self.init_data.set(init_data);
+            }
+            _ => {}
         }
     }
 

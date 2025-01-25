@@ -26,4 +26,5 @@ async fn resource_system_v3() {
     dbg!(resource.get_state());
 
     system.shutdown().await.unwrap();
+    dbg!(resource.get_state());
 }
