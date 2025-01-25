@@ -2,7 +2,10 @@ use std::{
     future::poll_fn,
     path::PathBuf,
     pin::pin,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     task::Poll,
 };
 
@@ -11,7 +14,7 @@ use futures_util::StreamExt;
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{Runtime, RuntimeTask},
+    runtime::{util::RuntimeTaskSet, Runtime, RuntimeTask},
     vmm::ownership::{downgrade_owner, upgrade_owner, VmmOwnershipModel},
 };
 
@@ -30,7 +33,6 @@ pub struct OwnedResource<R: Runtime> {
     pub push_rx: mpsc::UnboundedReceiver<ResourcePush>,
     pub pull_tx: async_broadcast::Sender<ResourcePull>,
     pub data: Arc<ResourceData>,
-    pub init_data: Option<Arc<ResourceInitData>>,
 }
 
 pub struct ResourceData {
@@ -61,7 +63,7 @@ pub enum ResourceSystemPush<R: Runtime> {
 }
 
 pub enum ResourceSystemPull {
-    ShutdownFinished,
+    ShutdownFinished(Result<(), ResourceSystemError>),
 }
 
 pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
@@ -111,7 +113,31 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                     owned_resources.push(internal_resource);
                 }
                 ResourceSystemPush::Shutdown => {
-                    let _ = pull_tx.unbounded_send(ResourceSystemPull::ShutdownFinished);
+                    let mut task_set = RuntimeTaskSet::new(runtime.clone());
+
+                    for resource in owned_resources {
+                        match resource.state {
+                            OwnedResourceState::Disposing(task) => {
+                                task_set.add(task);
+                            }
+                            OwnedResourceState::Initialized => {
+                                task_set.spawn(resource_system_dispose_task(
+                                    resource.data,
+                                    runtime.clone(),
+                                    process_spawner.clone(),
+                                    ownership_model,
+                                ));
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let result = match task_set.wait().await {
+                        Some(result) => result,
+                        None => Err(ResourceSystemError::TaskJoinFailed),
+                    };
+
+                    let _ = pull_tx.unbounded_send(ResourceSystemPull::ShutdownFinished(result));
                     return;
                 }
             },
@@ -135,7 +161,6 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                     ResourcePush::Dispose => {
                         let dispose_task = runtime.spawn_task(resource_system_dispose_task(
                             resource.data.clone(),
-                            resource.init_data.clone().unwrap(),
                             runtime.clone(),
                             process_spawner.clone(),
                             ownership_model,
@@ -303,10 +328,23 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
 
 async fn resource_system_dispose_task<R: Runtime, S: ProcessSpawner>(
     data: Arc<ResourceData>,
-    init_data: Arc<ResourceInitData>,
     runtime: R,
     process_spawner: S,
     ownership_model: VmmOwnershipModel,
 ) -> Result<(), ResourceSystemError> {
+    if data.linked.load(Ordering::Acquire) {
+        upgrade_owner(&data.source_path, ownership_model, &process_spawner, &runtime)
+            .await
+            .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
+
+        if !runtime
+            .fs_exists(&data.source_path)
+            .await
+            .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?
+        {
+            return Err(ResourceSystemError::SourcePathMissing);
+        }
+    }
+
     Ok(())
 }

@@ -71,7 +71,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
         match self.pull_rx.next().await {
-            Some(ResourceSystemPull::ShutdownFinished) => Ok(()),
+            Some(ResourceSystemPull::ShutdownFinished(result)) => result,
             #[allow(unreachable_patterns)]
             Some(_) => Err(ResourceSystemError::MalformedResponse),
             None => Err(ResourceSystemError::ChannelDisconnected),
@@ -115,7 +115,6 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
                 r#type,
                 linked: AtomicBool::new(true),
             }),
-            init_data: None,
         };
 
         let data = owned_resource.data.clone();
@@ -151,4 +150,5 @@ pub enum ResourceSystemError {
     ChangeOwnerError(Arc<ChangeOwnerError>),
     FilesystemError(Arc<std::io::Error>),
     SourcePathMissing,
+    TaskJoinFailed,
 }

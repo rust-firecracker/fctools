@@ -5,15 +5,17 @@ use fctools::{
     runtime::tokio::TokioRuntime,
     vmm::{
         ownership::VmmOwnershipModel,
-        resource_v3::{system::ResourceSystem, MovedResourceType},
+        resource_v3::{system::ResourceSystem, CreatedResourceType},
     },
 };
 
 #[tokio::test]
 async fn resource_system_v3() {
     let system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
+    let path = PathBuf::from("/home/kanpov/ok");
+
     let resource = system
-        .new_moved_resource(PathBuf::from("/home/kanpov/test.txt"), MovedResourceType::Copied)
+        .new_created_resource(path.clone(), CreatedResourceType::File)
         .unwrap();
 
     dbg!(resource.get_state());

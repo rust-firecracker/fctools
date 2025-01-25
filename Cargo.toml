@@ -161,6 +161,7 @@ vmm-core = [
     "dep:futures-util",
     "dep:futures-channel",
     "dep:async-broadcast",
+    "runtime-util",
 ]
 # L3: VMM executor
 vmm-executor = ["vmm-core", "process-spawner", "dep:futures-channel"]
