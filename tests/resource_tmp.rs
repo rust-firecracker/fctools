@@ -20,5 +20,9 @@ async fn resource_system_v3() {
 
     dbg!(resource.get_state());
 
+    resource.start_initialization(path.clone(), None).unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    dbg!(resource.get_state());
+
     system.shutdown().await.unwrap();
 }

@@ -163,7 +163,7 @@ impl Resource {
 
     #[inline(always)]
     fn poll(&self) {
-        if let Ok(pull) = self.pull_rx.new_receiver().try_recv() {
+        if let Ok(pull) = self.pull_rx.clone().try_recv() {
             match pull {
                 ResourcePull::Initialized(Ok(init_data)) => {
                     let _ = self.init_data.set(init_data);
