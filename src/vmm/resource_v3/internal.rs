@@ -35,12 +35,14 @@ pub struct OwnedResource<R: Runtime> {
     pub data: Arc<ResourceData>,
 }
 
+#[derive(Debug)]
 pub struct ResourceData {
     pub source_path: PathBuf,
     pub r#type: ResourceType,
     pub linked: AtomicBool,
 }
 
+#[derive(Debug)]
 pub struct ResourceInitData {
     pub effective_path: PathBuf,
     pub local_path: Option<PathBuf>,
@@ -51,7 +53,7 @@ pub enum ResourcePush {
     Dispose,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ResourcePull {
     Initialized(Result<Arc<ResourceInitData>, ResourceSystemError>),
     Disposed(Result<(), ResourceSystemError>),
@@ -59,6 +61,7 @@ pub enum ResourcePull {
 
 pub enum ResourceSystemPush<R: Runtime> {
     AddResource(OwnedResource<R>),
+    AwaitPendingTasks,
     Shutdown,
 }
 
@@ -140,6 +143,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                     let _ = pull_tx.unbounded_send(ResourceSystemPull::ShutdownFinished(result));
                     return;
                 }
+                _ => {}
             },
             Incoming::ResourcePush(resource_index, push) => {
                 let Some(resource) = owned_resources.get_mut(resource_index) else {
@@ -178,14 +182,11 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                 match result {
                     Ok(init_data) => {
                         resource.state = OwnedResourceState::Initialized;
-                        let _ = pin!(resource
-                            .pull_tx
-                            .broadcast_direct(ResourcePull::Initialized(Ok(Arc::new(init_data)))))
-                        .await;
+                        defer_resource_pull(resource, &runtime, ResourcePull::Initialized(Ok(Arc::new(init_data))));
                     }
                     Err(err) => {
                         resource.state = OwnedResourceState::Uninitialized;
-                        let _ = pin!(resource.pull_tx.broadcast_direct(ResourcePull::Initialized(Err(err)))).await;
+                        defer_resource_pull(resource, &runtime, ResourcePull::Initialized(Err(err)));
                     }
                 }
             }
@@ -197,16 +198,24 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                 match result {
                     Ok(_) => {
                         resource.state = OwnedResourceState::Disposed;
-                        let _ = pin!(resource.pull_tx.broadcast_direct(ResourcePull::Disposed(Ok(())))).await;
+                        defer_resource_pull(resource, &runtime, ResourcePull::Disposed(Ok(())));
                     }
                     Err(err) => {
                         resource.state = OwnedResourceState::Initialized;
-                        let _ = pin!(resource.pull_tx.broadcast_direct(ResourcePull::Disposed(Err(err)))).await;
+                        defer_resource_pull(resource, &runtime, ResourcePull::Disposed(Err(err)));
                     }
                 }
             }
         }
     }
+}
+
+#[inline]
+fn defer_resource_pull<R: Runtime>(resource: &mut OwnedResource<R>, runtime: &R, pull: ResourcePull) {
+    let tx = resource.pull_tx.clone();
+    runtime.spawn_task(async move {
+        let _ = pin!(tx.broadcast_direct(pull)).await;
+    });
 }
 
 async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(

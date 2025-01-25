@@ -1,5 +1,5 @@
 use std::{
-    ops::{Deref, DerefMut},
+    ops::Deref,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -15,20 +15,20 @@ mod internal;
 
 pub mod system;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum ResourceType {
     Created(CreatedResourceType),
     Moved(MovedResourceType),
     Produced,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum CreatedResourceType {
     File,
     Fifo,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum MovedResourceType {
     Copied,
     HardLinked,
@@ -37,7 +37,7 @@ pub enum MovedResourceType {
     Renamed,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MovedResource(pub(super) Resource);
 
 impl Deref for MovedResource {
@@ -48,13 +48,7 @@ impl Deref for MovedResource {
     }
 }
 
-impl DerefMut for MovedResource {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct CreatedResource(pub(super) Resource);
 
 impl Deref for CreatedResource {
@@ -65,13 +59,7 @@ impl Deref for CreatedResource {
     }
 }
 
-impl DerefMut for CreatedResource {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ProducedResource(pub(super) Resource);
 
 impl Deref for ProducedResource {
@@ -82,12 +70,7 @@ impl Deref for ProducedResource {
     }
 }
 
-impl DerefMut for ProducedResource {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
+#[derive(Debug)]
 pub struct Resource {
     pub(super) push_tx: mpsc::UnboundedSender<ResourcePush>,
     pub(super) pull_rx: Mutex<async_broadcast::Receiver<ResourcePull>>,

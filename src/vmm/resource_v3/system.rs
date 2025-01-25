@@ -22,6 +22,7 @@ use super::{
     ResourceType,
 };
 
+#[derive(Debug)]
 pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
     push_tx: mpsc::UnboundedSender<ResourceSystemPush<R>>,
     pull_rx: mpsc::UnboundedReceiver<ResourceSystemPull>,
