@@ -1,16 +1,11 @@
 use std::{future::poll_fn, path::PathBuf, sync::Arc, task::Poll};
 
-use crate::{
-    process_spawner::ProcessSpawner,
-    runtime::Runtime,
-    vmm::{ownership::VmmOwnershipModel, resource_v3::bus::BusServer},
-};
+use futures_channel::mpsc;
+use futures_util::StreamExt;
 
-use super::{
-    bus::{Bus, BusOutgoing},
-    system::ResourceSystemError,
-    ResourceType,
-};
+use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vmm::ownership::VmmOwnershipModel};
+
+use super::{system::ResourceSystemError, ResourceType};
 
 pub enum InternalResourceState<R: Runtime> {
     Uninitialized,
@@ -20,9 +15,10 @@ pub enum InternalResourceState<R: Runtime> {
     Disposed,
 }
 
-pub struct InternalResource<R: Runtime, B: Bus> {
+pub struct InternalResource<R: Runtime> {
     pub state: InternalResourceState<R>,
-    pub bus_server: B::Server<ResourceRequest, ResourceResponse>,
+    pub push_rx: mpsc::UnboundedReceiver<ResourcePush>,
+    pub pull_tx: async_broadcast::Sender<ResourcePull>,
     pub data: Arc<InternalResourceData>,
     pub init_data: Option<Arc<InternalResourceInitData>>,
 }
@@ -37,13 +33,13 @@ pub struct InternalResourceInitData {
     pub local_path: Option<PathBuf>,
 }
 
-pub enum ResourceRequest {
+pub enum ResourcePush {
     Initialize(InternalResourceInitData),
     Dispose,
 }
 
 #[derive(Clone)]
-pub enum ResourceResponse {
+pub enum ResourcePull {
     Initialized {
         result: Result<(), ResourceSystemError>,
         init_data: Arc<InternalResourceInitData>,
@@ -51,32 +47,37 @@ pub enum ResourceResponse {
     Disposed(Result<(), ResourceSystemError>),
 }
 
-pub enum ResourceSystemRequest<R: Runtime, B: Bus> {
-    AddResource(InternalResource<R, B>),
+pub enum ResourceSystemPush<R: Runtime> {
+    AddResource(InternalResource<R>),
     Shutdown,
 }
 
-#[derive(Clone, Copy)]
-pub enum ResourceSystemResponse {
+pub enum ResourceSystemPull {
     ShutdownFinished,
 }
 
-pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime, B: Bus>(
-    mut bus_server: B::Server<ResourceSystemRequest<R, B>, ResourceSystemResponse>,
-    mut internal_resources: Vec<InternalResource<R, B>>,
+pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
+    mut push_rx: mpsc::UnboundedReceiver<ResourceSystemPush<R>>,
+    pull_tx: mpsc::UnboundedSender<ResourceSystemPull>,
+    mut internal_resources: Vec<InternalResource<R>>,
     process_spawner: S,
     runtime: R,
     ownership_model: VmmOwnershipModel,
 ) {
+    enum Incoming<R: Runtime> {
+        SystemPush(ResourceSystemPush<R>),
+        ResourcePush(usize, ResourcePush),
+    }
+
     loop {
-        let (system, resource) = poll_fn(|cx| {
-            if let Poll::Ready(Some(tuple)) = bus_server.poll(cx) {
-                return Poll::Ready((Some(tuple), None));
+        let incoming = poll_fn(|cx| {
+            if let Poll::Ready(Some(push)) = push_rx.poll_next_unpin(cx) {
+                return Poll::Ready(Incoming::SystemPush(push));
             }
 
             for (resource_index, resource) in internal_resources.iter_mut().enumerate() {
-                if let Poll::Ready(Some(tuple)) = resource.bus_server.poll(cx) {
-                    return Poll::Ready((None, Some((resource_index, tuple.0, tuple.1))));
+                if let Poll::Ready(Some(push)) = resource.push_rx.poll_next_unpin(cx) {
+                    return Poll::Ready(Incoming::ResourcePush(resource_index, push));
                 }
             }
 
@@ -84,23 +85,23 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime, B: Bus>(
         })
         .await;
 
-        if let Some((request, outgoing)) = system {
-            match request {
-                ResourceSystemRequest::Shutdown => {
-                    runtime.spawn_task(outgoing.write(ResourceSystemResponse::ShutdownFinished));
-                }
-                ResourceSystemRequest::AddResource(internal_resource) => {
+        match incoming {
+            Incoming::SystemPush(push) => match push {
+                ResourceSystemPush::AddResource(internal_resource) => {
                     internal_resources.push(internal_resource);
                 }
-            }
-        } else if let Some((resource_idx, request, outgoing)) = resource {
-            let resource = internal_resources
-                .get_mut(resource_idx)
-                .expect("resource_idx is incorrect");
+                ResourceSystemPush::Shutdown => {
+                    let _ = pull_tx.unbounded_send(ResourceSystemPull::ShutdownFinished);
+                    return;
+                }
+            },
+            Incoming::ResourcePush(idx, push) => {
+                let resource = internal_resources.get_mut(idx).expect("idx is invalid. Iterator bug");
 
-            match request {
-                ResourceRequest::Initialize(init_data) => todo!(),
-                ResourceRequest::Dispose => todo!(),
+                match push {
+                    ResourcePush::Initialize(init_data) => todo!(),
+                    ResourcePush::Dispose => todo!(),
+                }
             }
         }
     }

@@ -4,13 +4,12 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use bus::{Bus, BusClient};
-use internal::{InternalResourceData, InternalResourceInitData, ResourceRequest, ResourceResponse};
+use futures_channel::mpsc;
+use internal::{InternalResourceData, InternalResourceInitData, ResourcePull, ResourcePush};
 use system::ResourceSystemError;
 
 mod internal;
 
-pub mod bus;
 pub mod system;
 
 #[derive(Clone, Copy)]
@@ -36,65 +35,66 @@ pub enum MovedResourceType {
 }
 
 #[derive(Clone)]
-pub struct MovedResource<B: Bus>(pub(super) Resource<B>);
+pub struct MovedResource(pub(super) Resource);
 
-impl<B: Bus> Deref for MovedResource<B> {
-    type Target = Resource<B>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<B: Bus> DerefMut for MovedResource<B> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[derive(Clone)]
-pub struct CreatedResource<B: Bus>(pub(super) Resource<B>);
-
-impl<B: Bus> Deref for CreatedResource<B> {
-    type Target = Resource<B>;
+impl Deref for MovedResource {
+    type Target = Resource;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<B: Bus> DerefMut for CreatedResource<B> {
+impl DerefMut for MovedResource {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
 #[derive(Clone)]
-pub struct ProducedResource<B: Bus>(pub(super) Resource<B>);
+pub struct CreatedResource(pub(super) Resource);
 
-impl<B: Bus> Deref for ProducedResource<B> {
-    type Target = Resource<B>;
+impl Deref for CreatedResource {
+    type Target = Resource;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<B: Bus> DerefMut for ProducedResource<B> {
+impl DerefMut for CreatedResource {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
 #[derive(Clone)]
-pub struct Resource<B: Bus> {
-    pub(super) bus_client: B::Client<ResourceRequest, ResourceResponse>,
+pub struct ProducedResource(pub(super) Resource);
+
+impl Deref for ProducedResource {
+    type Target = Resource;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for ProducedResource {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[derive(Clone)]
+pub struct Resource {
+    pub(super) push_tx: mpsc::UnboundedSender<ResourcePush>,
+    pub(super) pull_rx: async_broadcast::Receiver<ResourcePull>,
     pub(super) data: Arc<InternalResourceData>,
     pub(super) init: OnceLock<(Arc<InternalResourceInitData>, Result<(), ResourceSystemError>)>,
     pub(super) dispose: OnceLock<Result<(), ResourceSystemError>>,
 }
 
-impl<B: Bus> Resource<B> {
+impl Resource {
     #[inline]
     pub fn get_state(&self) -> ResourceState {
         self.poll();
@@ -134,73 +134,30 @@ impl<B: Bus> Resource<B> {
     ) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Uninitialized)?;
 
-        match self
-            .bus_client
-            .request(ResourceRequest::Initialize(InternalResourceInitData {
-                effective_path,
-                local_path,
-            })) {
-            Some(_) => Ok(()),
-            None => Err(ResourceSystemError::BusDisconnected),
-        }
-    }
-
-    pub async fn initialize(
-        &self,
-        effective_path: PathBuf,
-        local_path: Option<PathBuf>,
-    ) -> Result<(), ResourceSystemError> {
-        self.assert_state(ResourceState::Uninitialized)?;
-
-        match self
-            .bus_client
-            .request_and_read(ResourceRequest::Initialize(InternalResourceInitData {
+        self.push_tx
+            .unbounded_send(ResourcePush::Initialize(InternalResourceInitData {
                 effective_path,
                 local_path,
             }))
-            .await
-        {
-            Some(ResourceResponse::Initialized { result, init_data }) => {
-                let _ = self.init.set((init_data, result));
-                result?;
-                Ok(())
-            }
-            Some(_) => Err(ResourceSystemError::MalformedResponse),
-            None => Err(ResourceSystemError::BusDisconnected),
-        }
+            .map_err(|_| ResourceSystemError::ChannelDisconnected)
     }
 
     pub fn start_disposal(&self) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Initialized)?;
 
-        match self.bus_client.request(ResourceRequest::Dispose) {
-            Some(_) => Ok(()),
-            None => Err(ResourceSystemError::BusDisconnected),
-        }
-    }
-
-    pub async fn dispose(&self) -> Result<(), ResourceSystemError> {
-        self.assert_state(ResourceState::Initialized)?;
-
-        match self.bus_client.request_and_read(ResourceRequest::Dispose).await {
-            Some(ResourceResponse::Disposed(result)) => {
-                let _ = self.dispose.set(result);
-                result?;
-                Ok(())
-            }
-            Some(_) => Err(ResourceSystemError::MalformedResponse),
-            None => Err(ResourceSystemError::BusDisconnected),
-        }
+        self.push_tx
+            .unbounded_send(ResourcePush::Dispose)
+            .map_err(|_| ResourceSystemError::ChannelDisconnected)
     }
 
     #[inline(always)]
     fn poll(&self) {
-        if let Some(response) = self.bus_client.direct_try_read() {
-            match response {
-                ResourceResponse::Initialized { result, init_data } => {
+        if let Ok(pull) = self.pull_rx.new_receiver().try_recv() {
+            match pull {
+                ResourcePull::Initialized { result, init_data } => {
                     let _ = self.init.set((init_data, result));
                 }
-                ResourceResponse::Disposed(result) => {
+                ResourcePull::Disposed(result) => {
                     let _ = self.dispose.set(result);
                 }
             }

@@ -4,24 +4,29 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+use futures_channel::mpsc;
+use futures_util::StreamExt;
+
 use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vmm::ownership::VmmOwnershipModel};
 
 use super::{
-    bus::{Bus, BusClient},
     internal::{
-        resource_system_main_task, InternalResource, InternalResourceData, InternalResourceState,
-        ResourceSystemRequest, ResourceSystemResponse,
+        resource_system_main_task, InternalResource, InternalResourceData, InternalResourceState, ResourceSystemPull,
+        ResourceSystemPush,
     },
     CreatedResource, CreatedResourceType, MovedResource, MovedResourceType, ProducedResource, Resource, ResourceState,
     ResourceType,
 };
 
-pub struct ResourceSystem<S: ProcessSpawner, R: Runtime, B: Bus> {
-    bus_client: B::Client<ResourceSystemRequest<R, B>, ResourceSystemResponse>,
+pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
+    push_tx: mpsc::UnboundedSender<ResourceSystemPush<R>>,
+    pull_rx: mpsc::UnboundedReceiver<ResourceSystemPull>,
     marker: PhantomData<S>,
 }
 
-impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
+const RESOURCE_BROADCAST_CAPACITY: usize = 5;
+
+impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
     pub fn new(process_spawner: S, runtime: R, ownership_model: VmmOwnershipModel) -> Self {
         Self::new_inner(Vec::new(), process_spawner, runtime, ownership_model)
     }
@@ -32,15 +37,17 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
 
     #[inline(always)]
     fn new_inner(
-        internal_resources: Vec<InternalResource<R, B>>,
+        internal_resources: Vec<InternalResource<R>>,
         process_spawner: S,
         runtime: R,
         ownership_model: VmmOwnershipModel,
     ) -> Self {
-        let (bus_client, bus_server) = B::new();
+        let (push_tx, push_rx) = mpsc::unbounded();
+        let (pull_tx, pull_rx) = mpsc::unbounded();
 
-        runtime.clone().spawn_task(resource_system_main_task::<S, R, B>(
-            bus_server,
+        runtime.clone().spawn_task(resource_system_main_task::<S, R>(
+            push_rx,
+            pull_tx,
             internal_resources,
             process_spawner,
             runtime,
@@ -48,15 +55,22 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
         ));
 
         Self {
-            bus_client,
+            push_tx,
+            pull_rx,
             marker: PhantomData,
         }
     }
 
-    pub async fn shutdown(self) -> Result<(), ResourceSystemError> {
-        match self.bus_client.request_and_read(ResourceSystemRequest::Shutdown).await {
-            Some(ResourceSystemResponse::ShutdownFinished) => Ok(()),
-            _ => Err(ResourceSystemError::BusDisconnected),
+    pub async fn shutdown(mut self) -> Result<(), ResourceSystemError> {
+        self.push_tx
+            .unbounded_send(ResourceSystemPush::Shutdown)
+            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
+
+        match self.pull_rx.next().await {
+            Some(ResourceSystemPull::ShutdownFinished) => Ok(()),
+            #[allow(unreachable_patterns)]
+            Some(_) => Err(ResourceSystemError::MalformedResponse),
+            None => Err(ResourceSystemError::ChannelDisconnected),
         }
     }
 
@@ -64,7 +78,7 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
         &self,
         source_path: PathBuf,
         r#type: MovedResourceType,
-    ) -> Result<MovedResource<B>, ResourceSystemError> {
+    ) -> Result<MovedResource, ResourceSystemError> {
         self.new_resource(source_path, ResourceType::Moved(r#type))
             .map(MovedResource)
     }
@@ -73,38 +87,38 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
         &self,
         source_path: PathBuf,
         r#type: CreatedResourceType,
-    ) -> Result<CreatedResource<B>, ResourceSystemError> {
+    ) -> Result<CreatedResource, ResourceSystemError> {
         self.new_resource(source_path, ResourceType::Created(r#type))
             .map(CreatedResource)
     }
 
-    pub fn new_produced_resource(&self, source_path: PathBuf) -> Result<ProducedResource<B>, ResourceSystemError> {
+    pub fn new_produced_resource(&self, source_path: PathBuf) -> Result<ProducedResource, ResourceSystemError> {
         self.new_resource(source_path, ResourceType::Produced)
             .map(ProducedResource)
     }
 
     #[inline(always)]
-    fn new_resource(&self, source_path: PathBuf, r#type: ResourceType) -> Result<Resource<B>, ResourceSystemError> {
-        let (bus_client, bus_server) = B::new();
+    fn new_resource(&self, source_path: PathBuf, r#type: ResourceType) -> Result<Resource, ResourceSystemError> {
+        let (push_tx, push_rx) = mpsc::unbounded();
+        let (pull_tx, pull_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
+
         let internal_resource = InternalResource {
             state: InternalResourceState::Uninitialized,
-            bus_server,
+            push_rx,
+            pull_tx,
             data: Arc::new(InternalResourceData { source_path, r#type }),
             init_data: None,
         };
 
         let data = internal_resource.data.clone();
 
-        if self
-            .bus_client
-            .request(ResourceSystemRequest::AddResource(internal_resource))
-            .is_none()
-        {
-            return Err(ResourceSystemError::BusDisconnected);
-        }
+        self.push_tx
+            .unbounded_send(ResourceSystemPush::AddResource(internal_resource))
+            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
         Ok(Resource {
-            bus_client,
+            push_tx,
+            pull_rx,
             data,
             init: OnceLock::new(),
             dispose: OnceLock::new(),
@@ -112,9 +126,9 @@ impl<S: ProcessSpawner, R: Runtime, B: Bus> ResourceSystem<S, R, B> {
     }
 }
 
-impl<S: ProcessSpawner, R: Runtime, B: Bus> Drop for ResourceSystem<S, R, B> {
+impl<S: ProcessSpawner, R: Runtime> Drop for ResourceSystem<S, R> {
     fn drop(&mut self) {
-        self.bus_client.request(ResourceSystemRequest::Shutdown);
+        let _ = self.push_tx.unbounded_send(ResourceSystemPush::Shutdown);
     }
 }
 
@@ -124,6 +138,6 @@ pub enum ResourceSystemError {
         expected: ResourceState,
         actual: ResourceState,
     },
-    BusDisconnected,
+    ChannelDisconnected,
     MalformedResponse,
 }
