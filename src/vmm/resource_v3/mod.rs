@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
     },
 };
 
@@ -88,13 +88,24 @@ impl DerefMut for ProducedResource {
     }
 }
 
-#[derive(Clone)]
 pub struct Resource {
     pub(super) push_tx: mpsc::UnboundedSender<ResourcePush>,
-    pub(super) pull_rx: async_broadcast::Receiver<ResourcePull>,
+    pub(super) pull_rx: Mutex<async_broadcast::Receiver<ResourcePull>>,
     pub(super) data: Arc<ResourceData>,
     pub(super) init_data: OnceLock<Arc<ResourceInitData>>,
     pub(super) disposed: Arc<AtomicBool>,
+}
+
+impl Clone for Resource {
+    fn clone(&self) -> Self {
+        Self {
+            push_tx: self.push_tx.clone(),
+            pull_rx: Mutex::new(self.pull_rx.lock().unwrap().clone()),
+            data: self.data.clone(),
+            init_data: self.init_data.clone(),
+            disposed: self.disposed.clone(),
+        }
+    }
 }
 
 impl Resource {
@@ -163,7 +174,7 @@ impl Resource {
 
     #[inline(always)]
     fn poll(&self) {
-        if let Ok(pull) = self.pull_rx.clone().try_recv() {
+        if let Ok(pull) = self.pull_rx.lock().unwrap().try_recv() {
             match pull {
                 ResourcePull::Initialized(Ok(init_data)) => {
                     let _ = self.init_data.set(init_data);
