@@ -74,6 +74,14 @@ impl DerefMut for CreatedResource {
 #[derive(Clone)]
 pub struct ProducedResource(pub(super) Resource);
 
+impl ProducedResource {
+    pub fn unlink(&self) -> Result<(), ResourceSystemError> {
+        self.push_tx
+            .unbounded_send(ResourcePush::Unlink)
+            .map_err(|_| ResourceSystemError::ChannelDisconnected)
+    }
+}
+
 impl Deref for ProducedResource {
     type Target = Resource;
 
@@ -99,7 +107,7 @@ pub struct Resource {
 
 impl Resource {
     #[inline]
-    pub fn get_state(&self) -> ResourceState {
+    pub fn state(&self) -> ResourceState {
         self.poll();
 
         if self.is_disposed.load(Ordering::Acquire) {
@@ -112,20 +120,20 @@ impl Resource {
         }
     }
 
-    pub fn get_type(&self) -> ResourceType {
+    pub fn r#type(&self) -> ResourceType {
         self.data.r#type
     }
 
-    pub fn get_source_path(&self) -> PathBuf {
+    pub fn source_path(&self) -> PathBuf {
         self.data.source_path.clone()
     }
 
-    pub fn get_effective_path(&self) -> Option<PathBuf> {
+    pub fn effective_path(&self) -> Option<PathBuf> {
         self.poll();
         self.init_data.get().map(|data| data.effective_path.clone())
     }
 
-    pub fn get_local_path(&self) -> Option<PathBuf> {
+    pub fn local_path(&self) -> Option<PathBuf> {
         self.poll();
         self.init_data.get().and_then(|data| data.local_path.clone())
     }
@@ -170,7 +178,7 @@ impl Resource {
 
     #[inline(always)]
     fn assert_state(&self, expected: ResourceState) -> Result<(), ResourceSystemError> {
-        let actual = self.get_state();
+        let actual = self.state();
 
         if actual != expected {
             Err(ResourceSystemError::IncorrectState { expected, actual })

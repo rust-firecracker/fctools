@@ -6,10 +6,10 @@ use futures_util::StreamExt;
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::{Runtime, RuntimeTask},
-    vmm::ownership::{upgrade_owner, VmmOwnershipModel},
+    vmm::ownership::{downgrade_owner, upgrade_owner, VmmOwnershipModel},
 };
 
-use super::{system::ResourceSystemError, MovedResourceType, ResourceType};
+use super::{system::ResourceSystemError, CreatedResourceType, MovedResourceType, ResourceType};
 
 pub enum OwnedResourceState<R: Runtime> {
     Uninitialized,
@@ -25,6 +25,7 @@ pub struct OwnedResource<R: Runtime> {
     pub pull_tx: async_broadcast::Sender<ResourcePull>,
     pub data: Arc<ResourceData>,
     pub init_data: Option<Arc<ResourceInitData>>,
+    pub linked: bool,
 }
 
 pub struct ResourceData {
@@ -40,6 +41,7 @@ pub struct ResourceInitData {
 pub enum ResourcePush {
     Initialize(ResourceInitData),
     Dispose,
+    Unlink,
 }
 
 #[derive(Clone)]
@@ -135,6 +137,9 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                         ));
 
                         resource.state = OwnedResourceState::Disposing(dispose_task);
+                    }
+                    ResourcePush::Unlink => {
+                        resource.linked = true;
                     }
                 }
             }
@@ -253,11 +258,45 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
                         .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
                 }
             }
-
-            Ok(init_data)
         }
-        _ => todo!(),
-    }
+        ResourceType::Created(created_resource_type) => {
+            if let Some(parent_path) = init_data.effective_path.parent() {
+                runtime
+                    .fs_create_dir_all(&parent_path)
+                    .await
+                    .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+            }
+
+            match created_resource_type {
+                CreatedResourceType::File => {
+                    runtime
+                        .fs_create_file(&init_data.effective_path)
+                        .await
+                        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                }
+                CreatedResourceType::Fifo => {
+                    crate::syscall::mkfifo(&init_data.effective_path)
+                        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                }
+            }
+
+            downgrade_owner(&init_data.effective_path, ownership_model)
+                .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
+        }
+        ResourceType::Produced => {
+            if let Some(parent_path) = init_data.effective_path.parent() {
+                runtime
+                    .fs_create_dir_all(&parent_path)
+                    .await
+                    .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+
+                downgrade_owner(&parent_path, ownership_model)
+                    .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
+            }
+        }
+    };
+
+    Ok(init_data)
 }
 
 async fn resource_system_dispose_task<R: Runtime, S: ProcessSpawner>(

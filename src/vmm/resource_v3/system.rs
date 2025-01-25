@@ -112,6 +112,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             pull_tx,
             data: Arc::new(ResourceData { source_path, r#type }),
             init_data: None,
+            linked: true,
         };
 
         let data = owned_resource.data.clone();
