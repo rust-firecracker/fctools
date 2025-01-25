@@ -14,6 +14,7 @@ use system::ResourceSystemError;
 
 mod internal;
 
+pub mod set;
 pub mod system;
 
 #[derive(Debug, Clone, Copy)]
@@ -178,6 +179,21 @@ impl Resource {
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(feature = "vmm-process")]
+#[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
+impl serde::Serialize for Resource {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.init_data
+            .get()
+            .expect("called serialize on uninitialized resource")
+            .effective_path
+            .serialize(serializer)
     }
 }
 
