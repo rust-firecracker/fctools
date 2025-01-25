@@ -139,7 +139,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                         resource.state = OwnedResourceState::Disposing(dispose_task);
                     }
                     ResourcePush::Unlink => {
-                        resource.linked = true;
+                        resource.linked = false;
                     }
                 }
             }
