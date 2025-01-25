@@ -11,7 +11,7 @@ use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vmm::ownership::V
 
 use super::{
     internal::{
-        resource_system_main_task, InternalResource, InternalResourceData, InternalResourceState, ResourceSystemPull,
+        resource_system_main_task, OwnedResource, OwnedResourceState, ResourceData, ResourceSystemPull,
         ResourceSystemPush,
     },
     CreatedResource, CreatedResourceType, MovedResource, MovedResourceType, ProducedResource, Resource, ResourceState,
@@ -37,7 +37,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
 
     #[inline(always)]
     fn new_inner(
-        internal_resources: Vec<InternalResource<R>>,
+        owned_resources: Vec<OwnedResource<R>>,
         process_spawner: S,
         runtime: R,
         ownership_model: VmmOwnershipModel,
@@ -48,7 +48,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         runtime.clone().spawn_task(resource_system_main_task::<S, R>(
             push_rx,
             pull_tx,
-            internal_resources,
+            owned_resources,
             process_spawner,
             runtime,
             ownership_model,
@@ -102,18 +102,18 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         let (push_tx, push_rx) = mpsc::unbounded();
         let (pull_tx, pull_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
 
-        let internal_resource = InternalResource {
-            state: InternalResourceState::Uninitialized,
+        let owned_resource = OwnedResource {
+            state: OwnedResourceState::Uninitialized,
             push_rx,
             pull_tx,
-            data: Arc::new(InternalResourceData { source_path, r#type }),
+            data: Arc::new(ResourceData { source_path, r#type }),
             init_data: None,
         };
 
-        let data = internal_resource.data.clone();
+        let data = owned_resource.data.clone();
 
         self.push_tx
-            .unbounded_send(ResourceSystemPush::AddResource(internal_resource))
+            .unbounded_send(ResourceSystemPush::AddResource(owned_resource))
             .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
         Ok(Resource {

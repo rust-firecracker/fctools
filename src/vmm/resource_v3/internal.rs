@@ -7,7 +7,7 @@ use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vmm::ownership::V
 
 use super::{system::ResourceSystemError, ResourceType};
 
-pub enum InternalResourceState<R: Runtime> {
+pub enum OwnedResourceState<R: Runtime> {
     Uninitialized,
     Initializing(R::Task<ResourceSystemError>),
     Initialized,
@@ -15,26 +15,26 @@ pub enum InternalResourceState<R: Runtime> {
     Disposed,
 }
 
-pub struct InternalResource<R: Runtime> {
-    pub state: InternalResourceState<R>,
+pub struct OwnedResource<R: Runtime> {
+    pub state: OwnedResourceState<R>,
     pub push_rx: mpsc::UnboundedReceiver<ResourcePush>,
     pub pull_tx: async_broadcast::Sender<ResourcePull>,
-    pub data: Arc<InternalResourceData>,
-    pub init_data: Option<Arc<InternalResourceInitData>>,
+    pub data: Arc<ResourceData>,
+    pub init_data: Option<Arc<ResourceInitData>>,
 }
 
-pub struct InternalResourceData {
+pub struct ResourceData {
     pub source_path: PathBuf,
     pub r#type: ResourceType,
 }
 
-pub struct InternalResourceInitData {
+pub struct ResourceInitData {
     pub effective_path: PathBuf,
     pub local_path: Option<PathBuf>,
 }
 
 pub enum ResourcePush {
-    Initialize(InternalResourceInitData),
+    Initialize(ResourceInitData),
     Dispose,
 }
 
@@ -42,13 +42,13 @@ pub enum ResourcePush {
 pub enum ResourcePull {
     Initialized {
         result: Result<(), ResourceSystemError>,
-        init_data: Arc<InternalResourceInitData>,
+        init_data: Arc<ResourceInitData>,
     },
     Disposed(Result<(), ResourceSystemError>),
 }
 
 pub enum ResourceSystemPush<R: Runtime> {
-    AddResource(InternalResource<R>),
+    AddResource(OwnedResource<R>),
     Shutdown,
 }
 
@@ -59,7 +59,7 @@ pub enum ResourceSystemPull {
 pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
     mut push_rx: mpsc::UnboundedReceiver<ResourceSystemPush<R>>,
     pull_tx: mpsc::UnboundedSender<ResourceSystemPull>,
-    mut internal_resources: Vec<InternalResource<R>>,
+    mut owned_resources: Vec<OwnedResource<R>>,
     process_spawner: S,
     runtime: R,
     ownership_model: VmmOwnershipModel,
@@ -75,7 +75,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                 return Poll::Ready(Incoming::SystemPush(push));
             }
 
-            for (resource_index, resource) in internal_resources.iter_mut().enumerate() {
+            for (resource_index, resource) in owned_resources.iter_mut().enumerate() {
                 if let Poll::Ready(Some(push)) = resource.push_rx.poll_next_unpin(cx) {
                     return Poll::Ready(Incoming::ResourcePush(resource_index, push));
                 }
@@ -88,7 +88,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
         match incoming {
             Incoming::SystemPush(push) => match push {
                 ResourceSystemPush::AddResource(internal_resource) => {
-                    internal_resources.push(internal_resource);
+                    owned_resources.push(internal_resource);
                 }
                 ResourceSystemPush::Shutdown => {
                     let _ = pull_tx.unbounded_send(ResourceSystemPull::ShutdownFinished);
@@ -96,10 +96,10 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                 }
             },
             Incoming::ResourcePush(idx, push) => {
-                let resource = internal_resources.get_mut(idx).expect("idx is invalid. Iterator bug");
+                let resource = owned_resources.get_mut(idx).expect("idx is invalid. Iterator bug");
 
                 match push {
-                    ResourcePush::Initialize(init_data) => todo!(),
+                    ResourcePush::Initialize(init_data) => {}
                     ResourcePush::Dispose => todo!(),
                 }
             }

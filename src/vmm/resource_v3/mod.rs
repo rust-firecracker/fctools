@@ -5,7 +5,7 @@ use std::{
 };
 
 use futures_channel::mpsc;
-use internal::{InternalResourceData, InternalResourceInitData, ResourcePull, ResourcePush};
+use internal::{ResourceData, ResourceInitData, ResourcePull, ResourcePush};
 use system::ResourceSystemError;
 
 mod internal;
@@ -89,8 +89,8 @@ impl DerefMut for ProducedResource {
 pub struct Resource {
     pub(super) push_tx: mpsc::UnboundedSender<ResourcePush>,
     pub(super) pull_rx: async_broadcast::Receiver<ResourcePull>,
-    pub(super) data: Arc<InternalResourceData>,
-    pub(super) init: OnceLock<(Arc<InternalResourceInitData>, Result<(), ResourceSystemError>)>,
+    pub(super) data: Arc<ResourceData>,
+    pub(super) init: OnceLock<(Arc<ResourceInitData>, Result<(), ResourceSystemError>)>,
     pub(super) dispose: OnceLock<Result<(), ResourceSystemError>>,
 }
 
@@ -135,7 +135,7 @@ impl Resource {
         self.assert_state(ResourceState::Uninitialized)?;
 
         self.push_tx
-            .unbounded_send(ResourcePush::Initialize(InternalResourceInitData {
+            .unbounded_send(ResourcePush::Initialize(ResourceInitData {
                 effective_path,
                 local_path,
             }))
