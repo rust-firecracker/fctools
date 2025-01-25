@@ -1,7 +1,7 @@
 use std::{
     marker::PhantomData,
     path::PathBuf,
-    sync::{Arc, OnceLock},
+    sync::{atomic::AtomicBool, Arc, OnceLock},
 };
 
 use futures_channel::mpsc;
@@ -120,8 +120,8 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             push_tx,
             pull_rx,
             data,
-            init: OnceLock::new(),
-            dispose: OnceLock::new(),
+            init_data: OnceLock::new(),
+            is_disposed: Arc::new(AtomicBool::new(false)),
         })
     }
 }

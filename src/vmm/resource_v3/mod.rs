@@ -1,7 +1,10 @@
 use std::{
     ops::{Deref, DerefMut},
     path::PathBuf,
-    sync::{Arc, OnceLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, OnceLock,
+    },
 };
 
 use futures_channel::mpsc;
@@ -90,8 +93,8 @@ pub struct Resource {
     pub(super) push_tx: mpsc::UnboundedSender<ResourcePush>,
     pub(super) pull_rx: async_broadcast::Receiver<ResourcePull>,
     pub(super) data: Arc<ResourceData>,
-    pub(super) init: OnceLock<(Arc<ResourceInitData>, Result<(), ResourceSystemError>)>,
-    pub(super) dispose: OnceLock<Result<(), ResourceSystemError>>,
+    pub(super) init_data: OnceLock<Arc<ResourceInitData>>,
+    pub(super) is_disposed: Arc<AtomicBool>,
 }
 
 impl Resource {
@@ -99,11 +102,11 @@ impl Resource {
     pub fn get_state(&self) -> ResourceState {
         self.poll();
 
-        if self.dispose.get().is_some() {
+        if self.is_disposed.load(Ordering::Acquire) {
             return ResourceState::Disposed;
         }
 
-        match self.init.get() {
+        match self.init_data.get() {
             Some(_) => ResourceState::Initialized,
             None => ResourceState::Uninitialized,
         }
@@ -119,12 +122,12 @@ impl Resource {
 
     pub fn get_effective_path(&self) -> Option<PathBuf> {
         self.poll();
-        self.init.get().map(|(data, _)| data.effective_path.clone())
+        self.init_data.get().map(|data| data.effective_path.clone())
     }
 
     pub fn get_local_path(&self) -> Option<PathBuf> {
         self.poll();
-        self.init.get().and_then(|(data, _)| data.local_path.clone())
+        self.init_data.get().and_then(|data| data.local_path.clone())
     }
 
     pub fn start_initialization(
@@ -154,12 +157,13 @@ impl Resource {
     fn poll(&self) {
         if let Ok(pull) = self.pull_rx.new_receiver().try_recv() {
             match pull {
-                ResourcePull::Initialized { result, init_data } => {
-                    let _ = self.init.set((init_data, result));
+                ResourcePull::Initialized(Ok(init_data)) => {
+                    let _ = self.init_data.set(init_data);
                 }
-                ResourcePull::Disposed(result) => {
-                    let _ = self.dispose.set(result);
+                ResourcePull::Disposed(Ok(_)) => {
+                    self.is_disposed.store(true, Ordering::Release);
                 }
+                _ => {}
             }
         }
     }

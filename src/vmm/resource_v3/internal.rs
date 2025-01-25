@@ -40,10 +40,7 @@ pub enum ResourcePush {
 
 #[derive(Clone)]
 pub enum ResourcePull {
-    Initialized {
-        result: Result<(), ResourceSystemError>,
-        init_data: Arc<ResourceInitData>,
-    },
+    Initialized(Result<Arc<ResourceInitData>, ResourceSystemError>),
     Disposed(Result<(), ResourceSystemError>),
 }
 
