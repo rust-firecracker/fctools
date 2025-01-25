@@ -73,7 +73,18 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
 
         match self.pull_rx.next().await {
             Some(ResourceSystemPull::ShutdownFinished(result)) => result,
-            #[allow(unreachable_patterns)]
+            Some(_) => Err(ResourceSystemError::MalformedResponse),
+            None => Err(ResourceSystemError::ChannelDisconnected),
+        }
+    }
+
+    pub async fn wait_for_pending_tasks(&mut self) -> Result<(), ResourceSystemError> {
+        self.push_tx
+            .unbounded_send(ResourceSystemPush::AwaitPendingTasks)
+            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
+
+        match self.pull_rx.next().await {
+            Some(ResourceSystemPull::PendingTasksComplete) => Ok(()),
             Some(_) => Err(ResourceSystemError::MalformedResponse),
             None => Err(ResourceSystemError::ChannelDisconnected),
         }

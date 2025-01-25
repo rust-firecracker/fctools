@@ -67,6 +67,7 @@ pub enum ResourceSystemPush<R: Runtime> {
 
 pub enum ResourceSystemPull {
     ShutdownFinished(Result<(), ResourceSystemError>),
+    PendingTasksComplete,
 }
 
 pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
@@ -83,6 +84,8 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
         FinishedInitTask(usize, Result<ResourceInitData, ResourceSystemError>),
         FinishedDisposeTask(usize, Result<(), ResourceSystemError>),
     }
+
+    let mut awaiting_pending_tasks = false;
 
     loop {
         let incoming = poll_fn(|cx| {
@@ -143,7 +146,9 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                     let _ = pull_tx.unbounded_send(ResourceSystemPull::ShutdownFinished(result));
                     return;
                 }
-                _ => {}
+                ResourceSystemPush::AwaitPendingTasks => {
+                    awaiting_pending_tasks = true;
+                }
             },
             Incoming::ResourcePush(resource_index, push) => {
                 let Some(resource) = owned_resources.get_mut(resource_index) else {
@@ -205,6 +210,23 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                         defer_resource_pull(resource, &runtime, ResourcePull::Disposed(Err(err)));
                     }
                 }
+            }
+        };
+
+        if awaiting_pending_tasks {
+            let pending_tasks = owned_resources
+                .iter()
+                .filter(|resource| {
+                    matches!(
+                        resource.state,
+                        OwnedResourceState::Initializing(_) | OwnedResourceState::Disposing(_)
+                    )
+                })
+                .count();
+
+            if pending_tasks == 0 {
+                awaiting_pending_tasks = false;
+                let _ = pull_tx.unbounded_send(ResourceSystemPull::PendingTasksComplete);
             }
         }
     }
