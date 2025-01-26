@@ -23,7 +23,7 @@ use super::{
         VmmExecutorContext,
     },
     ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
-    resource::system::ResourceSystem,
+    resource::system::{ResourceSystem, ResourceSystemError},
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
@@ -94,6 +94,7 @@ pub enum VmmProcessError {
     ProcessWaitFailed(std::io::Error),
     ExecutorError(VmmExecutorError),
     ProcessHandlePipesError(ProcessHandlePipesError),
+    ResourceSystemError(ResourceSystemError),
 }
 
 impl std::error::Error for VmmProcessError {}
@@ -129,6 +130,9 @@ impl std::fmt::Display for VmmProcessError {
             VmmProcessError::ExecutorError(err) => write!(f, "The underlying VMM executor returned an error: {err}"),
             VmmProcessError::ProcessHandlePipesError(err) => {
                 write!(f, "Getting the pipes from the process handle failed: {err}")
+            }
+            VmmProcessError::ResourceSystemError(err) => {
+                write!(f, "An error occurred within the resource system: {err}")
             }
         }
     }
@@ -166,6 +170,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
             .prepare(self.executor_context())
             .await
             .map_err(VmmProcessError::ExecutorError)?;
+        self.resource_system
+            .wait_for_pending_tasks()
+            .await
+            .map_err(VmmProcessError::ResourceSystemError)?;
         self.state = VmmProcessState::AwaitingStart;
         Ok(())
     }
@@ -180,6 +188,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
                 .await
                 .map_err(VmmProcessError::ExecutorError)?,
         );
+        self.resource_system
+            .wait_for_pending_tasks()
+            .await
+            .map_err(VmmProcessError::ResourceSystemError)?;
         self.state = VmmProcessState::Started;
         Ok(())
     }
@@ -300,7 +312,11 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
         self.executor
             .cleanup(self.executor_context())
             .await
-            .map_err(VmmProcessError::ExecutorError)
+            .map_err(VmmProcessError::ExecutorError)?;
+        self.resource_system
+            .wait_for_pending_tasks()
+            .await
+            .map_err(VmmProcessError::ResourceSystemError)
     }
 
     /// Transforms a given local resource path into an effective resource path using the executor. This should be used
