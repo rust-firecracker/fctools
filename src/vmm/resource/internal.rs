@@ -116,8 +116,8 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
 
         match incoming {
             Incoming::SystemPush(push) => match push {
-                ResourceSystemPush::AddResource(internal_resource) => {
-                    owned_resources.push(internal_resource);
+                ResourceSystemPush::AddResource(owned_resource) => {
+                    owned_resources.push(owned_resource);
                 }
                 ResourceSystemPush::Shutdown => {
                     let mut task_set = RuntimeTaskSet::new(runtime.clone());
