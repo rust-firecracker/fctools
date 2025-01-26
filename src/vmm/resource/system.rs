@@ -34,15 +34,22 @@ const RESOURCE_BROADCAST_CAPACITY: usize = 5;
 
 impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
     pub fn new(process_spawner: S, runtime: R, ownership_model: VmmOwnershipModel) -> Self {
-        Self::new_inner(Vec::new(), process_spawner, runtime, ownership_model)
+        Self::new_inner(Vec::new(), Vec::new(), process_spawner, runtime, ownership_model)
     }
 
     pub fn with_capacity(process_spawner: S, runtime: R, ownership_model: VmmOwnershipModel, capacity: usize) -> Self {
-        Self::new_inner(Vec::with_capacity(capacity), process_spawner, runtime, ownership_model)
+        Self::new_inner(
+            Vec::with_capacity(capacity),
+            Vec::with_capacity(capacity),
+            process_spawner,
+            runtime,
+            ownership_model,
+        )
     }
 
     fn new_inner(
         owned_resources: Vec<OwnedResource<R>>,
+        resources: Vec<Resource>,
         process_spawner: S,
         runtime: R,
         ownership_model: VmmOwnershipModel,
@@ -63,7 +70,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             push_tx,
             pull_rx,
             marker: PhantomData,
-            resources: Vec::new(),
+            resources,
         }
     }
 
