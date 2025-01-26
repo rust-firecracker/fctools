@@ -27,6 +27,7 @@ pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
     push_tx: mpsc::UnboundedSender<ResourceSystemPush<R>>,
     pull_rx: mpsc::UnboundedReceiver<ResourceSystemPull>,
     marker: PhantomData<S>,
+    resources: Vec<Resource>,
 }
 
 const RESOURCE_BROADCAST_CAPACITY: usize = 5;
@@ -62,6 +63,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             push_tx,
             pull_rx,
             marker: PhantomData,
+            resources: Vec::new(),
         }
     }
 
@@ -89,30 +91,37 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         }
     }
 
-    pub fn new_moved_resource(
-        &self,
-        source_path: PathBuf,
+    pub fn new_moved_resource<P: Into<PathBuf>>(
+        &mut self,
+        source_path: P,
         r#type: MovedResourceType,
     ) -> Result<MovedResource, ResourceSystemError> {
-        self.new_resource(source_path, ResourceType::Moved(r#type))
+        self.new_resource(source_path.into(), ResourceType::Moved(r#type))
             .map(MovedResource)
     }
 
-    pub fn new_created_resource(
-        &self,
-        source_path: PathBuf,
+    pub fn new_created_resource<P: Into<PathBuf>>(
+        &mut self,
+        source_path: P,
         r#type: CreatedResourceType,
     ) -> Result<CreatedResource, ResourceSystemError> {
-        self.new_resource(source_path, ResourceType::Created(r#type))
+        self.new_resource(source_path.into(), ResourceType::Created(r#type))
             .map(CreatedResource)
     }
 
-    pub fn new_produced_resource(&self, source_path: PathBuf) -> Result<ProducedResource, ResourceSystemError> {
-        self.new_resource(source_path, ResourceType::Produced)
+    pub fn new_produced_resource<P: Into<PathBuf>>(
+        &mut self,
+        source_path: P,
+    ) -> Result<ProducedResource, ResourceSystemError> {
+        self.new_resource(source_path.into(), ResourceType::Produced)
             .map(ProducedResource)
     }
 
-    fn new_resource(&self, source_path: PathBuf, r#type: ResourceType) -> Result<Resource, ResourceSystemError> {
+    pub fn get_resources(&self) -> Vec<Resource> {
+        self.resources.iter().cloned().collect()
+    }
+
+    fn new_resource(&mut self, source_path: PathBuf, r#type: ResourceType) -> Result<Resource, ResourceSystemError> {
         let (push_tx, push_rx) = mpsc::unbounded();
         let (pull_tx, pull_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
 
@@ -123,7 +132,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             data: Arc::new(ResourceData {
                 source_path,
                 r#type,
-                linked: AtomicBool::new(true),
+                attached: AtomicBool::new(true),
             }),
             init_data: None,
         };
@@ -134,13 +143,17 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             .unbounded_send(ResourceSystemPush::AddResource(owned_resource))
             .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
-        Ok(Resource {
+        let resource = Resource {
             push_tx,
             pull_rx: Mutex::new(pull_rx),
             data,
             init_data: OnceLock::new(),
             disposed: Arc::new(AtomicBool::new(false)),
-        })
+        };
+
+        self.resources.push(resource.clone());
+
+        Ok(resource)
     }
 }
 
@@ -162,4 +175,23 @@ pub enum ResourceSystemError {
     FilesystemError(Arc<std::io::Error>),
     SourcePathMissing,
     TaskJoinFailed,
+}
+
+impl std::fmt::Display for ResourceSystemError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ResourceSystemError::IncorrectState { expected, actual } => {
+                write!(f, "Expected {expected} state, had {actual} state instead")
+            }
+            ResourceSystemError::ChannelDisconnected => write!(f, "An internal channel connection broke"),
+            ResourceSystemError::MalformedResponse => write!(
+                f,
+                "A malformed response was transmitted over an internal channel connection"
+            ),
+            ResourceSystemError::ChangeOwnerError(err) => write!(f, "An error occurred when changing ownership: {err}"),
+            ResourceSystemError::FilesystemError(err) => write!(f, "A filesystem error occurred: {err}"),
+            ResourceSystemError::SourcePathMissing => write!(f, "A moved resource's source path was missing"),
+            ResourceSystemError::TaskJoinFailed => write!(f, "Joining on a set of runtime tasks failed"),
+        }
+    }
 }

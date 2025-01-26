@@ -1,4 +1,4 @@
-use std::{future::Future, marker::PhantomData, path::PathBuf, process::ExitStatus, sync::Arc};
+use std::{future::Future, path::PathBuf, process::ExitStatus, sync::Arc};
 
 use async_once_cell::OnceCell;
 use bytes::{Bytes, BytesMut};
@@ -23,22 +23,22 @@ use super::{
         VmmExecutorContext,
     },
     ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
-    resource::VmmResourceManager,
+    resource::system::ResourceSystem,
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
-/// tied to the given [VmmExecutor] E, [ProcessSpawner] S, [Runtime] R and [VmmResourceManager] RM.
+/// tied to the given [VmmExecutor] E, [ProcessSpawner] S, [Runtime] R.
 #[derive(Debug)]
-pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> {
+pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     executor: E,
     ownership_model: VmmOwnershipModel,
     process_spawner: S,
     runtime: R,
+    pub(crate) resource_system: ResourceSystem<S, R>,
     installation: Arc<VmmInstallation>,
     process_handle: Option<ProcessHandle<R>>,
     state: VmmProcessState,
     hyper_client: OnceCell<Client<UnixConnector<R::SocketBackend>, Full<Bytes>>>,
-    marker: PhantomData<RM>,
 }
 
 /// The state of a [VmmProcess].
@@ -134,13 +134,14 @@ impl std::fmt::Display for VmmProcessError {
     }
 }
 
-impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> VmmProcess<E, S, R, RM> {
+impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     /// Create a new [VmmProcess] from the necessary set of components:
     /// [VmmExecutor], [ProcessSpawner], [Runtime], [VmmOwnershipModel], [VmmInstallation], [VmmResourceManager].
     pub fn new(
         executor: E,
         process_spawner: S,
         runtime: R,
+        resource_system: ResourceSystem<S, R>,
         ownership_model: VmmOwnershipModel,
         installation: Arc<VmmInstallation>,
     ) -> Self {
@@ -150,19 +151,19 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> VmmP
             ownership_model,
             process_spawner,
             runtime,
+            resource_system,
             installation,
             process_handle: None,
             state: VmmProcessState::AwaitingPrepare,
             hyper_client: OnceCell::new(),
-            marker: PhantomData,
         }
     }
 
     /// Prepare the [VmmProcess] environment. Allowed in [VmmProcessState::AwaitingPrepare], will result in [VmmProcessState::AwaitingStart].
-    pub async fn prepare(&mut self, resource_manager: &mut RM) -> Result<(), VmmProcessError> {
+    pub async fn prepare(&mut self) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingPrepare)?;
         self.executor
-            .prepare(self.executor_context(resource_manager))
+            .prepare(self.executor_context())
             .await
             .map_err(VmmProcessError::ExecutorError)?;
         self.state = VmmProcessState::AwaitingStart;
@@ -171,15 +172,11 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> VmmP
 
     /// Invoke the [VmmProcess] with the given configuration [PathBuf] for the VMM. Allowed in [VmmProcessState::AwaitingStart],
     /// will result in [VmmProcessState::Started].
-    pub async fn invoke(
-        &mut self,
-        resource_manager: &mut RM,
-        config_path: Option<PathBuf>,
-    ) -> Result<(), VmmProcessError> {
+    pub async fn invoke(&mut self, config_path: Option<PathBuf>) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.process_handle = Some(
             self.executor
-                .invoke(self.executor_context(resource_manager), config_path)
+                .invoke(self.executor_context(), config_path)
                 .await
                 .map_err(VmmProcessError::ExecutorError)?,
         );
@@ -298,10 +295,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> VmmP
 
     /// Cleans up the [VmmProcess]'s environment. Always call this as a sort of async [Drop] mechanism! Allowed in
     /// [VmmProcessState::Exited] or [VmmProcessState::Crashed].
-    pub async fn cleanup(&mut self, resource_manager: &mut RM) -> Result<(), VmmProcessError> {
+    pub async fn cleanup(&mut self) -> Result<(), VmmProcessError> {
         self.ensure_exited_or_crashed()?;
         self.executor
-            .cleanup(self.executor_context(resource_manager))
+            .cleanup(self.executor_context())
             .await
             .map_err(VmmProcessError::ExecutorError)
     }
@@ -337,13 +334,13 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> VmmP
     }
 
     #[inline(always)]
-    fn executor_context<'r>(&self, resource_set: &'r mut RM) -> VmmExecutorContext<'r, S, R, RM> {
+    fn executor_context(&self) -> VmmExecutorContext<S, R> {
         VmmExecutorContext {
             installation: self.installation.clone(),
             process_spawner: self.process_spawner.clone(),
             runtime: self.runtime.clone(),
             ownership_model: self.ownership_model,
-            resource_manager: resource_set,
+            resources: self.resource_system.get_resources(),
         }
     }
 }

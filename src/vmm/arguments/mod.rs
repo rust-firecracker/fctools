@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::resource::{created::CreatedVmmResource, moved::MovedVmmResource};
+use super::resource::{CreatedResource, MovedResource};
 
 pub mod command_modifier;
 pub mod jailer;
@@ -12,15 +12,15 @@ pub struct VmmArguments {
     pub(crate) api_socket: VmmApiSocket,
     // logging
     log_level: Option<VmmLogLevel>,
-    pub(crate) logs: Option<CreatedVmmResource>,
+    pub(crate) logs: Option<CreatedResource>,
     show_log_origin: bool,
     log_module: Option<String>,
     show_log_level: bool,
     // misc
     enable_boot_timer: bool,
     api_max_payload_bytes: Option<u32>,
-    metadata: Option<MovedVmmResource>,
-    pub(crate) metrics: Option<CreatedVmmResource>,
+    metadata: Option<MovedResource>,
+    pub(crate) metrics: Option<CreatedResource>,
     mmds_size_limit: Option<u32>,
     disable_seccomp: bool,
     seccomp_path: Option<PathBuf>,
@@ -50,7 +50,7 @@ impl VmmArguments {
         self
     }
 
-    pub fn logs(mut self, logs: CreatedVmmResource) -> Self {
+    pub fn logs(mut self, logs: CreatedResource) -> Self {
         self.logs = Some(logs);
         self
     }
@@ -80,12 +80,12 @@ impl VmmArguments {
         self
     }
 
-    pub fn metadata(mut self, metadata: MovedVmmResource) -> Self {
+    pub fn metadata(mut self, metadata: MovedResource) -> Self {
         self.metadata = Some(metadata);
         self
     }
 
-    pub fn metrics(mut self, metrics: CreatedVmmResource) -> Self {
+    pub fn metrics(mut self, metrics: CreatedResource) -> Self {
         self.metrics = Some(metrics);
         self
     }
@@ -106,6 +106,8 @@ impl VmmArguments {
     }
 
     /// Join these [VmmArguments] into a [Vec] of process arguments, using the given optional config path.
+    /// This function assumes all resources inside this [VmmArguments] struct are initialized, otherwise a panic is
+    /// emitted.
     pub fn join(&self, config_path: Option<PathBuf>) -> Vec<String> {
         let mut args = Vec::with_capacity(1);
 
@@ -131,7 +133,7 @@ impl VmmArguments {
 
         if let Some(ref log_path) = self.logs {
             args.push("--log-path".to_string());
-            args.push(log_path.local_path().to_string_lossy().into_owned());
+            args.push(log_path.get_source_path().to_string_lossy().into_owned());
         }
 
         if self.show_log_origin {
@@ -158,12 +160,18 @@ impl VmmArguments {
 
         if let Some(ref metadata) = self.metadata {
             args.push("--metadata".to_string());
-            args.push(metadata.local_path().to_string_lossy().into_owned());
+            args.push(
+                metadata
+                    .get_local_path()
+                    .expect("Uninitialized resource passed to argument join")
+                    .to_string_lossy()
+                    .into_owned(),
+            );
         }
 
         if let Some(ref metrics_path) = self.metrics {
             args.push("--metrics-path".to_string());
-            args.push(metrics_path.local_path().to_string_lossy().into_owned());
+            args.push(metrics_path.get_source_path().to_string_lossy().into_owned());
         }
 
         if let Some(ref limit) = self.mmds_size_limit {
@@ -227,10 +235,7 @@ mod tests {
         runtime::tokio::TokioRuntime,
         vmm::{
             ownership::VmmOwnershipModel,
-            resource::{
-                created::{CreatedVmmResource, CreatedVmmResourceType},
-                moved::{MovedVmmResource, VmmResourceMoveMethod},
-            },
+            resource::{system::ResourceSystem, CreatedResourceType, MovedResourceType},
         },
     };
 
@@ -255,15 +260,13 @@ mod tests {
         check_without_config(new().log_level(VmmLogLevel::Error), ["--level", "Error"]);
     }
 
-    #[test]
-    fn log_path_can_be_set() {
-        check_without_config(
-            new().logs(CreatedVmmResource::new(
-                "/tmp/some_logs.txt",
-                CreatedVmmResourceType::File,
-            )),
-            ["--log-path", "/tmp/some_logs.txt"],
-        );
+    #[tokio::test]
+    async fn log_path_can_be_set() {
+        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
+        let resource = resource_system
+            .new_created_resource("/tmp/some_logs.txt", CreatedResourceType::File)
+            .unwrap();
+        check_without_config(new().logs(resource), ["--log-path", "/tmp/some_logs.txt"]);
     }
 
     #[test]
@@ -294,22 +297,24 @@ mod tests {
         );
     }
 
-    #[test]
-    fn metadata_path_can_be_set() {
-        let mut resource = MovedVmmResource::new("/tmp/metadata.txt", VmmResourceMoveMethod::Rename);
-        let _ = resource.initialize_with_same_path(VmmOwnershipModel::Shared, DirectProcessSpawner, TokioRuntime);
+    #[tokio::test]
+    async fn metadata_path_can_be_set() {
+        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
+        let resource = resource_system
+            .new_moved_resource("/tmp/metadata.txt", MovedResourceType::Renamed)
+            .unwrap();
+        resource.start_initialization_with_same_path().unwrap();
+        resource_system.wait_for_pending_tasks().await.unwrap();
         check_without_config(new().metadata(resource), ["--metadata", "/tmp/metadata.txt"]);
     }
 
-    #[test]
-    fn metrics_path_can_be_set() {
-        check_without_config(
-            new().metrics(CreatedVmmResource::new(
-                "/tmp/metrics.txt",
-                CreatedVmmResourceType::File,
-            )),
-            ["--metrics-path", "/tmp/metrics.txt"],
-        );
+    #[tokio::test]
+    async fn metrics_path_can_be_set() {
+        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
+        let resource = resource_system
+            .new_created_resource("/tmp/metrics.txt", CreatedResourceType::File)
+            .unwrap();
+        check_without_config(new().metrics(resource), ["--metrics-path", "/tmp/metrics.txt"]);
     }
 
     #[test]

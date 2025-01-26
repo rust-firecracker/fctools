@@ -12,6 +12,7 @@ use crate::{
         installation::VmmInstallation,
         ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
         process::{VmmProcess, VmmProcessError, VmmProcessState},
+        resource::system::ResourceSystem,
     },
 };
 use api::VmApiError;
@@ -36,7 +37,7 @@ pub mod snapshot;
 /// to these components with opinionated functionality.
 #[derive(Debug)]
 pub struct Vm<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
-    vmm_process: VmmProcess<E, S, R, VmConfiguration>,
+    vmm_process: VmmProcess<E, S, R>,
     process_spawner: S,
     ownership_model: VmmOwnershipModel,
     pub(crate) runtime: R,
@@ -156,9 +157,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         executor: E,
         process_spawner: S,
         runtime: R,
+        resource_system: ResourceSystem<S, R>,
         ownership_model: VmmOwnershipModel,
         installation: Arc<VmmInstallation>,
-        mut configuration: VmConfiguration,
+        configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
         if executor.get_socket_path(installation.as_ref()).is_none() {
             return Err(VmError::DisabledApiSocketIsUnsupported);
@@ -168,14 +170,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             executor,
             process_spawner.clone(),
             runtime.clone(),
+            resource_system,
             ownership_model,
             installation,
         );
 
-        vmm_process
-            .prepare(&mut configuration)
-            .await
-            .map_err(VmError::ProcessError)?;
+        vmm_process.prepare().await.map_err(VmError::ProcessError)?;
 
         Ok(Self {
             vmm_process,
@@ -236,7 +236,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         }
 
         self.vmm_process
-            .invoke(&mut self.configuration, config_path)
+            .invoke(config_path)
             .await
             .map_err(VmError::ProcessError)?;
 
@@ -287,10 +287,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     /// Clean up the full environment of this [Vm] after it being [VmState::Exited] or [VmState::Crashed].
     pub async fn cleanup(&mut self) -> Result<(), VmError> {
         self.ensure_exited_or_crashed().map_err(VmError::StateCheckError)?;
-        self.vmm_process
-            .cleanup(&mut self.configuration)
-            .await
-            .map_err(VmError::ProcessError)
+        self.vmm_process.cleanup().await.map_err(VmError::ProcessError)
     }
 
     /// Take out the [ProcessHandlePipes] of the underlying process handle if possible.

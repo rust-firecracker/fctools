@@ -5,7 +5,7 @@ use fctools::{
     runtime::tokio::TokioRuntime,
     vmm::{
         ownership::VmmOwnershipModel,
-        resource_v3::{system::ResourceSystem, CreatedResourceType},
+        resource::{system::ResourceSystem, CreatedResourceType},
     },
 };
 
@@ -19,7 +19,7 @@ async fn resource_system_v3() {
         .unwrap();
 
     dbg!(resource.get_state());
-    dbg!(resource.is_linked());
+    dbg!(resource.is_attached());
 
     resource.start_initialization(path.clone(), None).unwrap();
     system.wait_for_pending_tasks().await.unwrap();

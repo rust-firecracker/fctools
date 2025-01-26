@@ -40,7 +40,7 @@ pub struct OwnedResource<R: Runtime> {
 pub struct ResourceData {
     pub source_path: PathBuf,
     pub r#type: ResourceType,
-    pub linked: AtomicBool,
+    pub attached: AtomicBool,
 }
 
 #[derive(Debug)]
@@ -371,7 +371,7 @@ async fn resource_system_dispose_task<R: Runtime, S: ProcessSpawner>(
     process_spawner: S,
     ownership_model: VmmOwnershipModel,
 ) -> Result<(), ResourceSystemError> {
-    if data.linked.load(Ordering::Acquire) {
+    if data.attached.load(Ordering::Acquire) {
         upgrade_owner(&init_data.effective_path, ownership_model, &process_spawner, &runtime)
             .await
             .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;

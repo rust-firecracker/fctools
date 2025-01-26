@@ -14,7 +14,7 @@ use crate::{
         executor::VmmExecutor,
         ownership::ChangeOwnerError,
         process::{HyperResponseExt, VmmProcessError},
-        resource::VmmResourceError,
+        resource::system::ResourceSystemError,
     },
 };
 
@@ -43,7 +43,8 @@ pub enum VmApiError {
     ResponseBodyContainsUnexpectedData(String),
     StateCheckError(VmStateCheckError),
     SnapshotChangeOwnerError(ChangeOwnerError),
-    ResourceError(VmmResourceError),
+    ResourceSystemError(ResourceSystemError),
+    UninitializedResource,
 }
 
 impl std::error::Error for VmApiError {}
@@ -78,9 +79,10 @@ impl std::fmt::Display for VmApiError {
             VmApiError::SnapshotChangeOwnerError(err) => {
                 write!(f, "Changing the owner of a snapshot failed: {err}")
             }
-            VmApiError::ResourceError(err) => {
-                write!(f, "An error occurred when initializing a produced VMM resource: {err}")
+            VmApiError::ResourceSystemError(err) => {
+                write!(f, "An error occurred within the resource system: {err}")
             }
+            VmApiError::UninitializedResource => write!(f, "A resource in the VM was uninitialized"),
         }
     }
 }
@@ -255,16 +257,22 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         send_api_request_with_response(self, "/machine-config", "GET", None::<i32>).await
     }
 
-    async fn api_create_snapshot(&mut self, mut create_snapshot: CreateSnapshot) -> Result<VmSnapshot, VmApiError> {
+    async fn api_create_snapshot(&mut self, create_snapshot: CreateSnapshot) -> Result<VmSnapshot, VmApiError> {
         self.ensure_state(VmState::Paused)
             .map_err(VmApiError::StateCheckError)?;
         send_api_request(self, "/snapshot/create", "PUT", Some(&create_snapshot)).await?;
-        let snapshot_effective_path = self
-            .vmm_process
-            .local_to_effective_path(create_snapshot.snapshot.local_path().to_owned());
-        let mem_file_effective_path = self
-            .vmm_process
-            .local_to_effective_path(create_snapshot.mem_file.local_path().to_owned());
+        let snapshot_effective_path = self.vmm_process.local_to_effective_path(
+            create_snapshot
+                .snapshot
+                .get_local_path()
+                .ok_or(VmApiError::UninitializedResource)?,
+        );
+        let mem_file_effective_path = self.vmm_process.local_to_effective_path(
+            create_snapshot
+                .mem_file
+                .get_local_path()
+                .ok_or(VmApiError::UninitializedResource)?,
+        );
 
         futures_util::try_join!(
             upgrade_owner(
@@ -284,14 +292,18 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
 
         create_snapshot
             .snapshot
-            .initialize(snapshot_effective_path, self.ownership_model, self.runtime.clone())
-            .await
-            .map_err(VmApiError::ResourceError)?;
+            .start_initialization(snapshot_effective_path, None)
+            .map_err(VmApiError::ResourceSystemError)?;
         create_snapshot
             .mem_file
-            .initialize::<R>(mem_file_effective_path, self.ownership_model, self.runtime.clone())
+            .start_initialization(mem_file_effective_path, None)
+            .map_err(VmApiError::ResourceSystemError)?;
+
+        self.vmm_process
+            .resource_system
+            .wait_for_pending_tasks()
             .await
-            .map_err(VmApiError::ResourceError)?;
+            .map_err(VmApiError::ResourceSystemError)?;
 
         Ok(VmSnapshot {
             snapshot: create_snapshot.snapshot,

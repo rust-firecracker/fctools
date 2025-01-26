@@ -19,6 +19,7 @@ pub enum VsockHttpError {
     VsockNotConfigured,
     CannotConnect(std::io::Error),
     CannotHandshake(hyper::Error),
+    VsockResourceUninitialized,
 }
 
 impl std::error::Error for VsockHttpError {}
@@ -31,6 +32,7 @@ impl std::fmt::Display for VsockHttpError {
             VsockHttpError::CannotHandshake(err) => {
                 write!(f, "Could not perform an HTTP handshake with the vsock socket: {err}")
             }
+            VsockHttpError::VsockResourceUninitialized => write!(f, "The vsock resource was uninitialized"),
         }
     }
 }
@@ -116,8 +118,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
             .as_ref()
             .ok_or(VsockHttpError::VsockNotConfigured)?
             .uds
-            .effective_path()
-            .to_owned();
+            .get_effective_path()
+            .ok_or(VsockHttpError::VsockResourceUninitialized)?;
         let stream = <R::SocketBackend as hyper_client_sockets::Backend>::connect_to_firecracker_socket(
             &socket_path,
             guest_port,
@@ -146,8 +148,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
             .as_ref()
             .ok_or(VsockHttpError::VsockNotConfigured)?
             .uds
-            .effective_path()
-            .to_owned();
+            .get_effective_path()
+            .ok_or(VsockHttpError::VsockResourceUninitialized)?;
 
         Ok(VsockHttpPool {
             client,

@@ -21,8 +21,6 @@ pub mod arguments;
 
 pub mod resource;
 
-pub mod resource_v3;
-
 pub mod id;
 
 pub mod installation;

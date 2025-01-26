@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::vmm::{
     arguments::VmmLogLevel,
-    resource::{created::CreatedVmmResource, moved::MovedVmmResource, produced::ProducedVmmResource},
+    resource::{CreatedResource, MovedResource, ProducedResource},
 };
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -66,12 +66,12 @@ pub struct UpdateBalloonStatistics {
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct BootSource {
     #[serde(rename = "kernel_image_path")]
-    pub kernel_image: MovedVmmResource,
+    pub kernel_image: MovedResource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub boot_args: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "initrd_path")]
-    pub initrd: Option<MovedVmmResource>,
+    pub initrd: Option<MovedResource>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
@@ -86,13 +86,13 @@ pub struct Drive {
     pub is_read_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "path_on_host")]
-    pub block: Option<MovedVmmResource>,
+    pub block: Option<MovedResource>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limiter: Option<RateLimiter>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub io_engine: Option<DriveIoEngine>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub socket: Option<MovedVmmResource>,
+    pub socket: Option<MovedResource>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
@@ -100,7 +100,7 @@ pub struct UpdateDrive {
     pub drive_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "path_on_host")]
-    pub block: Option<MovedVmmResource>,
+    pub block: Option<MovedResource>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limiter: Option<RateLimiter>,
 }
@@ -135,7 +135,7 @@ pub struct TokenBucket {
 pub struct LoggerSystem {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "log_path")]
-    pub logs: Option<CreatedVmmResource>,
+    pub logs: Option<CreatedResource>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub level: Option<VmmLogLevel>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -168,7 +168,7 @@ pub enum HugePages {
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct MetricsSystem {
     #[serde(rename = "metrics_path")]
-    pub metrics: CreatedVmmResource,
+    pub metrics: CreatedResource,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -217,9 +217,9 @@ pub struct CreateSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snapshot_type: Option<SnapshotType>,
     #[serde(rename = "snapshot_path")]
-    pub snapshot: ProducedVmmResource,
+    pub snapshot: ProducedResource,
     #[serde(rename = "mem_file_path")]
-    pub mem_file: ProducedVmmResource,
+    pub mem_file: ProducedResource,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -234,7 +234,7 @@ pub struct LoadSnapshot {
     pub enable_diff_snapshots: Option<bool>,
     pub mem_backend: MemoryBackend,
     #[serde(rename = "snapshot_path")]
-    pub snapshot: MovedVmmResource,
+    pub snapshot: MovedResource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume_vm: Option<bool>,
 }
@@ -243,7 +243,7 @@ pub struct LoadSnapshot {
 pub struct MemoryBackend {
     pub backend_type: MemoryBackendType,
     #[serde(rename = "backend_path")]
-    pub backend: MovedVmmResource,
+    pub backend: MovedResource,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -272,7 +272,7 @@ pub(crate) enum ReprUpdatedState {
 pub struct VsockDevice {
     pub guest_cid: u32,
     #[serde(rename = "uds_path")]
-    pub uds: ProducedVmmResource,
+    pub uds: ProducedResource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
