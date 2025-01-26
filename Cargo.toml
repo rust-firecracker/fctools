@@ -165,12 +165,11 @@ vmm-core = [
 ]
 # L3: VMM executor
 vmm-executor = ["vmm-core", "process-spawner", "dep:futures-channel"]
-jailed-vmm-executor = ["runtime-util", "vmm-executor"]
-unrestricted-vmm-executor = ["runtime-util", "vmm-executor"]
+jailed-vmm-executor = ["vmm-executor"]
+unrestricted-vmm-executor = ["vmm-executor"]
 either-vmm-executor = ["unrestricted-vmm-executor", "jailed-vmm-executor"]
 # L4: VMM process
 vmm-process = [
-    "runtime-util",
     "vmm-executor",
     "dep:async-once-cell",
     "dep:hyper",
