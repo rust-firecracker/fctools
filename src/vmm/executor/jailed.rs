@@ -58,7 +58,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
     }
 
     async fn prepare<S: ProcessSpawner, R: Runtime>(
-        &mut self,
+        &self,
         mut context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         // Create jail and delete previous one if necessary
@@ -131,7 +131,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
     }
 
     async fn invoke<S: ProcessSpawner, R: Runtime>(
-        &mut self,
+        &self,
         context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
     ) -> Result<ProcessHandle<R>, VmmExecutorError> {
@@ -199,7 +199,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
     }
 
     async fn cleanup<S: ProcessSpawner, R: Runtime>(
-        &mut self,
+        &self,
         context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         let (_, jail_path) = self.get_paths(&context.installation);

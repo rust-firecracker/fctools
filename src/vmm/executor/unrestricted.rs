@@ -68,7 +68,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
     }
 
     async fn prepare<S: ProcessSpawner, R: Runtime>(
-        &mut self,
+        &self,
         mut context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         expand_context(&self.vmm_arguments, &mut context);
@@ -104,7 +104,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
     }
 
     async fn invoke<S: ProcessSpawner, R: Runtime>(
-        &mut self,
+        &self,
         context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
     ) -> Result<ProcessHandle<R>, VmmExecutorError> {
@@ -129,7 +129,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
     }
 
     async fn cleanup<S: ProcessSpawner, R: Runtime>(
-        &mut self,
+        &self,
         mut context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {

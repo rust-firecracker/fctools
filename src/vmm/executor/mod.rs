@@ -90,7 +90,7 @@ pub trait VmmExecutor: Send + Sync {
 
     /// Prepare all transient resources for the VMM invocation.
     fn prepare<S: ProcessSpawner, R: Runtime>(
-        &mut self,
+        &self,
         context: VmmExecutorContext<S, R>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 
@@ -98,14 +98,14 @@ pub trait VmmExecutor: Send + Sync {
     /// the created process, regardless of it possibly being not a child and rather having been unshare()-d into
     /// a separate PID namespace.
     fn invoke<S: ProcessSpawner, R: Runtime>(
-        &mut self,
+        &self,
         context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
     ) -> impl Future<Output = Result<ProcessHandle<R>, VmmExecutorError>> + Send;
 
     /// Clean up all transient resources of the VMM invocation.
     fn cleanup<S: ProcessSpawner, R: Runtime>(
-        &mut self,
+        &self,
         context: VmmExecutorContext<S, R>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }

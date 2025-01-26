@@ -46,7 +46,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
     }
 
     async fn prepare<S: ProcessSpawner, R: Runtime>(
-        &mut self,
+        &self,
         context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         match self {
@@ -56,7 +56,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
     }
 
     async fn invoke<S: ProcessSpawner, R: Runtime>(
-        &mut self,
+        &self,
         context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
     ) -> Result<ProcessHandle<R>, VmmExecutorError> {
@@ -67,7 +67,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
     }
 
     async fn cleanup<S: ProcessSpawner, R: Runtime>(
-        &mut self,
+        &self,
         context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         match self {
