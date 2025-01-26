@@ -22,7 +22,7 @@ use super::{
         process_handle::{ProcessHandle, ProcessHandlePipes, ProcessHandlePipesError},
         VmmExecutorContext,
     },
-    ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
+    ownership::{upgrade_owner, ChangeOwnerError},
     resource::system::{ResourceSystem, ResourceSystemError},
 };
 
@@ -31,9 +31,6 @@ use super::{
 #[derive(Debug)]
 pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     executor: E,
-    ownership_model: VmmOwnershipModel,
-    process_spawner: S,
-    runtime: R,
     pub(crate) resource_system: ResourceSystem<S, R>,
     installation: Arc<VmmInstallation>,
     process_handle: Option<ProcessHandle<R>>,
@@ -141,20 +138,9 @@ impl std::fmt::Display for VmmProcessError {
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     /// Create a new [VmmProcess] from the necessary set of components:
     /// [VmmExecutor], [ProcessSpawner], [Runtime], [VmmOwnershipModel], [VmmInstallation], [VmmResourceManager].
-    pub fn new(
-        executor: E,
-        process_spawner: S,
-        runtime: R,
-        resource_system: ResourceSystem<S, R>,
-        ownership_model: VmmOwnershipModel,
-        installation: Arc<VmmInstallation>,
-    ) -> Self {
-        let installation = installation.into();
+    pub fn new(executor: E, resource_system: ResourceSystem<S, R>, installation: Arc<VmmInstallation>) -> Self {
         Self {
             executor,
-            ownership_model,
-            process_spawner,
-            runtime,
             resource_system,
             installation,
             process_handle: None,
@@ -210,11 +196,19 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
         let hyper_client = self
             .hyper_client
             .get_or_try_init(async {
-                upgrade_owner(&socket_path, self.ownership_model, &self.process_spawner, &self.runtime)
-                    .await
-                    .map_err(VmmProcessError::ChangeOwnerError)?;
+                upgrade_owner(
+                    &socket_path,
+                    self.resource_system.ownership_model,
+                    &self.resource_system.process_spawner,
+                    &self.resource_system.runtime,
+                )
+                .await
+                .map_err(VmmProcessError::ChangeOwnerError)?;
 
-                Ok(Client::builder(RuntimeHyperExecutor(self.runtime.clone())).build(UnixConnector::new()))
+                Ok(
+                    Client::builder(RuntimeHyperExecutor(self.resource_system.runtime.clone()))
+                        .build(UnixConnector::new()),
+                )
             })
             .await?;
 
@@ -326,6 +320,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
             .local_to_effective_path(&self.installation, local_path.into())
     }
 
+    pub fn get_resource_system(&mut self) -> &mut ResourceSystem<S, R> {
+        &mut self.resource_system
+    }
+
     fn ensure_state(&mut self, expected: VmmProcessState) -> Result<(), VmmProcessError> {
         if self.state() != expected {
             return Err(VmmProcessError::ExpectedState {
@@ -353,9 +351,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     fn executor_context(&self) -> VmmExecutorContext<S, R> {
         VmmExecutorContext {
             installation: self.installation.clone(),
-            process_spawner: self.process_spawner.clone(),
-            runtime: self.runtime.clone(),
-            ownership_model: self.ownership_model,
+            process_spawner: self.resource_system.process_spawner.clone(),
+            runtime: self.resource_system.runtime.clone(),
+            ownership_model: self.resource_system.ownership_model,
             resources: self.resource_system.get_resources(),
         }
     }

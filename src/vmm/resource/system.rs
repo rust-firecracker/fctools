@@ -28,6 +28,12 @@ pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
     pull_rx: mpsc::UnboundedReceiver<ResourceSystemPull>,
     marker: PhantomData<S>,
     resources: Vec<Resource>,
+    #[cfg(feature = "vmm-process")]
+    pub(crate) process_spawner: S,
+    #[cfg(feature = "vmm-process")]
+    pub(crate) runtime: R,
+    #[cfg(feature = "vmm-process")]
+    pub(crate) ownership_model: VmmOwnershipModel,
 }
 
 const RESOURCE_BROADCAST_CAPACITY: usize = 5;
@@ -61,8 +67,8 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             push_rx,
             pull_tx,
             owned_resources,
-            process_spawner,
-            runtime,
+            process_spawner.clone(),
+            runtime.clone(),
             ownership_model,
         ));
 
@@ -71,6 +77,12 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             pull_rx,
             marker: PhantomData,
             resources,
+            #[cfg(feature = "vmm-process")]
+            process_spawner,
+            #[cfg(feature = "vmm-process")]
+            runtime,
+            #[cfg(feature = "vmm-process")]
+            ownership_model,
         }
     }
 

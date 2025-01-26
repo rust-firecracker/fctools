@@ -130,7 +130,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
         let (send_request, connection) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(stream)
             .await
             .map_err(VsockHttpError::CannotHandshake)?;
-        self.runtime.spawn_task(connection);
+        self.vmm_process.resource_system.runtime.spawn_task(connection);
 
         Ok(send_request)
     }
@@ -139,8 +139,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
         &self,
         guest_port: u32,
     ) -> Result<VsockHttpPool<R::SocketBackend>, VsockHttpError> {
-        let client = hyper_util::client::legacy::Client::builder(RuntimeHyperExecutor(self.runtime.clone()))
-            .build(FirecrackerConnector::<R::SocketBackend>::new());
+        let client = hyper_util::client::legacy::Client::builder(RuntimeHyperExecutor(
+            self.vmm_process.resource_system.runtime.clone(),
+        ))
+        .build(FirecrackerConnector::<R::SocketBackend>::new());
         let socket_path = self
             .configuration()
             .data()

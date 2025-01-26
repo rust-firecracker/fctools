@@ -18,20 +18,20 @@ mod internal;
 pub mod path;
 pub mod system;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResourceType {
     Created(CreatedResourceType),
     Moved(MovedResourceType),
     Produced,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CreatedResourceType {
     File,
     Fifo,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MovedResourceType {
     Copied,
     HardLinked,

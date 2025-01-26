@@ -10,7 +10,7 @@ use crate::{
     vmm::{
         executor::{process_handle::ProcessHandlePipes, VmmExecutor},
         installation::VmmInstallation,
-        ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
+        ownership::{upgrade_owner, ChangeOwnerError},
         process::{VmmProcess, VmmProcessError, VmmProcessState},
         resource::system::ResourceSystem,
     },
@@ -37,10 +37,7 @@ pub mod snapshot;
 /// to these components with opinionated functionality.
 #[derive(Debug)]
 pub struct Vm<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
-    vmm_process: VmmProcess<E, S, R>,
-    process_spawner: S,
-    ownership_model: VmmOwnershipModel,
-    pub(crate) runtime: R,
+    pub(crate) vmm_process: VmmProcess<E, S, R>,
     is_paused: bool,
     configuration: VmConfiguration,
 }
@@ -155,10 +152,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     /// [Arc<VmmInstallation>]. An additional component of a [Vm] is its [VmConfiguration].
     pub async fn prepare(
         executor: E,
-        process_spawner: S,
-        runtime: R,
         resource_system: ResourceSystem<S, R>,
-        ownership_model: VmmOwnershipModel,
         installation: Arc<VmmInstallation>,
         configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
@@ -166,22 +160,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             return Err(VmError::DisabledApiSocketIsUnsupported);
         }
 
-        let mut vmm_process = VmmProcess::new(
-            executor,
-            process_spawner.clone(),
-            runtime.clone(),
-            resource_system,
-            ownership_model,
-            installation,
-        );
+        let mut vmm_process = VmmProcess::new(executor, resource_system, installation);
 
         vmm_process.prepare().await.map_err(VmError::ProcessError)?;
 
         Ok(Self {
             vmm_process,
-            process_spawner,
-            ownership_model,
-            runtime,
             is_paused: false,
             configuration,
         })
@@ -219,14 +203,16 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             config_path = Some(config_local_path.clone());
             upgrade_owner(
                 &config_effective_path,
-                self.ownership_model,
-                &self.process_spawner,
-                &self.runtime,
+                self.vmm_process.resource_system.ownership_model,
+                &self.vmm_process.resource_system.process_spawner,
+                &self.vmm_process.resource_system.runtime,
             )
             .await
             .map_err(VmError::ChangeOwnerError)?;
 
-            self.runtime
+            self.vmm_process
+                .resource_system
+                .runtime
                 .fs_write(
                     &config_effective_path,
                     serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
@@ -240,10 +226,14 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             .await
             .map_err(VmError::ProcessError)?;
 
-        let client = hyper_util::client::legacy::Builder::new(RuntimeHyperExecutor(self.runtime.clone()))
-            .build::<_, Full<Bytes>>(UnixConnector::<R::SocketBackend>::new());
+        let client = hyper_util::client::legacy::Builder::new(RuntimeHyperExecutor(
+            self.vmm_process.resource_system.runtime.clone(),
+        ))
+        .build::<_, Full<Bytes>>(UnixConnector::<R::SocketBackend>::new());
 
-        self.runtime
+        self.vmm_process
+            .resource_system
+            .runtime
             .timeout(socket_wait_timeout, async move {
                 loop {
                     if client
@@ -304,6 +294,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     /// Translates the given local resource path to an effective resource path.
     pub fn local_to_effective_path(&self, local_path: impl Into<PathBuf>) -> PathBuf {
         self.vmm_process.local_to_effective_path(local_path)
+    }
+
+    pub fn get_resource_system(&mut self) -> &mut ResourceSystem<S, R> {
+        self.vmm_process.get_resource_system()
     }
 
     fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmStateCheckError> {

@@ -277,15 +277,15 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         futures_util::try_join!(
             upgrade_owner(
                 &snapshot_effective_path,
-                self.ownership_model,
-                &self.process_spawner,
-                &self.runtime,
+                self.vmm_process.resource_system.ownership_model,
+                &self.vmm_process.resource_system.process_spawner,
+                &self.vmm_process.resource_system.runtime,
             ),
             upgrade_owner(
                 &mem_file_effective_path,
-                self.ownership_model,
-                &self.process_spawner,
-                &self.runtime,
+                self.vmm_process.resource_system.ownership_model,
+                &self.vmm_process.resource_system.process_spawner,
+                &self.vmm_process.resource_system.runtime,
             ),
         )
         .map_err(VmApiError::SnapshotChangeOwnerError)?;
