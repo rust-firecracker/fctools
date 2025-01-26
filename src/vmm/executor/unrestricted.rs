@@ -8,6 +8,7 @@ use crate::{
         id::VmmId,
         installation::VmmInstallation,
         ownership::upgrade_owner,
+        resource::ResourceType,
     },
 };
 
@@ -156,9 +157,11 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         expand_context(&self.vmm_arguments, &mut context);
 
         for resource in context.resources {
-            resource
-                .start_disposal()
-                .map_err(VmmExecutorError::ResourceSystemError)?;
+            if !matches!(resource.get_type(), ResourceType::Moved(_)) {
+                resource
+                    .start_disposal()
+                    .map_err(VmmExecutorError::ResourceSystemError)?;
+            }
         }
 
         Ok(())

@@ -242,11 +242,19 @@ impl serde::Serialize for Resource {
     where
         S: serde::Serializer,
     {
-        self.init_data
-            .get()
-            .expect("called serialize on uninitialized resource")
-            .effective_path
-            .serialize(serializer)
+        match self.data.r#type {
+            ResourceType::Moved(_) => {
+                self.poll();
+                self.init_data
+                    .get()
+                    .expect("called serialize on uninitialized resource")
+                    .local_path
+                    .as_ref()
+                    .expect("no local_path for moved resource")
+                    .serialize(serializer)
+            }
+            _ => self.data.source_path.serialize(serializer),
+        }
     }
 }
 

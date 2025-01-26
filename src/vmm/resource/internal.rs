@@ -75,9 +75,11 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
         ResourcePush(usize, ResourcePush),
         FinishedInitTask(usize, Result<ResourceInitData, ResourceSystemError>),
         FinishedDisposeTask(usize, Result<(), ResourceSystemError>),
+        FinishedBroadcastTask(usize),
     }
 
     let mut awaiting_pending_tasks = false;
+    let mut broadcast_tasks = Vec::<R::Task<()>>::new();
 
     loop {
         let incoming = poll_fn(|cx| {
@@ -99,6 +101,12 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
 
             if let Poll::Ready(Some(push)) = push_rx.poll_next_unpin(cx) {
                 return Poll::Ready(Incoming::SystemPush(push));
+            }
+
+            for (index, task) in broadcast_tasks.iter_mut().enumerate() {
+                if let Poll::Ready(Some(_)) = task.poll_join(cx) {
+                    return Poll::Ready(Incoming::FinishedBroadcastTask(index));
+                }
             }
 
             Poll::Pending
@@ -186,11 +194,19 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                         let init_data = Arc::new(init_data);
                         resource.init_data = Some(init_data.clone());
                         resource.state = OwnedResourceState::Initialized;
-                        defer_resource_pull(resource, &runtime, ResourcePull::Initialized(Ok(init_data)));
+                        broadcast_tasks.push(defer_resource_pull(
+                            resource,
+                            &runtime,
+                            ResourcePull::Initialized(Ok(init_data)),
+                        ));
                     }
                     Err(err) => {
                         resource.state = OwnedResourceState::Uninitialized;
-                        defer_resource_pull(resource, &runtime, ResourcePull::Initialized(Err(err)));
+                        broadcast_tasks.push(defer_resource_pull(
+                            resource,
+                            &runtime,
+                            ResourcePull::Initialized(Err(err)),
+                        ));
                     }
                 }
             }
@@ -202,13 +218,20 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                 match result {
                     Ok(_) => {
                         resource.state = OwnedResourceState::Disposed;
-                        defer_resource_pull(resource, &runtime, ResourcePull::Disposed(Ok(())));
+                        broadcast_tasks.push(defer_resource_pull(resource, &runtime, ResourcePull::Disposed(Ok(()))));
                     }
                     Err(err) => {
                         resource.state = OwnedResourceState::Initialized;
-                        defer_resource_pull(resource, &runtime, ResourcePull::Disposed(Err(err)));
+                        broadcast_tasks.push(defer_resource_pull(
+                            resource,
+                            &runtime,
+                            ResourcePull::Disposed(Err(err)),
+                        ));
                     }
                 }
+            }
+            Incoming::FinishedBroadcastTask(index) => {
+                broadcast_tasks.remove(index);
             }
         };
 
@@ -221,7 +244,8 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                         OwnedResourceState::Initializing(_) | OwnedResourceState::Disposing(_)
                     )
                 })
-                .count();
+                .count()
+                + broadcast_tasks.len();
 
             if pending_tasks == 0 {
                 awaiting_pending_tasks = false;
@@ -232,11 +256,11 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
 }
 
 #[inline]
-fn defer_resource_pull<R: Runtime>(resource: &mut OwnedResource<R>, runtime: &R, pull: ResourcePull) {
+fn defer_resource_pull<R: Runtime>(resource: &mut OwnedResource<R>, runtime: &R, pull: ResourcePull) -> R::Task<()> {
     let tx = resource.pull_tx.clone();
     runtime.spawn_task(async move {
         let _ = pin!(tx.broadcast_direct(pull)).await;
-    });
+    })
 }
 
 async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
