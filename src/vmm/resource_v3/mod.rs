@@ -85,7 +85,7 @@ impl Clone for Resource {
     fn clone(&self) -> Self {
         Self {
             push_tx: self.push_tx.clone(),
-            pull_rx: Mutex::new(self.pull_rx.lock().unwrap().clone()),
+            pull_rx: Mutex::new(self.pull_rx.lock().expect("pull_rx mutex was poisoned").clone()),
             data: self.data.clone(),
             init_data: self.init_data.clone(),
             disposed: self.disposed.clone(),
@@ -159,7 +159,7 @@ impl Resource {
 
     #[inline(always)]
     fn poll(&self) {
-        match self.pull_rx.lock().unwrap().try_recv() {
+        match self.pull_rx.lock().expect("pull_rx mutex was poisoned").try_recv() {
             Ok(ResourcePull::Disposed(Ok(_))) | Err(TryRecvError::Closed) => {
                 self.disposed.store(true, Ordering::Release);
             }

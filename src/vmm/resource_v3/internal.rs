@@ -89,10 +89,6 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
 
     loop {
         let incoming = poll_fn(|cx| {
-            if let Poll::Ready(Some(push)) = push_rx.poll_next_unpin(cx) {
-                return Poll::Ready(Incoming::SystemPush(push));
-            }
-
             for (resource_index, resource) in owned_resources.iter_mut().enumerate() {
                 if let Poll::Ready(Some(push)) = resource.push_rx.poll_next_unpin(cx) {
                     return Poll::Ready(Incoming::ResourcePush(resource_index, push));
@@ -107,6 +103,10 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                         return Poll::Ready(Incoming::FinishedDisposeTask(resource_index, result));
                     }
                 }
+            }
+
+            if let Poll::Ready(Some(push)) = push_rx.poll_next_unpin(cx) {
+                return Poll::Ready(Incoming::SystemPush(push));
             }
 
             Poll::Pending

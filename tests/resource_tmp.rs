@@ -21,7 +21,6 @@ async fn resource_system_v3() {
     dbg!(resource.get_state());
 
     resource.start_initialization(path.clone(), None).unwrap();
-    tokio::time::sleep(std::time::Duration::from_micros(1)).await;
     system.wait_for_pending_tasks().await.unwrap();
     dbg!(resource.get_state());
 
