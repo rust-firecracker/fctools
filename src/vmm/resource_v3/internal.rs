@@ -33,6 +33,7 @@ pub struct OwnedResource<R: Runtime> {
     pub push_rx: mpsc::UnboundedReceiver<ResourcePush>,
     pub pull_tx: async_broadcast::Sender<ResourcePull>,
     pub data: Arc<ResourceData>,
+    pub init_data: Option<Arc<ResourceInitData>>,
 }
 
 #[derive(Debug)]
@@ -127,12 +128,15 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                                 task_set.add(task);
                             }
                             OwnedResourceState::Initialized => {
-                                task_set.spawn(resource_system_dispose_task(
-                                    resource.data,
-                                    runtime.clone(),
-                                    process_spawner.clone(),
-                                    ownership_model,
-                                ));
+                                if let Some(init_data) = resource.init_data {
+                                    task_set.spawn(resource_system_dispose_task(
+                                        resource.data,
+                                        init_data,
+                                        runtime.clone(),
+                                        process_spawner.clone(),
+                                        ownership_model,
+                                    ));
+                                }
                             }
                             _ => {}
                         }
@@ -170,6 +174,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                     ResourcePush::Dispose => {
                         let dispose_task = runtime.spawn_task(resource_system_dispose_task(
                             resource.data.clone(),
+                            resource.init_data.clone().unwrap(),
                             runtime.clone(),
                             process_spawner.clone(),
                             ownership_model,
@@ -186,8 +191,10 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
 
                 match result {
                     Ok(init_data) => {
+                        let init_data = Arc::new(init_data);
+                        resource.init_data = Some(init_data.clone());
                         resource.state = OwnedResourceState::Initialized;
-                        defer_resource_pull(resource, &runtime, ResourcePull::Initialized(Ok(Arc::new(init_data))));
+                        defer_resource_pull(resource, &runtime, ResourcePull::Initialized(Ok(init_data)));
                     }
                     Err(err) => {
                         resource.state = OwnedResourceState::Uninitialized;
@@ -359,22 +366,20 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
 
 async fn resource_system_dispose_task<R: Runtime, S: ProcessSpawner>(
     data: Arc<ResourceData>,
+    init_data: Arc<ResourceInitData>,
     runtime: R,
     process_spawner: S,
     ownership_model: VmmOwnershipModel,
 ) -> Result<(), ResourceSystemError> {
     if data.linked.load(Ordering::Acquire) {
-        upgrade_owner(&data.source_path, ownership_model, &process_spawner, &runtime)
+        upgrade_owner(&init_data.effective_path, ownership_model, &process_spawner, &runtime)
             .await
             .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
 
-        if !runtime
-            .fs_exists(&data.source_path)
+        runtime
+            .fs_remove_file(&init_data.effective_path)
             .await
-            .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?
-        {
-            return Err(ResourceSystemError::SourcePathMissing);
-        }
+            .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
     }
 
     Ok(())

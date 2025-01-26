@@ -40,7 +40,6 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         Self::new_inner(Vec::with_capacity(capacity), process_spawner, runtime, ownership_model)
     }
 
-    #[inline(always)]
     fn new_inner(
         owned_resources: Vec<OwnedResource<R>>,
         process_spawner: S,
@@ -113,7 +112,6 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             .map(ProducedResource)
     }
 
-    #[inline(always)]
     fn new_resource(&self, source_path: PathBuf, r#type: ResourceType) -> Result<Resource, ResourceSystemError> {
         let (push_tx, push_rx) = mpsc::unbounded();
         let (pull_tx, pull_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
@@ -127,6 +125,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
                 r#type,
                 linked: AtomicBool::new(true),
             }),
+            init_data: None,
         };
 
         let data = owned_resource.data.clone();

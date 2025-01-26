@@ -19,6 +19,7 @@ async fn resource_system_v3() {
         .unwrap();
 
     dbg!(resource.get_state());
+    dbg!(resource.is_linked());
 
     resource.start_initialization(path.clone(), None).unwrap();
     system.wait_for_pending_tasks().await.unwrap();
