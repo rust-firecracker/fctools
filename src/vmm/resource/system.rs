@@ -202,3 +202,5 @@ impl std::fmt::Display for ResourceSystemError {
         }
     }
 }
+
+impl std::error::Error for ResourceSystemError {}
