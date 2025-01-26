@@ -306,7 +306,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         self.vmm_process.local_to_effective_path(local_path)
     }
 
-    pub(super) fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmStateCheckError> {
+    fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmStateCheckError> {
         let current_state = self.state();
         if current_state != expected_state {
             Err(VmStateCheckError::Other {
@@ -318,7 +318,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         }
     }
 
-    pub(super) fn ensure_paused_or_running(&mut self) -> Result<(), VmStateCheckError> {
+    fn ensure_paused_or_running(&mut self) -> Result<(), VmStateCheckError> {
         let current_state = self.state();
         if current_state != VmState::Running && current_state != VmState::Paused {
             Err(VmStateCheckError::PausedOrRunning { actual: current_state })
