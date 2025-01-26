@@ -10,10 +10,12 @@ use std::{
 use async_broadcast::TryRecvError;
 use futures_channel::mpsc;
 use internal::{ResourceData, ResourceInitData, ResourcePull, ResourcePush};
+use path::DetachedPath;
 use system::ResourceSystemError;
 
 mod internal;
 
+pub mod path;
 pub mod system;
 
 #[derive(Debug, Clone, Copy)]
@@ -126,10 +128,6 @@ impl Resource {
     pub fn get_state(&self) -> ResourceState {
         self.poll();
 
-        if !self.data.attached.load(Ordering::Acquire) {
-            return ResourceState::Detached;
-        }
-
         if self.disposed.load(Ordering::Acquire) {
             return ResourceState::Disposed;
         }
@@ -140,12 +138,26 @@ impl Resource {
         }
     }
 
-    pub fn is_attached(&self) -> bool {
-        self.data.attached.load(Ordering::Acquire)
-    }
+    pub fn detach(self) -> Result<DetachedPath, (Self, ResourceSystemError)> {
+        let state = self.get_state();
 
-    pub fn detach(&self) {
-        self.data.attached.store(false, Ordering::Release);
+        if state != ResourceState::Initialized {
+            return Err((
+                self,
+                ResourceSystemError::IncorrectState {
+                    expected: ResourceState::Initialized,
+                    actual: state,
+                },
+            ));
+        }
+
+        if self.push_tx.unbounded_send(ResourcePush::Detach).is_err() {
+            return Err((self, ResourceSystemError::ChannelDisconnected));
+        }
+
+        Ok(DetachedPath(self.get_effective_path().expect(
+            "get_effective_path is None in spite of state being Initialized",
+        )))
     }
 
     pub fn get_type(&self) -> ResourceType {
@@ -243,7 +255,6 @@ pub enum ResourceState {
     Uninitialized,
     Initialized,
     Disposed,
-    Detached,
 }
 
 impl std::fmt::Display for ResourceState {
@@ -252,7 +263,6 @@ impl std::fmt::Display for ResourceState {
             ResourceState::Uninitialized => write!(f, "Uninitialized"),
             ResourceState::Initialized => write!(f, "Initialized"),
             ResourceState::Disposed => write!(f, "Disposed"),
-            ResourceState::Detached => write!(f, "Detached"),
         }
     }
 }

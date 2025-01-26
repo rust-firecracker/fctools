@@ -1,13 +1,4 @@
-use std::{
-    future::poll_fn,
-    path::PathBuf,
-    pin::pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    task::Poll,
-};
+use std::{future::poll_fn, path::PathBuf, pin::pin, sync::Arc, task::Poll};
 
 use futures_channel::mpsc;
 use futures_util::StreamExt;
@@ -40,7 +31,6 @@ pub struct OwnedResource<R: Runtime> {
 pub struct ResourceData {
     pub source_path: PathBuf,
     pub r#type: ResourceType,
-    pub attached: AtomicBool,
 }
 
 #[derive(Debug)]
@@ -52,6 +42,7 @@ pub struct ResourceInitData {
 pub enum ResourcePush {
     Initialize(ResourceInitData),
     Dispose,
+    Detach,
 }
 
 #[derive(Debug, Clone)]
@@ -130,7 +121,6 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                             OwnedResourceState::Initialized => {
                                 if let Some(init_data) = resource.init_data {
                                     task_set.spawn(resource_system_dispose_task(
-                                        resource.data,
                                         init_data,
                                         runtime.clone(),
                                         process_spawner.clone(),
@@ -173,7 +163,6 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                     }
                     ResourcePush::Dispose => {
                         let dispose_task = runtime.spawn_task(resource_system_dispose_task(
-                            resource.data.clone(),
                             resource.init_data.clone().unwrap(),
                             runtime.clone(),
                             process_spawner.clone(),
@@ -181,6 +170,9 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                         ));
 
                         resource.state = OwnedResourceState::Disposing(dispose_task);
+                    }
+                    ResourcePush::Detach => {
+                        owned_resources.remove(resource_index);
                     }
                 }
             }
@@ -365,22 +357,19 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
 }
 
 async fn resource_system_dispose_task<R: Runtime, S: ProcessSpawner>(
-    data: Arc<ResourceData>,
     init_data: Arc<ResourceInitData>,
     runtime: R,
     process_spawner: S,
     ownership_model: VmmOwnershipModel,
 ) -> Result<(), ResourceSystemError> {
-    if data.attached.load(Ordering::Acquire) {
-        upgrade_owner(&init_data.effective_path, ownership_model, &process_spawner, &runtime)
-            .await
-            .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
+    upgrade_owner(&init_data.effective_path, ownership_model, &process_spawner, &runtime)
+        .await
+        .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
 
-        runtime
-            .fs_remove_file(&init_data.effective_path)
-            .await
-            .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
-    }
+    runtime
+        .fs_remove_file(&init_data.effective_path)
+        .await
+        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
 
     Ok(())
 }

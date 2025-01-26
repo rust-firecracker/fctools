@@ -136,11 +136,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             state: OwnedResourceState::Uninitialized,
             push_rx,
             pull_tx,
-            data: Arc::new(ResourceData {
-                source_path,
-                r#type,
-                attached: AtomicBool::new(true),
-            }),
+            data: Arc::new(ResourceData { source_path, r#type }),
             init_data: None,
         };
 

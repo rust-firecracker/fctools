@@ -6,7 +6,7 @@ use crate::{
     vmm::{
         arguments::{command_modifier::CommandModifier, jailer::JailerArguments, VmmApiSocket, VmmArguments},
         installation::VmmInstallation,
-        ownership::{upgrade_owner, PROCESS_GID, PROCESS_UID},
+        ownership::{downgrade_owner_recursively, upgrade_owner, PROCESS_GID, PROCESS_UID},
         resource::ResourceType,
     },
 };
@@ -122,11 +122,6 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             .map_err(VmmExecutorError::ResourceSystemError)?;
         }
 
-        // TODO: figure this out
-        // downgrade_owner_recursively(&jail_path, context.ownership_model, &context.runtime)
-        //     .await
-        //     .map_err(VmmExecutorError::ChangeOwnerError)?;
-
         Ok(())
     }
 
@@ -135,6 +130,14 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
     ) -> Result<ProcessHandle<R>, VmmExecutorError> {
+        downgrade_owner_recursively(
+            &self.get_paths(&context.installation).1,
+            context.ownership_model,
+            &context.runtime,
+        )
+        .await
+        .map_err(VmmExecutorError::ChangeOwnerError)?;
+
         let (uid, gid) = match context.ownership_model.as_downgrade() {
             Some(values) => values,
             None => (*PROCESS_UID, *PROCESS_GID),
