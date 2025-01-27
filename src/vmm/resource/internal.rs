@@ -5,7 +5,7 @@ use futures_util::StreamExt;
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{util::RuntimeTaskSet, Runtime, RuntimeTask},
+    runtime::{Runtime, RuntimeTask},
     vmm::ownership::{downgrade_owner, upgrade_owner, VmmOwnershipModel},
 };
 
@@ -58,7 +58,6 @@ pub enum ResourceSystemPush<R: Runtime> {
 }
 
 pub enum ResourceSystemPull {
-    ShutdownFinished(Result<(), ResourceSystemError>),
     PendingTasksComplete,
 }
 
@@ -119,33 +118,6 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                     owned_resources.push(owned_resource);
                 }
                 ResourceSystemPush::Shutdown => {
-                    let mut task_set = RuntimeTaskSet::new(runtime.clone());
-
-                    for resource in owned_resources {
-                        match resource.state {
-                            OwnedResourceState::Disposing(task) => {
-                                task_set.add(task);
-                            }
-                            OwnedResourceState::Initialized => {
-                                if let Some(init_data) = resource.init_data {
-                                    task_set.spawn(resource_system_dispose_task(
-                                        init_data,
-                                        runtime.clone(),
-                                        process_spawner.clone(),
-                                        ownership_model,
-                                    ));
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    let result = match task_set.wait().await {
-                        Some(result) => result,
-                        None => Err(ResourceSystemError::TaskJoinFailed),
-                    };
-
-                    let _ = pull_tx.unbounded_send(ResourceSystemPull::ShutdownFinished(result));
                     return;
                 }
                 ResourceSystemPush::AwaitPendingTasks => {
@@ -393,7 +365,5 @@ async fn resource_system_dispose_task<R: Runtime, S: ProcessSpawner>(
     runtime
         .fs_remove_file(&init_data.effective_path)
         .await
-        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
-
-    Ok(())
+        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))
 }
