@@ -123,6 +123,32 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             .map(ProducedResource)
     }
 
+    pub fn new_resource_from(&mut self, resource: &Resource) -> Result<Resource, ResourceSystemError> {
+        let (push_tx, push_rx) = mpsc::unbounded();
+        let (pull_tx, pull_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
+
+        let resource = Resource {
+            push_tx,
+            pull_rx: Mutex::new(pull_rx),
+            data: resource.data.clone(),
+            init_data: OnceLock::new(),
+            disposed: Arc::new(AtomicBool::new(false)),
+        };
+
+        self.push_tx
+            .unbounded_send(ResourceSystemPush::AddResource(OwnedResource {
+                state: OwnedResourceState::Uninitialized,
+                push_rx,
+                pull_tx,
+                data: resource.data.clone(),
+                init_data: None,
+            }))
+            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
+
+        self.resources.push(resource.clone());
+        Ok(resource)
+    }
+
     pub fn get_resources(&self) -> Vec<Resource> {
         self.resources.iter().cloned().collect()
     }
@@ -154,7 +180,6 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         };
 
         self.resources.push(resource.clone());
-
         Ok(resource)
     }
 }
