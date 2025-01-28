@@ -1,6 +1,14 @@
 //! A runtime implementation using Tokio's different features for all of its components.
 
-use std::{future::Future, os::fd::OwnedFd, path::Path, process::Stdio, time::Duration};
+use std::{
+    future::Future,
+    os::fd::OwnedFd,
+    path::Path,
+    pin::Pin,
+    process::Stdio,
+    task::{Context, Poll},
+    time::Duration,
+};
 
 use tokio::{
     io::unix::AsyncFd,
@@ -154,6 +162,10 @@ impl<O: Send + 'static> RuntimeTask<O> for TokioRuntimeTask<O> {
             Ok(output) => Some(output),
             Err(_) => None,
         }
+    }
+
+    fn poll_join(&mut self, context: &mut Context) -> Poll<Option<O>> {
+        Pin::new(&mut self.0).poll(context).map(|r| r.ok())
     }
 }
 

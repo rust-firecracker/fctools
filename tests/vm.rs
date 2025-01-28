@@ -18,7 +18,7 @@ use fctools::{
             unrestricted::UnrestrictedVmmExecutor,
         },
         ownership::VmmOwnershipModel,
-        resource::{created::CreatedVmmResourceType, moved::VmmResourceMoveMethod},
+        resource::{system::ResourceSystem, CreatedResourceType, MovedResourceType},
     },
 };
 use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};
@@ -31,70 +31,74 @@ use tokio::fs::{metadata, try_exists};
 
 mod test_framework;
 
-#[test]
-fn vm_can_boot_via_api_calls() {
+#[tokio::test]
+async fn vm_can_boot_via_api_calls() {
     VmBuilder::new()
         .init_method(InitMethod::ViaApiCalls)
         .run(|mut vm| async move {
             shutdown_test_vm(&mut vm).await;
-        });
+        })
+        .await;
 }
 
-#[test]
-fn vm_can_boot_via_json() {
+#[tokio::test]
+async fn vm_can_boot_via_json() {
     VmBuilder::new()
         .init_method(InitMethod::ViaJsonConfiguration(get_tmp_path()))
         .run(|mut vm| async move {
             shutdown_test_vm(&mut vm).await;
-        });
+        })
+        .await;
 }
 
-#[test]
-fn vm_can_shut_down_via_ctrl_alt_del() {
-    vm_shutdown_test(VmShutdownMethod::CtrlAltDel);
+#[tokio::test]
+async fn vm_can_shut_down_via_ctrl_alt_del() {
+    vm_shutdown_test(VmShutdownMethod::CtrlAltDel).await;
 }
 
-#[test]
-fn vm_can_be_shut_down_via_pause_then_kill() {
-    vm_shutdown_test(VmShutdownMethod::PauseThenKill);
+#[tokio::test]
+async fn vm_can_be_shut_down_via_pause_then_kill() {
+    vm_shutdown_test(VmShutdownMethod::PauseThenKill).await;
 }
 
-#[test]
-fn vm_can_be_shut_down_via_kill() {
-    vm_shutdown_test(VmShutdownMethod::Kill);
+#[tokio::test]
+async fn vm_can_be_shut_down_via_kill() {
+    vm_shutdown_test(VmShutdownMethod::Kill).await;
 }
 
-fn vm_shutdown_test(method: VmShutdownMethod) {
-    VmBuilder::new().run(move |mut vm| {
-        let method = method.clone();
-        async move {
-            let outcome = vm
-                .shutdown(VmShutdownAction {
-                    method: method.clone(),
-                    timeout: None,
-                    graceful: true,
-                })
-                .await
-                .unwrap();
-            assert!(method != VmShutdownMethod::CtrlAltDel || outcome.graceful);
-            assert!(outcome.errors.is_empty());
-            assert_eq!(outcome.index, 0);
-            vm.cleanup().await.unwrap();
-        }
-    });
+async fn vm_shutdown_test(method: VmShutdownMethod) {
+    VmBuilder::new()
+        .run(move |mut vm| {
+            let method = method.clone();
+            async move {
+                let outcome = vm
+                    .shutdown(VmShutdownAction {
+                        method: method.clone(),
+                        timeout: None,
+                        graceful: true,
+                    })
+                    .await
+                    .unwrap();
+                assert!(method != VmShutdownMethod::CtrlAltDel || outcome.graceful);
+                assert!(outcome.errors.is_empty());
+                assert_eq!(outcome.index, 0);
+                vm.cleanup().await.unwrap();
+            }
+        })
+        .await;
 }
 
-#[test]
-fn vm_processes_logger_path_as_fifo() {
-    vm_logger_test(CreatedVmmResourceType::Fifo);
+#[tokio::test]
+async fn vm_processes_logger_path_as_fifo() {
+    vm_logger_test(CreatedResourceType::Fifo).await;
 }
 
-#[test]
-fn vm_processes_logger_path_as_plaintext() {
-    vm_logger_test(CreatedVmmResourceType::File);
+#[tokio::test]
+async fn vm_processes_logger_path_as_plaintext() {
+    vm_logger_test(CreatedResourceType::File).await;
 }
 
-fn vm_logger_test(resource_type: CreatedVmmResourceType) {
+async fn vm_logger_test(resource_type: CreatedResourceType) {
     VmBuilder::new()
         .logger_system(resource_type)
         .run(move |mut vm| async move {
@@ -107,11 +111,11 @@ fn vm_logger_test(resource_type: CreatedVmmResourceType) {
                 .logs
                 .as_ref()
                 .unwrap()
-                .effective_path()
-                .to_owned();
+                .get_effective_path()
+                .unwrap();
 
             let metadata = metadata(&log_path).await.unwrap();
-            if resource_type == CreatedVmmResourceType::Fifo {
+            if resource_type == CreatedResourceType::Fifo {
                 assert!(metadata.file_type().is_fifo());
             } else {
                 assert!(metadata.is_file() && !metadata.file_type().is_fifo());
@@ -119,20 +123,21 @@ fn vm_logger_test(resource_type: CreatedVmmResourceType) {
 
             shutdown_test_vm(&mut vm).await;
             assert!(!try_exists(log_path).await.unwrap());
-        });
+        })
+        .await;
 }
 
-#[test]
-fn vm_processes_metrics_path_as_plaintext() {
-    vm_metrics_test(CreatedVmmResourceType::File);
+#[tokio::test]
+async fn vm_processes_metrics_path_as_plaintext() {
+    vm_metrics_test(CreatedResourceType::File).await;
 }
 
-#[test]
-fn vm_processes_metrics_path_as_fifo() {
-    vm_metrics_test(CreatedVmmResourceType::Fifo);
+#[tokio::test]
+async fn vm_processes_metrics_path_as_fifo() {
+    vm_metrics_test(CreatedResourceType::Fifo).await;
 }
 
-fn vm_metrics_test(resource_type: CreatedVmmResourceType) {
+async fn vm_metrics_test(resource_type: CreatedResourceType) {
     VmBuilder::new()
         .metrics_system(resource_type)
         .run(move |mut vm| async move {
@@ -143,50 +148,57 @@ fn vm_metrics_test(resource_type: CreatedVmmResourceType) {
                 .as_ref()
                 .unwrap()
                 .metrics
-                .effective_path()
-                .to_owned();
+                .get_effective_path()
+                .unwrap();
 
             assert_eq!(
                 metadata(&metrics_path).await.unwrap().file_type().is_fifo(),
-                resource_type == CreatedVmmResourceType::Fifo
+                resource_type == CreatedResourceType::Fifo
             );
             shutdown_test_vm(&mut vm).await;
             assert!(!try_exists(metrics_path).await.unwrap());
-        });
+        })
+        .await;
 }
 
-#[test]
-fn vm_processes_vsock() {
-    VmBuilder::new().vsock_device().run(|mut vm| async move {
-        let uds_path = vm
-            .configuration()
-            .data()
-            .vsock_device
-            .as_ref()
-            .unwrap()
-            .uds
-            .effective_path()
-            .to_owned();
-        assert!(metadata(&uds_path).await.unwrap().file_type().is_socket());
-        shutdown_test_vm(&mut vm).await;
-        assert!(!try_exists(uds_path).await.unwrap());
-    });
+#[tokio::test]
+async fn vm_processes_vsock() {
+    VmBuilder::new()
+        .vsock_device()
+        .run(|mut vm| async move {
+            let uds_path = vm
+                .configuration()
+                .data()
+                .vsock_device
+                .as_ref()
+                .unwrap()
+                .uds
+                .get_effective_path()
+                .unwrap();
+            assert!(metadata(&uds_path).await.unwrap().file_type().is_socket());
+            shutdown_test_vm(&mut vm).await;
+            assert!(!try_exists(uds_path).await.unwrap());
+        })
+        .await;
 }
 
-#[test]
-fn vm_translates_local_to_effective_paths() {
-    VmBuilder::new().run(|mut vm| async move {
-        let local_path = get_tmp_path();
-        let effective_path = vm.local_to_effective_path(&local_path);
-        assert!(
-            local_path == effective_path || effective_path.to_str().unwrap().ends_with(local_path.to_str().unwrap())
-        );
-        shutdown_test_vm(&mut vm).await;
-    });
+#[tokio::test]
+async fn vm_translates_local_to_effective_paths() {
+    VmBuilder::new()
+        .run(|mut vm| async move {
+            let local_path = get_tmp_path();
+            let effective_path = vm.local_to_effective_path(&local_path);
+            assert!(
+                local_path == effective_path
+                    || effective_path.to_str().unwrap().ends_with(local_path.to_str().unwrap())
+            );
+            shutdown_test_vm(&mut vm).await;
+        })
+        .await;
 }
 
-#[test]
-fn vm_can_take_pipes() {
+#[tokio::test]
+async fn vm_can_take_pipes() {
     VmBuilder::new()
         .pre_start_hook(|vm| {
             Box::pin(async {
@@ -206,11 +218,12 @@ fn vm_can_take_pipes() {
             }
 
             assert!(buf.contains("Artificially kick devices."));
-        });
+        })
+        .await;
 }
 
-#[test]
-fn vm_tracks_state_with_graceful_exit() {
+#[tokio::test]
+async fn vm_tracks_state_with_graceful_exit() {
     VmBuilder::new()
         .pre_start_hook(|vm| {
             Box::pin(async {
@@ -221,65 +234,83 @@ fn vm_tracks_state_with_graceful_exit() {
             assert_eq!(vm.state(), VmState::Running);
             shutdown_test_vm(&mut vm).await;
             assert_eq!(vm.state(), VmState::Exited);
-        });
+        })
+        .await;
 }
 
-#[test]
-fn vm_tracks_state_with_crash() {
-    VmBuilder::new().run(|mut vm| async move {
-        assert_eq!(vm.state(), VmState::Running);
-        shutdown_test_vm(&mut vm).await;
-    });
+#[tokio::test]
+async fn vm_tracks_state_with_crash() {
+    VmBuilder::new()
+        .run(|mut vm| async move {
+            assert_eq!(vm.state(), VmState::Running);
+            shutdown_test_vm(&mut vm).await;
+        })
+        .await;
 }
 
-#[test]
-fn vm_can_snapshot_while_original_is_running() {
-    VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
-        vm.api_pause().await.unwrap();
-        let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
-        restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
-        vm.api_resume().await.unwrap();
-        shutdown_test_vm(&mut vm).await;
-        snapshot.remove(&TokioRuntime).await;
-    });
+#[tokio::test]
+async fn vm_can_snapshot_while_original_is_running() {
+    VmBuilder::new()
+        .run_with_is_jailed(|mut vm, is_jailed| async move {
+            vm.api_pause().await.unwrap();
+            let create_snapshot = get_create_snapshot(vm.get_resource_system());
+            let snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
+            restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
+            vm.api_resume().await.unwrap();
+            shutdown_test_vm(&mut vm).await;
+            snapshot.remove(&TokioRuntime).await.unwrap();
+        })
+        .await;
 }
 
-#[test]
-fn vm_can_snapshot_after_original_has_exited() {
-    VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
-        vm.api_pause().await.unwrap();
-        let mut snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
-        snapshot
-            .copy(get_tmp_path(), get_tmp_path(), &TokioRuntime)
-            .await
-            .unwrap();
-        vm.api_resume().await.unwrap();
-        shutdown_test_vm(&mut vm).await;
+#[tokio::test]
+async fn vm_can_snapshot_after_original_has_exited() {
+    VmBuilder::new()
+        .run_with_is_jailed(|mut vm, is_jailed| async move {
+            vm.api_pause().await.unwrap();
+            let create_snapshot = get_create_snapshot(vm.get_resource_system());
+            let mut snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
+            snapshot
+                .copy(&TokioRuntime, get_tmp_path(), get_tmp_path())
+                .await
+                .unwrap();
+            vm.api_resume().await.unwrap();
+            shutdown_test_vm(&mut vm).await;
 
-        restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
-        snapshot.remove(&TokioRuntime).await;
-    });
+            restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
+            snapshot.remove(&TokioRuntime).await.unwrap();
+        })
+        .await;
 }
 
-#[test]
-fn vm_can_boot_with_simple_networking() {
-    VmBuilder::new().simple_networking().run(|mut vm| async move {
-        shutdown_test_vm(&mut vm).await;
-    });
+#[tokio::test]
+async fn vm_can_boot_with_simple_networking() {
+    VmBuilder::new()
+        .simple_networking()
+        .run(|mut vm| async move {
+            shutdown_test_vm(&mut vm).await;
+        })
+        .await;
 }
 
-#[test]
-fn vm_can_boot_with_namespaced_networking() {
-    VmBuilder::new().namespaced_networking().run(|mut vm| async move {
-        shutdown_test_vm(&mut vm).await;
-    });
+#[tokio::test]
+async fn vm_can_boot_with_namespaced_networking() {
+    VmBuilder::new()
+        .namespaced_networking()
+        .run(|mut vm| async move {
+            shutdown_test_vm(&mut vm).await;
+        })
+        .await;
 }
 
-#[test]
-fn vm_can_boot_with_vsock_device() {
-    VmBuilder::new().vsock_device().run(|mut vm| async move {
-        shutdown_test_vm(&mut vm).await;
-    });
+#[tokio::test]
+async fn vm_can_boot_with_vsock_device() {
+    VmBuilder::new()
+        .vsock_device()
+        .run(|mut vm| async move {
+            shutdown_test_vm(&mut vm).await;
+        })
+        .await;
 }
 
 async fn restore_vm_from_snapshot(snapshot: VmSnapshot, is_jailed: bool) {
@@ -294,16 +325,20 @@ async fn restore_vm_from_snapshot(snapshot: VmSnapshot, is_jailed: bool) {
         ))),
     };
 
+    let ownership_model = VmmOwnershipModel::Downgraded {
+        uid: TestOptions::get().await.jailer_uid,
+        gid: TestOptions::get().await.jailer_gid,
+    };
+    let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, ownership_model);
+    let configuration = snapshot
+        .into_configuration(&mut resource_system, MovedResourceType::Copied, Some(true), Some(true))
+        .unwrap();
+
     let mut vm = TestVm::prepare(
         executor,
-        DirectProcessSpawner,
-        TokioRuntime,
-        VmmOwnershipModel::Downgraded {
-            uid: TestOptions::get().await.jailer_uid,
-            gid: TestOptions::get().await.jailer_gid,
-        },
+        resource_system,
         Arc::new(get_real_firecracker_installation()),
-        snapshot.into_configuration(VmmResourceMoveMethod::Copy, Some(true), Some(true)),
+        configuration,
     )
     .await
     .unwrap();

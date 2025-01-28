@@ -2,10 +2,6 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::vmm::resource::{
-    created::CreatedVmmResource, moved::MovedVmmResource, produced::ProducedVmmResource, VmmResourceManager,
-};
-
 use super::models::{
     BalloonDevice, BootSource, CpuTemplate, Drive, EntropyDevice, LoadSnapshot, LoggerSystem, MachineConfiguration,
     MetricsSystem, MmdsConfiguration, NetworkInterface, VsockDevice,
@@ -55,67 +51,6 @@ impl VmConfiguration {
                 ref data,
             } => data,
         }
-    }
-}
-
-impl VmmResourceManager for VmConfiguration {
-    fn moved_resources(&mut self) -> impl Iterator<Item = &mut MovedVmmResource> + Send {
-        let mut resources = Vec::with_capacity(1);
-
-        let data = match self {
-            VmConfiguration::New { init_method: _, data } => data,
-            VmConfiguration::RestoredFromSnapshot { load_snapshot, data } => {
-                resources.push(&mut load_snapshot.snapshot);
-                resources.push(&mut load_snapshot.mem_backend.backend);
-
-                data
-            }
-        };
-
-        resources.push(&mut data.boot_source.kernel_image);
-
-        if let Some(ref mut initrd) = data.boot_source.initrd {
-            resources.push(initrd);
-        }
-
-        for drive in &mut data.drives {
-            if let Some(ref mut block) = drive.block {
-                resources.push(block);
-            }
-
-            if let Some(ref mut socket) = drive.socket {
-                resources.push(socket);
-            }
-        }
-
-        resources.into_iter()
-    }
-
-    fn created_resources(&mut self) -> impl Iterator<Item = &mut CreatedVmmResource> + Send {
-        let mut resources = Vec::new();
-        let data = self.data_mut();
-
-        if let Some(ref mut logger_system) = data.logger_system {
-            if let Some(ref mut logs) = logger_system.logs {
-                resources.push(logs);
-            }
-        }
-
-        if let Some(ref mut metrics_system) = data.metrics_system {
-            resources.push(&mut metrics_system.metrics);
-        }
-
-        resources.into_iter()
-    }
-
-    fn produced_resources(&mut self) -> impl Iterator<Item = &mut ProducedVmmResource> + Send {
-        let mut resources = Vec::new();
-
-        if let Some(ref mut vsock_device) = self.data_mut().vsock_device {
-            resources.push(&mut vsock_device.uds);
-        }
-
-        resources.into_iter()
     }
 }
 
