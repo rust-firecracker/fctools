@@ -1,5 +1,6 @@
+#[cfg(not(feature = "vmm-process"))]
+use std::marker::PhantomData;
 use std::{
-    marker::PhantomData,
     path::PathBuf,
     sync::{atomic::AtomicBool, Arc, Mutex, OnceLock},
 };
@@ -26,6 +27,7 @@ use super::{
 pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
     push_tx: mpsc::UnboundedSender<ResourceSystemPush<R>>,
     pull_rx: mpsc::UnboundedReceiver<ResourceSystemPull>,
+    #[cfg(not(feature = "vmm-process"))]
     marker: PhantomData<S>,
     resources: Vec<Resource>,
     #[cfg(feature = "vmm-process")]
@@ -75,6 +77,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         Self {
             push_tx,
             pull_rx,
+            #[cfg(not(feature = "vmm-process"))]
             marker: PhantomData,
             resources,
             #[cfg(feature = "vmm-process")]
@@ -86,7 +89,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         }
     }
 
-    pub async fn wait_for_pending_tasks(&mut self) -> Result<(), ResourceSystemError> {
+    pub(crate) async fn wait_for_pending_tasks(&mut self) -> Result<(), ResourceSystemError> {
         self.push_tx
             .unbounded_send(ResourceSystemPush::AwaitPendingTasks)
             .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
@@ -149,7 +152,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         Ok(resource)
     }
 
-    pub fn get_resources(&self) -> Vec<Resource> {
+    pub(crate) fn get_resources(&self) -> Vec<Resource> {
         self.resources.iter().cloned().collect()
     }
 

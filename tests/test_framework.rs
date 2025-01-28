@@ -252,9 +252,9 @@ struct NetworkData {
 #[allow(unused)]
 pub struct VmBuilder {
     init_method: InitMethod,
-    logger_system: Option<LoggerSystem>,
-    metrics_system: Option<MetricsSystem>,
-    vsock_device: Option<VsockDevice>,
+    logger: Option<CreatedResourceType>,
+    metrics: Option<CreatedResourceType>,
+    vsock_device: bool,
     pre_start_hook: Option<(PreStartHook, PreStartHook)>,
     balloon_device: Option<BalloonDevice>,
     unrestricted_network_data: Option<NetworkData>,
@@ -262,7 +262,6 @@ pub struct VmBuilder {
     boot_arg_append: String,
     mmds: bool,
     new_pid_ns: bool,
-    resource_system: ResourceSystem<DirectProcessSpawner, TokioRuntime>,
 }
 
 #[allow(unused)]
@@ -270,9 +269,9 @@ impl VmBuilder {
     pub fn new() -> Self {
         Self {
             init_method: InitMethod::ViaApiCalls,
-            logger_system: None,
-            metrics_system: None,
-            vsock_device: None,
+            logger: None,
+            metrics: None,
+            vsock_device: false,
             pre_start_hook: None,
             balloon_device: None,
             unrestricted_network_data: None,
@@ -280,14 +279,6 @@ impl VmBuilder {
             boot_arg_append: String::new(),
             mmds: false,
             new_pid_ns: true,
-            resource_system: ResourceSystem::new(
-                DirectProcessSpawner,
-                TokioRuntime,
-                VmmOwnershipModel::Downgraded {
-                    uid: TestOptions::get_blocking().jailer_uid,
-                    gid: TestOptions::get_blocking().jailer_gid,
-                },
-            ),
         }
     }
 
@@ -297,35 +288,17 @@ impl VmBuilder {
     }
 
     pub fn logger_system(mut self, r#type: CreatedResourceType) -> Self {
-        self.logger_system = Some(LoggerSystem {
-            logs: Some(
-                self.resource_system
-                    .new_created_resource(get_tmp_path(), r#type)
-                    .unwrap(),
-            ),
-            level: None,
-            show_level: None,
-            show_log_origin: None,
-            module: None,
-        });
+        self.logger = Some(r#type);
         self
     }
 
     pub fn metrics_system(mut self, r#type: CreatedResourceType) -> Self {
-        self.metrics_system = Some(MetricsSystem {
-            metrics: self
-                .resource_system
-                .new_created_resource(get_tmp_path(), r#type)
-                .unwrap(),
-        });
+        self.metrics = Some(r#type);
         self
     }
 
     pub fn vsock_device(mut self) -> Self {
-        self.vsock_device = Some(VsockDevice {
-            guest_cid: rand::thread_rng().next_u32(),
-            uds: self.resource_system.new_produced_resource(get_tmp_path()).unwrap(),
-        });
+        self.vsock_device = true;
         self
     }
 
@@ -511,6 +484,29 @@ impl VmBuilder {
             }
         }
 
+        fn new_logger_system(resource_system: &mut TestResourceSystem, r#type: CreatedResourceType) -> LoggerSystem {
+            LoggerSystem {
+                logs: Some(resource_system.new_created_resource(get_tmp_path(), r#type).unwrap()),
+                level: None,
+                show_level: None,
+                show_log_origin: None,
+                module: None,
+            }
+        }
+
+        fn new_metrics_system(resource_system: &mut TestResourceSystem, r#type: CreatedResourceType) -> MetricsSystem {
+            MetricsSystem {
+                metrics: resource_system.new_created_resource(get_tmp_path(), r#type).unwrap(),
+            }
+        }
+
+        fn new_vsock_device(resource_system: &mut TestResourceSystem) -> VsockDevice {
+            VsockDevice {
+                guest_cid: rand::thread_rng().next_u32(),
+                uds: resource_system.new_produced_resource(get_tmp_path()).unwrap(),
+            }
+        }
+
         let socket_path = get_tmp_path();
         let ownership_model = VmmOwnershipModel::Downgraded {
             uid: TestOptions::get_blocking().jailer_uid,
@@ -561,19 +557,19 @@ impl VmBuilder {
         ));
 
         // add components from builder to data
-        if let Some(logger_system) = self.logger_system {
-            unrestricted_data.logger_system = Some(logger_system.clone());
-            jailed_data.logger_system = Some(logger_system);
+        if let Some(r#type) = self.logger {
+            unrestricted_data.logger_system = Some(new_logger_system(&mut unrestricted_resource_system, r#type));
+            jailed_data.logger_system = Some(new_logger_system(&mut jailed_resource_system, r#type));
         }
 
-        if let Some(metrics_system) = self.metrics_system {
-            unrestricted_data.metrics_system = Some(metrics_system.clone());
-            jailed_data.metrics_system = Some(metrics_system);
+        if let Some(r#type) = self.metrics {
+            unrestricted_data.metrics_system = Some(new_metrics_system(&mut unrestricted_resource_system, r#type));
+            jailed_data.metrics_system = Some(new_metrics_system(&mut jailed_resource_system, r#type));
         }
 
-        if let Some(vsock_device) = self.vsock_device {
-            unrestricted_data.vsock_device = Some(vsock_device.clone());
-            jailed_data.vsock_device = Some(vsock_device);
+        if self.vsock_device {
+            unrestricted_data.vsock_device = Some(new_vsock_device(&mut unrestricted_resource_system));
+            jailed_data.vsock_device = Some(new_vsock_device(&mut jailed_resource_system));
         }
 
         if let Some(balloon_device) = self.balloon_device {
