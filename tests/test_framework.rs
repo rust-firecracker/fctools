@@ -415,16 +415,29 @@ impl VmBuilder {
         }
     }
 
-    pub async fn run<F, Fut>(self, function: F)
+    pub fn run<F, Fut>(self, function: F)
     where
         F: Fn(TestVm) -> Fut + Send,
         F: Clone + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        self.run_with_is_jailed(move |vm, _| function(vm)).await;
+        self.run_with_is_jailed(move |vm, _| function(vm));
     }
 
-    pub async fn run_with_is_jailed<F, Fut>(self, function: F)
+    pub fn run_with_is_jailed<F, Fut>(self, function: F)
+    where
+        F: Fn(TestVm, bool) -> Fut + Send,
+        F: Clone + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(self.run_inner(function));
+    }
+
+    async fn run_inner<F, Fut>(self, function: F)
     where
         F: Fn(TestVm, bool) -> Fut + Send,
         F: Clone + 'static,
