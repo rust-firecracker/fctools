@@ -11,6 +11,7 @@ use std::{
     os::fd::OwnedFd,
     path::Path,
     process::{ExitStatus, Stdio},
+    task::{Context, Poll},
     time::Duration,
 };
 
@@ -109,10 +110,14 @@ pub trait Runtime: Clone + Send + Sync + 'static {
 }
 
 /// An async task that is detached on drop, can be cancelled and joined on.
-pub trait RuntimeTask<O: Send + 'static>: Send {
+pub trait RuntimeTask<O: Send + 'static>: Send + Sized {
     fn cancel(self) -> impl Future<Output = Option<O>> + Send;
 
-    fn join(self) -> impl Future<Output = Option<O>> + Send;
+    fn poll_join(&mut self, context: &mut Context) -> Poll<Option<O>>;
+
+    fn join(mut self) -> impl Future<Output = Option<O>> + Send {
+        std::future::poll_fn(move |cx| self.poll_join(cx))
+    }
 }
 
 /// An async file descriptor in the runtime that can be polled for the "readable" interest. Used by

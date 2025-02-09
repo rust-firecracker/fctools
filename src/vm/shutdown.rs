@@ -165,6 +165,8 @@ pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
     for (index, action) in actions.into_iter().enumerate() {
         let result = match action.timeout {
             Some(duration) => vm
+                .vmm_process
+                .resource_system
                 .runtime
                 .clone()
                 .timeout(duration, action.method.run(vm))

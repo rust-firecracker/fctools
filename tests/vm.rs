@@ -18,7 +18,7 @@ use fctools::{
             unrestricted::UnrestrictedVmmExecutor,
         },
         ownership::VmmOwnershipModel,
-        resource::{created::CreatedVmmResourceType, moved::VmmResourceMoveMethod},
+        resource::{system::ResourceSystem, CreatedResourceType, MovedResourceType},
     },
 };
 use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};
@@ -86,15 +86,15 @@ fn vm_shutdown_test(method: VmShutdownMethod) {
 
 #[test]
 fn vm_processes_logger_path_as_fifo() {
-    vm_logger_test(CreatedVmmResourceType::Fifo);
+    vm_logger_test(CreatedResourceType::Fifo);
 }
 
 #[test]
 fn vm_processes_logger_path_as_plaintext() {
-    vm_logger_test(CreatedVmmResourceType::File);
+    vm_logger_test(CreatedResourceType::File);
 }
 
-fn vm_logger_test(resource_type: CreatedVmmResourceType) {
+fn vm_logger_test(resource_type: CreatedResourceType) {
     VmBuilder::new()
         .logger_system(resource_type)
         .run(move |mut vm| async move {
@@ -107,11 +107,11 @@ fn vm_logger_test(resource_type: CreatedVmmResourceType) {
                 .logs
                 .as_ref()
                 .unwrap()
-                .effective_path()
-                .to_owned();
+                .get_effective_path()
+                .unwrap();
 
             let metadata = metadata(&log_path).await.unwrap();
-            if resource_type == CreatedVmmResourceType::Fifo {
+            if resource_type == CreatedResourceType::Fifo {
                 assert!(metadata.file_type().is_fifo());
             } else {
                 assert!(metadata.is_file() && !metadata.file_type().is_fifo());
@@ -124,15 +124,15 @@ fn vm_logger_test(resource_type: CreatedVmmResourceType) {
 
 #[test]
 fn vm_processes_metrics_path_as_plaintext() {
-    vm_metrics_test(CreatedVmmResourceType::File);
+    vm_metrics_test(CreatedResourceType::File);
 }
 
 #[test]
 fn vm_processes_metrics_path_as_fifo() {
-    vm_metrics_test(CreatedVmmResourceType::Fifo);
+    vm_metrics_test(CreatedResourceType::Fifo);
 }
 
-fn vm_metrics_test(resource_type: CreatedVmmResourceType) {
+fn vm_metrics_test(resource_type: CreatedResourceType) {
     VmBuilder::new()
         .metrics_system(resource_type)
         .run(move |mut vm| async move {
@@ -143,12 +143,12 @@ fn vm_metrics_test(resource_type: CreatedVmmResourceType) {
                 .as_ref()
                 .unwrap()
                 .metrics
-                .effective_path()
-                .to_owned();
+                .get_effective_path()
+                .unwrap();
 
             assert_eq!(
                 metadata(&metrics_path).await.unwrap().file_type().is_fifo(),
-                resource_type == CreatedVmmResourceType::Fifo
+                resource_type == CreatedResourceType::Fifo
             );
             shutdown_test_vm(&mut vm).await;
             assert!(!try_exists(metrics_path).await.unwrap());
@@ -165,8 +165,8 @@ fn vm_processes_vsock() {
             .as_ref()
             .unwrap()
             .uds
-            .effective_path()
-            .to_owned();
+            .get_effective_path()
+            .unwrap();
         assert!(metadata(&uds_path).await.unwrap().file_type().is_socket());
         shutdown_test_vm(&mut vm).await;
         assert!(!try_exists(uds_path).await.unwrap());
@@ -236,11 +236,12 @@ fn vm_tracks_state_with_crash() {
 fn vm_can_snapshot_while_original_is_running() {
     VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
         vm.api_pause().await.unwrap();
-        let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
+        let create_snapshot = get_create_snapshot(vm.get_resource_system());
+        let snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
         restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm).await;
-        snapshot.remove(&TokioRuntime).await;
+        snapshot.remove(&TokioRuntime).await.unwrap();
     });
 }
 
@@ -248,16 +249,17 @@ fn vm_can_snapshot_while_original_is_running() {
 fn vm_can_snapshot_after_original_has_exited() {
     VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
         vm.api_pause().await.unwrap();
-        let mut snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
+        let create_snapshot = get_create_snapshot(vm.get_resource_system());
+        let mut snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
         snapshot
-            .copy(get_tmp_path(), get_tmp_path(), &TokioRuntime)
+            .copy(&TokioRuntime, get_tmp_path(), get_tmp_path())
             .await
             .unwrap();
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm).await;
 
         restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
-        snapshot.remove(&TokioRuntime).await;
+        snapshot.remove(&TokioRuntime).await.unwrap();
     });
 }
 
@@ -294,16 +296,20 @@ async fn restore_vm_from_snapshot(snapshot: VmSnapshot, is_jailed: bool) {
         ))),
     };
 
+    let ownership_model = VmmOwnershipModel::Downgraded {
+        uid: TestOptions::get().await.jailer_uid,
+        gid: TestOptions::get().await.jailer_gid,
+    };
+    let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, ownership_model);
+    let configuration = snapshot
+        .into_configuration(&mut resource_system, MovedResourceType::Copied, Some(true), Some(true))
+        .unwrap();
+
     let mut vm = TestVm::prepare(
         executor,
-        DirectProcessSpawner,
-        TokioRuntime,
-        VmmOwnershipModel::Downgraded {
-            uid: TestOptions::get().await.jailer_uid,
-            gid: TestOptions::get().await.jailer_gid,
-        },
+        resource_system,
         Arc::new(get_real_firecracker_installation()),
-        snapshot.into_configuration(VmmResourceMoveMethod::Copy, Some(true), Some(true)),
+        configuration,
     )
     .await
     .unwrap();

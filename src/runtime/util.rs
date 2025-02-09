@@ -28,6 +28,10 @@ impl<O: Send + 'static, R: Runtime> RuntimeTaskSet<O, R> {
         self.tasks.push(self.runtime.spawn_task(future));
     }
 
+    pub fn add(&mut self, task: R::Task<Result<(), O>>) {
+        self.tasks.push(task);
+    }
+
     pub async fn wait(self) -> Option<Result<(), O>> {
         for task in self.tasks {
             match task.join().await {
