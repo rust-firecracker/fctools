@@ -288,7 +288,7 @@ async fn restore_vm_from_snapshot(snapshot: VmSnapshot, is_jailed: bool) {
     let executor = match is_jailed {
         true => EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
-            JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap()),
+            JailerArguments::new(rand::rng().next_u32().to_string().try_into().unwrap()),
             FlatJailRenamer::default(),
         )),
         false => EitherVmmExecutor::Unrestricted(UnrestrictedVmmExecutor::new(VmmArguments::new(

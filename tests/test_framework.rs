@@ -196,7 +196,7 @@ async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProce
 
     let vmm_arguments = VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()));
 
-    let mut jailer_arguments = JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap())
+    let mut jailer_arguments = JailerArguments::new(rand::rng().next_u32().to_string().try_into().unwrap())
         .cgroup_version(JailerCgroupVersion::V2);
 
     if !no_new_pid_ns {
@@ -342,7 +342,7 @@ impl VmBuilder {
     }
 
     fn setup_simple_network(&self) -> NetworkData {
-        let subnet_index = rand::thread_rng().gen_range(1..1000);
+        let subnet_index = rand::rng().random_range(1..1000);
         let subnet = LinkLocalSubnet::new(subnet_index, 30).unwrap();
         let guest_ip = subnet.get_host_ip(0).unwrap().into();
         let tap_ip = subnet.get_host_ip(1).unwrap().into();
@@ -374,7 +374,7 @@ impl VmBuilder {
     }
 
     fn setup_namespaced_network(&self) -> NetworkData {
-        let subnet_index = rand::thread_rng().gen_range(1..=3000);
+        let subnet_index = rand::rng().random_range(1..=3000);
         let subnet = LinkLocalSubnet::new(subnet_index, 29).unwrap();
 
         let guest_ip = subnet.get_host_ip(0).unwrap().into();
@@ -515,7 +515,7 @@ impl VmBuilder {
 
         fn new_vsock_device(resource_system: &mut TestResourceSystem) -> VsockDevice {
             VsockDevice {
-                guest_cid: rand::thread_rng().next_u32(),
+                guest_cid: rand::rng().next_u32(),
                 uds: resource_system.new_produced_resource(get_tmp_path()).unwrap(),
             }
         }
@@ -550,7 +550,7 @@ impl VmBuilder {
         );
 
         let test_options = TestOptions::get_blocking();
-        let mut jailer_arguments = JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap())
+        let mut jailer_arguments = JailerArguments::new(rand::rng().next_u32().to_string().try_into().unwrap())
             .cgroup_version(JailerCgroupVersion::V2);
 
         if let Some(ref network) = self.jailed_network_data {
