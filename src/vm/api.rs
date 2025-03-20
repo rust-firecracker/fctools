@@ -300,11 +300,11 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
             .map_err(VmApiError::ResourceSystemError)?;
 
         Ok(VmSnapshot {
-            snapshot_path: create_snapshot
+            snapshot: create_snapshot
                 .snapshot
                 .detach()
                 .map_err(|(_, err)| VmApiError::ResourceSystemError(err))?,
-            mem_file_path: create_snapshot
+            mem_file: create_snapshot
                 .mem_file
                 .detach()
                 .map_err(|(_, err)| VmApiError::ResourceSystemError(err))?,

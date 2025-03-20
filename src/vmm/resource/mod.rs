@@ -7,15 +7,14 @@ use std::{
 };
 
 use async_broadcast::TryRecvError;
+use detached::DetachedResource;
 use futures_channel::mpsc;
 use internal::{ResourceData, ResourceInitData, ResourcePull, ResourcePush};
-use path::DetachedPath;
 use system::ResourceSystemError;
 
 mod internal;
 
 pub mod detached;
-pub mod path;
 pub mod system;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,26 +83,27 @@ impl Resource {
         }
     }
 
-    pub fn detach(self) -> Result<DetachedPath, (Self, ResourceSystemError)> {
+    pub fn detach(mut self) -> Result<DetachedResource, (Self, ResourceSystemError)> {
         let state = self.get_state();
 
-        if state != ResourceState::Initialized {
-            return Err((
-                self,
-                ResourceSystemError::IncorrectState {
-                    expected: ResourceState::Initialized,
-                    actual: state,
-                },
-            ));
+        if state == ResourceState::Disposed {
+            return Err((self, ResourceSystemError::IncorrectState(state)));
         }
 
         if self.push_tx.unbounded_send(ResourcePush::Detach).is_err() {
             return Err((self, ResourceSystemError::ChannelDisconnected));
         }
 
-        Ok(DetachedPath(self.get_effective_path().expect(
-            "get_effective_path is None in spite of state being Initialized",
-        )))
+        Ok(DetachedResource {
+            data: ResourceData {
+                source_path: self.data.source_path.clone(),
+                r#type: self.data.r#type.clone(),
+            },
+            init_data: self.init_data.take().map(|init_data| ResourceInitData {
+                effective_path: init_data.effective_path.clone(),
+                local_path: init_data.local_path.clone(),
+            }),
+        })
     }
 
     pub fn get_type(&self) -> ResourceType {
@@ -174,7 +174,7 @@ impl Resource {
         let actual = self.get_state();
 
         if actual != expected {
-            Err(ResourceSystemError::IncorrectState { expected, actual })
+            Err(ResourceSystemError::IncorrectState(actual))
         } else {
             Ok(())
         }

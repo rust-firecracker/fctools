@@ -27,13 +27,13 @@ pub struct OwnedResource<R: Runtime> {
     pub init_data: Option<Arc<ResourceInitData>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ResourceData {
     pub source_path: PathBuf,
     pub r#type: ResourceType,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ResourceInitData {
     pub effective_path: PathBuf,
     pub local_path: Option<PathBuf>,

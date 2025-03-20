@@ -16,8 +16,8 @@ use crate::{
 
 use super::{
     internal::{
-        resource_system_main_task, OwnedResource, OwnedResourceState, ResourceData, ResourceSystemPull,
-        ResourceSystemPush,
+        resource_system_main_task, OwnedResource, OwnedResourceState, ResourceData, ResourceInitData,
+        ResourceSystemPull, ResourceSystemPush,
     },
     Resource, ResourceState, ResourceType,
 };
@@ -37,7 +37,7 @@ pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
     pub(crate) ownership_model: VmmOwnershipModel,
 }
 
-const RESOURCE_BROADCAST_CAPACITY: usize = 5;
+const RESOURCE_BROADCAST_CAPACITY: usize = 10;
 
 impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
     pub fn new(process_spawner: S, runtime: R, ownership_model: VmmOwnershipModel) -> Self {
@@ -99,34 +99,45 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         }
     }
 
-    pub fn new_resource_from(&mut self, resource: &Resource) -> Result<Resource, ResourceSystemError> {
+    #[inline]
+    pub(crate) fn get_resources(&self) -> Vec<Resource> {
+        self.resources.iter().cloned().collect()
+    }
+
+    pub(super) fn attach_resource(
+        &mut self,
+        data: ResourceData,
+        init_data: Option<ResourceInitData>,
+    ) -> Result<Resource, ResourceSystemError> {
         let (push_tx, push_rx) = mpsc::unbounded();
         let (pull_tx, pull_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
+
+        let owned_resource = OwnedResource {
+            state: match init_data.is_some() {
+                true => OwnedResourceState::Initialized,
+                false => OwnedResourceState::Uninitialized,
+            },
+            push_rx,
+            pull_tx,
+            data: Arc::new(data),
+            init_data: init_data.map(Arc::new),
+        };
+
+        let data = owned_resource.data.clone();
+        self.push_tx
+            .unbounded_send(ResourceSystemPush::AddResource(owned_resource))
+            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
         let resource = Resource {
             push_tx,
             pull_rx: Mutex::new(pull_rx),
-            data: resource.data.clone(),
+            data,
             init_data: OnceLock::new(),
             disposed: Arc::new(AtomicBool::new(false)),
         };
 
-        self.push_tx
-            .unbounded_send(ResourceSystemPush::AddResource(OwnedResource {
-                state: OwnedResourceState::Uninitialized,
-                push_rx,
-                pull_tx,
-                data: resource.data.clone(),
-                init_data: None,
-            }))
-            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
-
         self.resources.push(resource.clone());
         Ok(resource)
-    }
-
-    pub(crate) fn get_resources(&self) -> Vec<Resource> {
-        self.resources.iter().cloned().collect()
     }
 
     pub fn new_resource<P: Into<PathBuf>>(
@@ -175,10 +186,7 @@ impl<S: ProcessSpawner, R: Runtime> Drop for ResourceSystem<S, R> {
 
 #[derive(Debug, Clone)]
 pub enum ResourceSystemError {
-    IncorrectState {
-        expected: ResourceState,
-        actual: ResourceState,
-    },
+    IncorrectState(ResourceState),
     ChannelDisconnected,
     MalformedResponse,
     ChangeOwnerError(Arc<ChangeOwnerError>),
@@ -190,8 +198,8 @@ pub enum ResourceSystemError {
 impl std::fmt::Display for ResourceSystemError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ResourceSystemError::IncorrectState { expected, actual } => {
-                write!(f, "Expected {expected} state, had {actual} state instead")
+            ResourceSystemError::IncorrectState(state) => {
+                write!(f, "Had incorrect {state} of resource, not permitted by operation")
             }
             ResourceSystemError::ChannelDisconnected => write!(f, "An internal channel connection broke"),
             ResourceSystemError::MalformedResponse => write!(
