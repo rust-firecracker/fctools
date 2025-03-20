@@ -7,7 +7,7 @@ use crate::{
     vmm::resource::{
         path::DetachedPath,
         system::{ResourceSystem, ResourceSystemError},
-        MovedResourceType,
+        MovedResourceType, ResourceType,
     },
 };
 
@@ -61,14 +61,16 @@ impl VmSnapshot {
         enable_diff_snapshots: Option<bool>,
         resume_vm: Option<bool>,
     ) -> Result<VmConfiguration, (Self, ResourceSystemError)> {
-        let mem_file =
-            match resource_system.new_moved_resource(self.mem_file_path.clone().into_inner(), moved_resource_type) {
-                Ok(resource) => resource,
-                Err(err) => return Err((self, err)),
-            };
+        let mem_file = match resource_system.new_resource(
+            self.mem_file_path.clone().into_inner(),
+            ResourceType::Moved(moved_resource_type),
+        ) {
+            Ok(resource) => resource,
+            Err(err) => return Err((self, err)),
+        };
 
         let snapshot =
-            match resource_system.new_moved_resource(self.snapshot_path.clone().into_inner(), moved_resource_type) {
+            match resource_system.new_resource(self.snapshot_path.clone().into_inner(), ResourceType::Moved(moved_resource_type)) {
                 Ok(resource) => resource,
                 Err(err) => return Err((self, err)),
             };

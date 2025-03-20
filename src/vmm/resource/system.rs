@@ -19,8 +19,7 @@ use super::{
         resource_system_main_task, OwnedResource, OwnedResourceState, ResourceData, ResourceSystemPull,
         ResourceSystemPush,
     },
-    CreatedResource, CreatedResourceType, MovedResource, MovedResourceType, ProducedResource, Resource, ResourceState,
-    ResourceType,
+    Resource, ResourceState, ResourceType,
 };
 
 #[derive(Debug)]
@@ -100,32 +99,6 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         }
     }
 
-    pub fn new_moved_resource<P: Into<PathBuf>>(
-        &mut self,
-        source_path: P,
-        r#type: MovedResourceType,
-    ) -> Result<MovedResource, ResourceSystemError> {
-        self.new_resource(source_path.into(), ResourceType::Moved(r#type))
-            .map(MovedResource)
-    }
-
-    pub fn new_created_resource<P: Into<PathBuf>>(
-        &mut self,
-        source_path: P,
-        r#type: CreatedResourceType,
-    ) -> Result<CreatedResource, ResourceSystemError> {
-        self.new_resource(source_path.into(), ResourceType::Created(r#type))
-            .map(CreatedResource)
-    }
-
-    pub fn new_produced_resource<P: Into<PathBuf>>(
-        &mut self,
-        source_path: P,
-    ) -> Result<ProducedResource, ResourceSystemError> {
-        self.new_resource(source_path.into(), ResourceType::Produced)
-            .map(ProducedResource)
-    }
-
     pub fn new_resource_from(&mut self, resource: &Resource) -> Result<Resource, ResourceSystemError> {
         let (push_tx, push_rx) = mpsc::unbounded();
         let (pull_tx, pull_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
@@ -156,7 +129,11 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         self.resources.iter().cloned().collect()
     }
 
-    fn new_resource(&mut self, source_path: PathBuf, r#type: ResourceType) -> Result<Resource, ResourceSystemError> {
+    pub fn new_resource<P: Into<PathBuf>>(
+        &mut self,
+        source_path: P,
+        r#type: ResourceType,
+    ) -> Result<Resource, ResourceSystemError> {
         let (push_tx, push_rx) = mpsc::unbounded();
         let (pull_tx, pull_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
 
@@ -164,7 +141,10 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             state: OwnedResourceState::Uninitialized,
             push_rx,
             pull_tx,
-            data: Arc::new(ResourceData { source_path, r#type }),
+            data: Arc::new(ResourceData {
+                source_path: source_path.into(),
+                r#type,
+            }),
             init_data: None,
         };
 

@@ -128,10 +128,10 @@ fn expand_context<S: ProcessSpawner, R: Runtime>(
     context: &mut VmmExecutorContext<S, R>,
 ) {
     if let Some(logs) = arguments.logs.clone() {
-        context.resources.push(logs.into_inner());
+        context.resources.push(logs);
     }
 
     if let Some(metrics) = arguments.metrics.clone() {
-        context.resources.push(metrics.into_inner());
+        context.resources.push(metrics);
     }
 }

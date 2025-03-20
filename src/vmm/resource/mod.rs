@@ -1,5 +1,4 @@
 use std::{
-    ops::Deref,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -15,6 +14,7 @@ use system::ResourceSystemError;
 
 mod internal;
 
+pub mod detached;
 pub mod path;
 pub mod system;
 
@@ -38,60 +38,6 @@ pub enum MovedResourceType {
     CopiedOrHardLinked,
     HardLinkedOrCopied,
     Renamed,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "vm", derive(serde::Serialize))]
-pub struct MovedResource(Resource);
-
-impl Deref for MovedResource {
-    type Target = Resource;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl MovedResource {
-    pub fn into_inner(self) -> Resource {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "vm", derive(serde::Serialize))]
-pub struct CreatedResource(Resource);
-
-impl Deref for CreatedResource {
-    type Target = Resource;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl CreatedResource {
-    pub fn into_inner(self) -> Resource {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "vm", derive(serde::Serialize))]
-pub struct ProducedResource(Resource);
-
-impl Deref for ProducedResource {
-    type Target = Resource;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl ProducedResource {
-    pub fn into_inner(self) -> Resource {
-        self.0
-    }
 }
 
 #[derive(Debug)]
