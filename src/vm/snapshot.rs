@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
@@ -19,38 +21,27 @@ pub struct VmSnapshot {
     pub configuration_data: VmConfigurationData,
 }
 
+// TODO: ensure remove and into_configuration give back ownership in error case
+
 impl VmSnapshot {
-    // pub async fn copy<R: Runtime>(
-    //     &mut self,
-    //     runtime: &R,
-    //     new_snapshot_path: impl Into<PathBuf>,
-    //     new_mem_file_path: impl Into<PathBuf>,
-    // ) -> Result<(), std::io::Error> {
-    //     futures_util::try_join!(
-    //         self.snapshot.copy(runtime, new_snapshot_path),
-    //         self.mem_file.copy(runtime, new_mem_file_path)
-    //     )
-    //     .map(|_| ())
-    // }
+    pub async fn copy<P: Into<PathBuf>, Q: Into<PathBuf>, R: Runtime>(
+        &mut self,
+        runtime: &R,
+        new_snapshot_path: P,
+        new_mem_file_path: Q,
+    ) -> Result<(), ResourceSystemError> {
+        futures_util::try_join!(
+            self.snapshot.copy(runtime, new_snapshot_path),
+            self.mem_file.copy(runtime, new_mem_file_path)
+        )
+        .map(|_| ())
+    }
 
-    // pub async fn rename<R: Runtime>(
-    //     &mut self,
-    //     runtime: &R,
-    //     new_snapshot_path: impl Into<PathBuf>,
-    //     new_mem_file_path: impl Into<PathBuf>,
-    // ) -> Result<(), std::io::Error> {
-    //     futures_util::try_join!(
-    //         self.snapshot.rename(runtime, new_snapshot_path),
-    //         self.mem_file.rename(runtime, new_mem_file_path)
-    //     )
-    //     .map(|_| ())
-    // }
-
-    // pub async fn remove<R: Runtime>(self, runtime: &R) -> Result<(), std::io::Error> {
-    //     futures_util::try_join!(self.snapshot.remove(runtime), self.mem_file.remove(runtime))
-    //         .map(|_| ())
-    //         .map_err(|(_, err)| err)
-    // }
+    pub async fn remove<R: Runtime>(self, runtime: &R) -> Result<(), ResourceSystemError> {
+        futures_util::try_join!(self.snapshot.remove(runtime), self.mem_file.remove(runtime))
+            .map(|_| ())
+            .map_err(|(_, err)| err)
+    }
 
     pub fn into_configuration<S: ProcessSpawner, R: Runtime>(
         mut self,

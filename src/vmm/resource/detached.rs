@@ -1,11 +1,11 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use crate::{process_spawner::ProcessSpawner, runtime::Runtime};
 
 use super::{
     internal::{ResourceData, ResourceInitData},
     system::{ResourceSystem, ResourceSystemError},
-    Resource, ResourceType,
+    Resource, ResourceState, ResourceType,
 };
 
 #[derive(Debug, Clone)]
@@ -47,6 +47,39 @@ impl DetachedResource {
         self.init_data = None;
 
         return true;
+    }
+
+    pub async fn copy<P: Into<PathBuf>, R: Runtime>(
+        &mut self,
+        runtime: &R,
+        new_effective_path: P,
+    ) -> Result<(), ResourceSystemError> {
+        let Some(effective_path) = self.get_effective_path() else {
+            return Err(ResourceSystemError::IncorrectState(ResourceState::Uninitialized));
+        };
+
+        let new_effective_path = new_effective_path.into();
+        runtime
+            .fs_copy(&effective_path, &new_effective_path)
+            .await
+            .map_err(Arc::new)
+            .map_err(ResourceSystemError::FilesystemError)?;
+        self.init_data
+            .as_mut()
+            .expect("Breached static invariant of DetachedResource")
+            .effective_path = new_effective_path;
+        Ok(())
+    }
+
+    pub async fn remove<R: Runtime>(self, runtime: &R) -> Result<(), (Self, ResourceSystemError)> {
+        let Some(effective_path) = self.get_effective_path() else {
+            return Err((self, ResourceSystemError::IncorrectState(ResourceState::Uninitialized)));
+        };
+
+        match runtime.fs_remove_file(&effective_path).await {
+            Ok(()) => Ok(()),
+            Err(err) => Err((self, ResourceSystemError::FilesystemError(Arc::new(err)))),
+        }
     }
 
     pub fn attach<S: ProcessSpawner, R: Runtime>(
