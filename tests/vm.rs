@@ -1,4 +1,4 @@
-use std::{os::unix::fs::FileTypeExt, sync::Arc, time::Duration};
+use std::{os::unix::fs::FileTypeExt, time::Duration};
 
 use fctools::{
     process_spawner::DirectProcessSpawner,
@@ -7,7 +7,7 @@ use fctools::{
         api::VmApi,
         configuration::InitMethod,
         shutdown::{VmShutdownAction, VmShutdownMethod},
-        snapshot::VmSnapshot,
+        snapshot::{PrepareVmFromSnapshotOptions, VmSnapshot},
         VmState,
     },
     vmm::{
@@ -18,15 +18,12 @@ use fctools::{
             unrestricted::UnrestrictedVmmExecutor,
         },
         ownership::VmmOwnershipModel,
-        resource::{system::ResourceSystem, CreatedResourceType, MovedResourceType},
+        resource::{CreatedResourceType, MovedResourceType},
     },
 };
 use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};
 use rand::RngCore;
-use test_framework::{
-    get_create_snapshot, get_real_firecracker_installation, get_tmp_path, shutdown_test_vm, TestOptions, TestVm,
-    VmBuilder,
-};
+use test_framework::{get_create_snapshot, get_tmp_path, shutdown_test_vm, TestOptions, TestVm, VmBuilder};
 use tokio::fs::{metadata, try_exists};
 
 mod test_framework;
@@ -236,9 +233,9 @@ fn vm_tracks_state_with_crash() {
 fn vm_can_snapshot_while_original_is_running() {
     VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
         vm.api_pause().await.unwrap();
-        let create_snapshot = get_create_snapshot(vm.get_resource_system());
+        let create_snapshot = get_create_snapshot(vm.resource_system_mut());
         let snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
-        restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
+        restore_vm_from_snapshot(&mut vm, snapshot.clone(), is_jailed).await;
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm).await;
         snapshot.remove(&TokioRuntime).await.unwrap();
@@ -249,7 +246,7 @@ fn vm_can_snapshot_while_original_is_running() {
 fn vm_can_snapshot_after_original_has_exited() {
     VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
         vm.api_pause().await.unwrap();
-        let create_snapshot = get_create_snapshot(vm.get_resource_system());
+        let create_snapshot = get_create_snapshot(vm.resource_system_mut());
         let mut snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
         snapshot
             .copy(&TokioRuntime, get_tmp_path(), get_tmp_path())
@@ -258,7 +255,7 @@ fn vm_can_snapshot_after_original_has_exited() {
         vm.api_resume().await.unwrap();
         shutdown_test_vm(&mut vm).await;
 
-        restore_vm_from_snapshot(snapshot.clone(), is_jailed).await;
+        restore_vm_from_snapshot(&mut vm, snapshot.clone(), is_jailed).await;
         snapshot.remove(&TokioRuntime).await.unwrap();
     });
 }
@@ -284,7 +281,7 @@ fn vm_can_boot_with_vsock_device() {
     });
 }
 
-async fn restore_vm_from_snapshot(snapshot: VmSnapshot, is_jailed: bool) {
+async fn restore_vm_from_snapshot(old_vm: &mut TestVm, snapshot: VmSnapshot, is_jailed: bool) {
     let executor = match is_jailed {
         true => EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
@@ -296,23 +293,26 @@ async fn restore_vm_from_snapshot(snapshot: VmSnapshot, is_jailed: bool) {
         ))),
     };
 
-    let ownership_model = VmmOwnershipModel::Downgraded {
-        uid: TestOptions::get().await.jailer_uid,
-        gid: TestOptions::get().await.jailer_gid,
-    };
-    let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, ownership_model);
-    let configuration = snapshot
-        .into_configuration(&mut resource_system, MovedResourceType::Copied, Some(true), Some(true))
+    let mut vm = snapshot
+        .prepare_vm(
+            old_vm,
+            PrepareVmFromSnapshotOptions {
+                executor,
+                process_spawner: DirectProcessSpawner,
+                runtime: TokioRuntime,
+                moved_resource_type: MovedResourceType::Copied,
+                ownership_model: VmmOwnershipModel::Downgraded {
+                    uid: TestOptions::get().await.jailer_uid,
+                    gid: TestOptions::get().await.jailer_gid,
+                },
+                detach_resources_from_old_vm: false,
+                enable_diff_snapshots: Some(false),
+                resume_vm: Some(true),
+            },
+        )
+        .await
         .unwrap();
 
-    let mut vm = TestVm::prepare(
-        executor,
-        resource_system,
-        Arc::new(get_real_firecracker_installation()),
-        configuration,
-    )
-    .await
-    .unwrap();
     vm.start(Duration::from_millis(
         TestOptions::get().await.waits.boot_socket_timeout_ms,
     ))

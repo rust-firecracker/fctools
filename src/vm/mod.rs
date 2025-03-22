@@ -12,7 +12,7 @@ use crate::{
         installation::VmmInstallation,
         ownership::{upgrade_owner, ChangeOwnerError},
         process::{VmmProcess, VmmProcessError, VmmProcessState},
-        resource::system::ResourceSystem,
+        resource::system::{ResourceSystem, ResourceSystemError},
     },
 };
 use api::VmApiError;
@@ -84,6 +84,7 @@ pub enum VmError {
     SocketWaitTimeout,
     DisabledApiSocketIsUnsupported,
     MissingPathMapping,
+    ResourceSystemError(ResourceSystemError),
 }
 
 impl std::error::Error for VmError {}
@@ -114,6 +115,7 @@ impl std::fmt::Display for VmError {
                 f,
                 "A path mapping was expected to be constructed by the executor, but was not returned"
             ),
+            VmError::ResourceSystemError(err) => write!(f, "A resource system error occurred: {err}"),
         }
     }
 }
@@ -296,8 +298,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         self.vmm_process.local_to_effective_path(local_path)
     }
 
-    pub fn get_resource_system(&mut self) -> &mut ResourceSystem<S, R> {
-        self.vmm_process.get_resource_system()
+    pub fn resource_system(&self) -> &ResourceSystem<S, R> {
+        self.vmm_process.resource_system()
+    }
+
+    pub fn resource_system_mut(&mut self) -> &mut ResourceSystem<S, R> {
+        self.vmm_process.resource_system_mut()
     }
 
     fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmStateCheckError> {

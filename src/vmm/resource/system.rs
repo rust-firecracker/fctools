@@ -100,9 +100,8 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         }
     }
 
-    #[inline]
-    pub(crate) fn get_resources(&self) -> Vec<Resource> {
-        self.resources.iter().cloned().collect()
+    pub fn get_resources(&self) -> &[Resource] {
+        &self.resources
     }
 
     pub fn create_resource_from_template(

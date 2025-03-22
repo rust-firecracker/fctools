@@ -35,7 +35,7 @@ impl ResourceTemplate {
             .and_then(|init_data| init_data.local_path.clone())
     }
 
-    pub fn clean(&mut self, r#type: ResourceType) -> bool {
+    pub fn deinitialize(&mut self, r#type: ResourceType) -> bool {
         let Some(init_data) = self.init_data.take() else {
             return false;
         };

@@ -32,7 +32,7 @@ use super::{
 pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     executor: E,
     pub(crate) resource_system: ResourceSystem<S, R>,
-    installation: Arc<VmmInstallation>,
+    pub(crate) installation: Arc<VmmInstallation>,
     process_handle: Option<ProcessHandle<R>>,
     state: VmmProcessState,
     hyper_client: OnceCell<Client<UnixConnector<R::SocketBackend>, Full<Bytes>>>,
@@ -320,7 +320,11 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
             .local_to_effective_path(&self.installation, local_path.into())
     }
 
-    pub fn get_resource_system(&mut self) -> &mut ResourceSystem<S, R> {
+    pub fn resource_system(&self) -> &ResourceSystem<S, R> {
+        &self.resource_system
+    }
+
+    pub fn resource_system_mut(&mut self) -> &mut ResourceSystem<S, R> {
         &mut self.resource_system
     }
 
@@ -354,7 +358,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
             process_spawner: self.resource_system.process_spawner.clone(),
             runtime: self.resource_system.runtime.clone(),
             ownership_model: self.resource_system.ownership_model,
-            resources: self.resource_system.get_resources(),
+            resources: self.resource_system.get_resources().to_vec(),
         }
     }
 }
