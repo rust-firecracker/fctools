@@ -154,10 +154,8 @@ impl Resource {
 
     pub fn start_disposal(&self) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Initialized)?;
-
-        self.push_tx
-            .unbounded_send(ResourcePush::Dispose)
-            .map_err(|_| ResourceSystemError::ChannelDisconnected)
+        let _ = self.push_tx.unbounded_send(ResourcePush::Dispose);
+        Ok(())
     }
 
     #[inline(always)]

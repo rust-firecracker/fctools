@@ -231,32 +231,31 @@ fn vm_tracks_state_with_crash() {
 
 #[test]
 fn vm_can_snapshot_while_original_is_running() {
-    VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
-        vm.api_pause().await.unwrap();
-        let create_snapshot = get_create_snapshot(vm.resource_system_mut());
-        let snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
-        restore_vm_from_snapshot(&mut vm, snapshot.clone(), is_jailed).await;
-        vm.api_resume().await.unwrap();
-        shutdown_test_vm(&mut vm).await;
-        snapshot.remove(&TokioRuntime).await.unwrap();
+    VmBuilder::new().run_with_is_jailed(|mut old_vm, is_jailed| async move {
+        old_vm.api_pause().await.unwrap();
+        let create_snapshot = get_create_snapshot(old_vm.resource_system_mut());
+        let snapshot = old_vm.api_create_snapshot(create_snapshot).await.unwrap();
+        let new_vm = prepare_snapshot_vm(&mut old_vm, snapshot.clone(), is_jailed).await;
+        restore_snapshot_vm(new_vm).await;
+        old_vm.api_resume().await.unwrap();
+        shutdown_test_vm(&mut old_vm).await;
     });
 }
 
 #[test]
 fn vm_can_snapshot_after_original_has_exited() {
-    VmBuilder::new().run_with_is_jailed(|mut vm, is_jailed| async move {
-        vm.api_pause().await.unwrap();
-        let create_snapshot = get_create_snapshot(vm.resource_system_mut());
-        let mut snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
+    VmBuilder::new().run_with_is_jailed(|mut old_vm, is_jailed| async move {
+        old_vm.api_pause().await.unwrap();
+        let create_snapshot = get_create_snapshot(old_vm.resource_system_mut());
+        let mut snapshot = old_vm.api_create_snapshot(create_snapshot).await.unwrap();
         snapshot
             .copy(&TokioRuntime, get_tmp_path(), get_tmp_path())
             .await
             .unwrap();
-        vm.api_resume().await.unwrap();
-        shutdown_test_vm(&mut vm).await;
-
-        restore_vm_from_snapshot(&mut vm, snapshot.clone(), is_jailed).await;
-        snapshot.remove(&TokioRuntime).await.unwrap();
+        old_vm.api_resume().await.unwrap();
+        let new_vm = prepare_snapshot_vm(&mut old_vm, snapshot.clone(), is_jailed).await;
+        shutdown_test_vm(&mut old_vm).await;
+        restore_snapshot_vm(new_vm).await;
     });
 }
 
@@ -281,7 +280,7 @@ fn vm_can_boot_with_vsock_device() {
     });
 }
 
-async fn restore_vm_from_snapshot(old_vm: &mut TestVm, snapshot: VmSnapshot, is_jailed: bool) {
+async fn prepare_snapshot_vm(old_vm: &mut TestVm, snapshot: VmSnapshot, is_jailed: bool) -> TestVm {
     let executor = match is_jailed {
         true => EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
@@ -293,7 +292,7 @@ async fn restore_vm_from_snapshot(old_vm: &mut TestVm, snapshot: VmSnapshot, is_
         ))),
     };
 
-    let mut vm = snapshot
+    snapshot
         .prepare_vm(
             old_vm,
             PrepareVmFromSnapshotOptions {
@@ -311,15 +310,18 @@ async fn restore_vm_from_snapshot(old_vm: &mut TestVm, snapshot: VmSnapshot, is_
             },
         )
         .await
-        .unwrap();
+        .unwrap()
+}
 
-    vm.start(Duration::from_millis(
-        TestOptions::get().await.waits.boot_socket_timeout_ms,
-    ))
-    .await
-    .unwrap();
+async fn restore_snapshot_vm(mut new_vm: TestVm) {
+    new_vm
+        .start(Duration::from_millis(
+            TestOptions::get().await.waits.boot_socket_timeout_ms,
+        ))
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(TestOptions::get().await.waits.boot_wait_ms)).await;
 
-    vm.api_get_info().await.unwrap();
-    shutdown_test_vm(&mut vm).await;
+    new_vm.api_get_info().await.unwrap();
+    shutdown_test_vm(&mut new_vm).await;
 }

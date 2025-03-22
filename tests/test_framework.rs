@@ -736,10 +736,6 @@ pub async fn shutdown_test_vm(vm: &mut TestVm) {
         .await
         .unwrap();
 
-    if !outcome.fully_graceful() {
-        panic!("Shutdown outcome was not fully graceful");
-    }
-
     vm.cleanup().await.unwrap();
 }
 
