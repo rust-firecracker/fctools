@@ -7,15 +7,15 @@ use std::{
 };
 
 use async_broadcast::TryRecvError;
-use detached::DetachedResource;
 use futures_channel::mpsc;
 use internal::{ResourceData, ResourceInitData, ResourcePull, ResourcePush};
 use system::ResourceSystemError;
+use template::ResourceTemplate;
 
 mod internal;
 
-pub mod detached;
 pub mod system;
+pub mod template;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResourceType {
@@ -83,7 +83,20 @@ impl Resource {
         }
     }
 
-    pub fn detach(mut self) -> Result<DetachedResource, (Self, ResourceSystemError)> {
+    pub fn as_template(&self) -> ResourceTemplate {
+        ResourceTemplate {
+            data: ResourceData {
+                source_path: self.data.source_path.clone(),
+                r#type: self.data.r#type.clone(),
+            },
+            init_data: self.init_data.get().map(|init_data| ResourceInitData {
+                effective_path: init_data.effective_path.clone(),
+                local_path: init_data.local_path.clone(),
+            }),
+        }
+    }
+
+    pub fn into_template(self) -> Result<ResourceTemplate, (Self, ResourceSystemError)> {
         let state = self.get_state();
 
         if state == ResourceState::Disposed {
@@ -94,16 +107,7 @@ impl Resource {
             return Err((self, ResourceSystemError::ChannelDisconnected));
         }
 
-        Ok(DetachedResource {
-            data: ResourceData {
-                source_path: self.data.source_path.clone(),
-                r#type: self.data.r#type.clone(),
-            },
-            init_data: self.init_data.take().map(|init_data| ResourceInitData {
-                effective_path: init_data.effective_path.clone(),
-                local_path: init_data.local_path.clone(),
-            }),
-        })
+        Ok(self.as_template())
     }
 
     pub fn get_type(&self) -> ResourceType {

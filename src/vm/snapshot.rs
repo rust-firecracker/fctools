@@ -5,8 +5,8 @@ use crate::{
     runtime::Runtime,
     vm::models::{LoadSnapshot, MemoryBackend, MemoryBackendType},
     vmm::resource::{
-        detached::DetachedResource,
         system::{ResourceSystem, ResourceSystemError},
+        template::ResourceTemplate,
         MovedResourceType, ResourceState, ResourceType,
     },
 };
@@ -16,8 +16,8 @@ use super::configuration::{VmConfiguration, VmConfigurationData};
 /// The data associated with a snapshot created for a [Vm](crate::vm::Vm).
 #[derive(Debug, Clone)]
 pub struct VmSnapshot {
-    pub snapshot: DetachedResource,
-    pub mem_file: DetachedResource,
+    pub snapshot: ResourceTemplate,
+    pub mem_file: ResourceTemplate,
     pub configuration_data: VmConfigurationData,
 }
 
@@ -50,14 +50,14 @@ impl VmSnapshot {
         enable_diff_snapshots: Option<bool>,
         resume_vm: Option<bool>,
     ) -> Result<VmConfiguration, ResourceSystemError> {
-        if !self.mem_file.deinitialize(ResourceType::Moved(moved_resource_type))
-            || !self.snapshot.deinitialize(ResourceType::Moved(moved_resource_type))
+        if !self.mem_file.clean(ResourceType::Moved(moved_resource_type))
+            || !self.snapshot.clean(ResourceType::Moved(moved_resource_type))
         {
             return Err(ResourceSystemError::IncorrectState(ResourceState::Uninitialized));
         }
 
-        let mem_file = self.mem_file.attach(resource_system).map_err(|(_, err)| err)?;
-        let snapshot = self.snapshot.attach(resource_system).map_err(|(_, err)| err)?;
+        let mem_file = resource_system.create_resource_from_template(self.mem_file)?;
+        let snapshot = resource_system.create_resource_from_template(self.snapshot)?;
 
         let load_snapshot = LoadSnapshot {
             enable_diff_snapshots,

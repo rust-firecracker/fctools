@@ -1,20 +1,20 @@
 use std::{path::PathBuf, sync::Arc};
 
-use crate::{process_spawner::ProcessSpawner, runtime::Runtime};
+use crate::runtime::Runtime;
 
 use super::{
     internal::{ResourceData, ResourceInitData},
-    system::{ResourceSystem, ResourceSystemError},
-    Resource, ResourceState, ResourceType,
+    system::ResourceSystemError,
+    ResourceState, ResourceType,
 };
 
 #[derive(Debug, Clone)]
-pub struct DetachedResource {
+pub struct ResourceTemplate {
     pub(super) data: ResourceData,
     pub(super) init_data: Option<ResourceInitData>,
 }
 
-impl DetachedResource {
+impl ResourceTemplate {
     pub fn get_type(&self) -> ResourceType {
         self.data.r#type
     }
@@ -35,7 +35,7 @@ impl DetachedResource {
             .and_then(|init_data| init_data.local_path.clone())
     }
 
-    pub fn deinitialize(&mut self, r#type: ResourceType) -> bool {
+    pub fn clean(&mut self, r#type: ResourceType) -> bool {
         let Some(init_data) = self.init_data.take() else {
             return false;
         };
@@ -79,16 +79,6 @@ impl DetachedResource {
         match runtime.fs_remove_file(&effective_path).await {
             Ok(()) => Ok(()),
             Err(err) => Err((self, ResourceSystemError::FilesystemError(Arc::new(err)))),
-        }
-    }
-
-    pub fn attach<S: ProcessSpawner, R: Runtime>(
-        self,
-        resource_system: &mut ResourceSystem<S, R>,
-    ) -> Result<Resource, (Self, ResourceSystemError)> {
-        match resource_system.attach_resource(self.data.clone(), self.init_data.clone()) {
-            Ok(resource) => Ok(resource),
-            Err(err) => Err((self, err)),
         }
     }
 }

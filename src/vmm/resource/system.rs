@@ -16,9 +16,10 @@ use crate::{
 
 use super::{
     internal::{
-        resource_system_main_task, OwnedResource, OwnedResourceState, ResourceData, ResourceInitData,
-        ResourceSystemPull, ResourceSystemPush,
+        resource_system_main_task, OwnedResource, OwnedResourceState, ResourceData, ResourceSystemPull,
+        ResourceSystemPush,
     },
+    template::ResourceTemplate,
     Resource, ResourceState, ResourceType,
 };
 
@@ -104,23 +105,22 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         self.resources.iter().cloned().collect()
     }
 
-    pub(super) fn attach_resource(
+    pub fn create_resource_from_template(
         &mut self,
-        data: ResourceData,
-        init_data: Option<ResourceInitData>,
+        template: ResourceTemplate,
     ) -> Result<Resource, ResourceSystemError> {
         let (push_tx, push_rx) = mpsc::unbounded();
         let (pull_tx, pull_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
 
         let owned_resource = OwnedResource {
-            state: match init_data.is_some() {
+            state: match template.init_data.is_some() {
                 true => OwnedResourceState::Initialized,
                 false => OwnedResourceState::Uninitialized,
             },
             push_rx,
             pull_tx,
-            data: Arc::new(data),
-            init_data: init_data.map(Arc::new),
+            data: Arc::new(template.data),
+            init_data: template.init_data.map(Arc::new),
         };
 
         let data = owned_resource.data.clone();
@@ -140,7 +140,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         Ok(resource)
     }
 
-    pub fn new_resource<P: Into<PathBuf>>(
+    pub fn create_resource<P: Into<PathBuf>>(
         &mut self,
         source_path: P,
         r#type: ResourceType,

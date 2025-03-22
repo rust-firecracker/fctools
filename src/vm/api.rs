@@ -302,11 +302,11 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         Ok(VmSnapshot {
             snapshot: create_snapshot
                 .snapshot
-                .detach()
+                .into_template()
                 .map_err(|(_, err)| VmApiError::ResourceSystemError(err))?,
             mem_file: create_snapshot
                 .mem_file
-                .detach()
+                .into_template()
                 .map_err(|(_, err)| VmApiError::ResourceSystemError(err))?,
             configuration_data: self.configuration.data().clone(),
         })

@@ -264,7 +264,7 @@ mod tests {
     async fn log_path_can_be_set() {
         let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
         let resource = resource_system
-            .new_resource("/tmp/some_logs.txt", ResourceType::Created(CreatedResourceType::File))
+            .create_resource("/tmp/some_logs.txt", ResourceType::Created(CreatedResourceType::File))
             .unwrap();
         check_without_config(new().logs(resource), ["--log-path", "/tmp/some_logs.txt"]);
     }
@@ -301,7 +301,7 @@ mod tests {
     async fn metadata_path_can_be_set() {
         let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
         let resource = resource_system
-            .new_resource("/tmp/metadata.txt", ResourceType::Moved(MovedResourceType::Renamed))
+            .create_resource("/tmp/metadata.txt", ResourceType::Moved(MovedResourceType::Renamed))
             .unwrap();
         resource.start_initialization_with_same_path().unwrap();
         resource_system.wait_for_pending_tasks().await.unwrap();
@@ -312,7 +312,7 @@ mod tests {
     async fn metrics_path_can_be_set() {
         let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
         let resource = resource_system
-            .new_resource("/tmp/metrics.txt", ResourceType::Created(CreatedResourceType::File))
+            .create_resource("/tmp/metrics.txt", ResourceType::Created(CreatedResourceType::File))
             .unwrap();
         check_without_config(new().metrics(resource), ["--metrics-path", "/tmp/metrics.txt"]);
     }

@@ -130,10 +130,10 @@ pub fn get_create_snapshot(resource_system: &mut TestResourceSystem) -> CreateSn
     CreateSnapshot {
         snapshot_type: Some(SnapshotType::Full),
         snapshot: resource_system
-            .new_resource(get_tmp_path(), ResourceType::Produced)
+            .create_resource(get_tmp_path(), ResourceType::Produced)
             .unwrap(),
         mem_file: resource_system
-            .new_resource(get_tmp_path(), ResourceType::Produced)
+            .create_resource(get_tmp_path(), ResourceType::Produced)
             .unwrap(),
     }
 }
@@ -216,13 +216,13 @@ async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProce
 
     let mut jailed_resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, ownership_model);
     jailed_resource_system
-        .new_resource(
+        .create_resource(
             get_test_path("assets/kernel"),
             ResourceType::Moved(MovedResourceType::Copied),
         )
         .unwrap();
     jailed_resource_system
-        .new_resource(
+        .create_resource(
             get_test_path("assets/rootfs.ext4"),
             ResourceType::Moved(MovedResourceType::Copied),
         )
@@ -469,7 +469,7 @@ impl VmBuilder {
             VmConfigurationData {
                 boot_source: BootSource {
                     kernel_image: resource_system
-                        .new_resource(
+                        .create_resource(
                             get_test_path("assets/kernel"),
                             ResourceType::Moved(MovedResourceType::Copied),
                         )
@@ -485,7 +485,7 @@ impl VmBuilder {
                     is_read_only: Some(drive_read_only),
                     block: Some(
                         resource_system
-                            .new_resource(
+                            .create_resource(
                                 get_test_path("assets/rootfs.ext4"),
                                 ResourceType::Moved(MovedResourceType::Copied),
                             )
@@ -517,7 +517,7 @@ impl VmBuilder {
             LoggerSystem {
                 logs: Some(
                     resource_system
-                        .new_resource(get_tmp_path(), ResourceType::Created(r#type))
+                        .create_resource(get_tmp_path(), ResourceType::Created(r#type))
                         .unwrap(),
                 ),
                 level: None,
@@ -530,7 +530,7 @@ impl VmBuilder {
         fn new_metrics_system(resource_system: &mut TestResourceSystem, r#type: CreatedResourceType) -> MetricsSystem {
             MetricsSystem {
                 metrics: resource_system
-                    .new_resource(get_tmp_path(), ResourceType::Created(r#type))
+                    .create_resource(get_tmp_path(), ResourceType::Created(r#type))
                     .unwrap(),
             }
         }
@@ -538,7 +538,9 @@ impl VmBuilder {
         fn new_vsock_device(resource_system: &mut TestResourceSystem) -> VsockDevice {
             VsockDevice {
                 guest_cid: rand::rng().next_u32(),
-                uds: resource_system.new_resource(get_tmp_path(), ResourceType::Produced).unwrap(),
+                uds: resource_system
+                    .create_resource(get_tmp_path(), ResourceType::Produced)
+                    .unwrap(),
             }
         }
 
