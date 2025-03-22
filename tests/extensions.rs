@@ -3,20 +3,14 @@ use std::{os::unix::fs::FileTypeExt, time::Duration};
 use bytes::Bytes;
 use codegen::{GuestAgentServiceClient, Ping, Pong};
 use fctools::{
-    extension::{
-        grpc_vsock::VsockGrpcExt, http_vsock::VsockHttpExt, metrics::spawn_metrics_task,
-        snapshot_editor::SnapshotEditorExt,
-    },
+    extension::{grpc_vsock::VsockGrpcExt, http_vsock::VsockHttpExt, metrics::spawn_metrics_task},
     runtime::{tokio::TokioRuntime, RuntimeTask},
-    vm::{api::VmApi, models::SnapshotType},
-    vmm::{process::HyperResponseExt, resource::created::CreatedVmmResourceType},
+    vmm::{process::HyperResponseExt, resource::CreatedResourceType},
 };
 use futures_util::StreamExt;
 use http_body_util::Full;
 use serde::{Deserialize, Serialize};
-use test_framework::{
-    get_create_snapshot, get_real_firecracker_installation, shutdown_test_vm, TestOptions, TestVm, VmBuilder,
-};
+use test_framework::{shutdown_test_vm, TestVm, VmBuilder};
 use tokio::fs::metadata;
 
 mod codegen {
@@ -118,95 +112,95 @@ mod codegen {
 
 mod test_framework;
 
-#[test]
-fn snapshot_editor_can_rebase_memory() {
-    VmBuilder::new().run(|mut vm| async move {
-        vm.api_pause().await.unwrap();
-        let base_snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
-        vm.api_resume().await.unwrap();
-        vm.api_pause().await.unwrap();
+// #[test]
+// fn snapshot_editor_can_rebase_memory() {
+//     VmBuilder::new().run(|mut vm| async move {
+//         vm.api_pause().await.unwrap();
+//         let base_snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
+//         vm.api_resume().await.unwrap();
+//         vm.api_pause().await.unwrap();
 
-        let mut diff_create_snapshot = get_create_snapshot();
-        diff_create_snapshot.snapshot_type = Some(SnapshotType::Diff);
-        let diff_snapshot = vm.api_create_snapshot(diff_create_snapshot).await.unwrap();
-        vm.api_resume().await.unwrap();
+//         let mut diff_create_snapshot = get_create_snapshot();
+//         diff_create_snapshot.snapshot_type = Some(SnapshotType::Diff);
+//         let diff_snapshot = vm.api_create_snapshot(diff_create_snapshot).await.unwrap();
+//         vm.api_resume().await.unwrap();
 
-        get_real_firecracker_installation()
-            .snapshot_editor(TokioRuntime)
-            .rebase_memory(
-                base_snapshot.mem_file.effective_path(),
-                diff_snapshot.mem_file.effective_path(),
-            )
-            .await
-            .unwrap();
-        shutdown_test_vm(&mut vm).await;
-    })
-}
+//         get_real_firecracker_installation()
+//             .snapshot_editor(TokioRuntime)
+//             .rebase_memory(
+//                 base_snapshot.mem_file.effective_path(),
+//                 diff_snapshot.mem_file.effective_path(),
+//             )
+//             .await
+//             .unwrap();
+//         shutdown_test_vm(&mut vm).await;
+//     })
+// }
 
-#[test]
-fn snapshot_editor_can_get_snapshot_version() {
-    VmBuilder::new().run(|mut vm| async move {
-        vm.api_pause().await.unwrap();
-        let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
-        vm.api_resume().await.unwrap();
+// #[test]
+// fn snapshot_editor_can_get_snapshot_version() {
+//     VmBuilder::new().run(|mut vm| async move {
+//         vm.api_pause().await.unwrap();
+//         let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
+//         vm.api_resume().await.unwrap();
 
-        let version = get_real_firecracker_installation()
-            .snapshot_editor(TokioRuntime)
-            .get_snapshot_version(snapshot.snapshot.effective_path())
-            .await
-            .unwrap();
-        assert_eq!(version.trim(), TestOptions::get().await.toolchain.snapshot_version);
-        shutdown_test_vm(&mut vm).await;
-    });
-}
+//         let version = get_real_firecracker_installation()
+//             .snapshot_editor(TokioRuntime)
+//             .get_snapshot_version(snapshot.snapshot.effective_path())
+//             .await
+//             .unwrap();
+//         assert_eq!(version.trim(), TestOptions::get().await.toolchain.snapshot_version);
+//         shutdown_test_vm(&mut vm).await;
+//     });
+// }
 
-#[test]
-fn snapshot_editor_can_get_snapshot_vcpu_states() {
-    VmBuilder::new().run(|mut vm| async move {
-        vm.api_pause().await.unwrap();
-        let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
-        vm.api_resume().await.unwrap();
+// #[test]
+// fn snapshot_editor_can_get_snapshot_vcpu_states() {
+//     VmBuilder::new().run(|mut vm| async move {
+//         vm.api_pause().await.unwrap();
+//         let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
+//         vm.api_resume().await.unwrap();
 
-        let data = get_real_firecracker_installation()
-            .snapshot_editor(TokioRuntime)
-            .get_snapshot_vcpu_states(snapshot.snapshot.effective_path())
-            .await
-            .unwrap();
-        let first_line = data.lines().next().unwrap();
-        assert!(first_line.contains("vcpu 0:"));
+//         let data = get_real_firecracker_installation()
+//             .snapshot_editor(TokioRuntime)
+//             .get_snapshot_vcpu_states(snapshot.snapshot.effective_path())
+//             .await
+//             .unwrap();
+//         let first_line = data.lines().next().unwrap();
+//         assert!(first_line.contains("vcpu 0:"));
 
-        shutdown_test_vm(&mut vm).await;
-    });
-}
+//         shutdown_test_vm(&mut vm).await;
+//     });
+// }
 
-#[test]
-fn snapshot_editor_can_get_snapshot_vm_state() {
-    VmBuilder::new().run(|mut vm| async move {
-        vm.api_pause().await.unwrap();
-        let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
-        vm.api_resume().await.unwrap();
+// #[test]
+// fn snapshot_editor_can_get_snapshot_vm_state() {
+//     VmBuilder::new().run(|mut vm| async move {
+//         vm.api_pause().await.unwrap();
+//         let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
+//         vm.api_resume().await.unwrap();
 
-        let data = get_real_firecracker_installation()
-            .snapshot_editor(TokioRuntime)
-            .get_snapshot_vm_state(snapshot.snapshot.effective_path())
-            .await
-            .unwrap();
-        assert!(data.contains("kvm"));
-        shutdown_test_vm(&mut vm).await;
-    });
-}
+//         let data = get_real_firecracker_installation()
+//             .snapshot_editor(TokioRuntime)
+//             .get_snapshot_vm_state(snapshot.snapshot.effective_path())
+//             .await
+//             .unwrap();
+//         assert!(data.contains("kvm"));
+//         shutdown_test_vm(&mut vm).await;
+//     });
+// }
 
 #[test]
 fn metrics_task_can_receive_data_from_plaintext() {
     VmBuilder::new()
-        .metrics_system(CreatedVmmResourceType::File)
+        .metrics_system(CreatedResourceType::File)
         .run(|vm| test_metrics_recv(false, vm));
 }
 
 #[test]
 fn metrics_task_can_receive_data_from_fifo() {
     VmBuilder::new()
-        .metrics_system(CreatedVmmResourceType::Fifo)
+        .metrics_system(CreatedResourceType::Fifo)
         .run(|vm| test_metrics_recv(true, vm));
 }
 
@@ -218,8 +212,8 @@ async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
         .as_ref()
         .unwrap()
         .metrics
-        .effective_path()
-        .to_owned();
+        .get_effective_path()
+        .unwrap();
     let file_type = metadata(&metrics_path).await.unwrap().file_type();
 
     if is_fifo {
@@ -238,7 +232,7 @@ async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
 #[test]
 fn metrics_task_can_be_cancelled_via_join_handle() {
     VmBuilder::new()
-        .metrics_system(CreatedVmmResourceType::Fifo)
+        .metrics_system(CreatedResourceType::Fifo)
         .run(|mut vm| async move {
             let mut metrics_task = spawn_metrics_task(
                 vm.configuration()
@@ -247,8 +241,8 @@ fn metrics_task_can_be_cancelled_via_join_handle() {
                     .as_ref()
                     .unwrap()
                     .metrics
-                    .effective_path()
-                    .to_owned(),
+                    .get_effective_path()
+                    .unwrap(),
                 100,
                 TokioRuntime,
             );

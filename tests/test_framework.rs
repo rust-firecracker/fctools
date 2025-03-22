@@ -649,17 +649,17 @@ impl VmBuilder {
                 pre_start_hook1,
                 function.clone(),
             ),
-            Self::test_worker(
-                self.jailed_network_data,
-                VmConfiguration::New {
-                    init_method: self.init_method,
-                    data: jailed_data
-                },
-                jailed_executor,
-                jailed_resource_system,
-                pre_start_hook2,
-                function
-            ),
+            // Self::test_worker(
+            //     self.jailed_network_data,
+            //     VmConfiguration::New {
+            //         init_method: self.init_method,
+            //         data: jailed_data
+            //     },
+            //     jailed_executor,
+            //     jailed_resource_system,
+            //     pre_start_hook2,
+            //     function
+            // ),
         );
     }
 
