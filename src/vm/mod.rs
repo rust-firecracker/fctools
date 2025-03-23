@@ -149,9 +149,8 @@ impl std::fmt::Display for VmStateCheckError {
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
-    /// Prepare the full environment of a [Vm] without booting it. Analogously to a [VmmProcess], this requires
-    /// all the necessary components: [VmmExecutor], [ProcessSpawner], [Runtime], [VmmOwnershipModel],
-    /// [Arc<VmmInstallation>]. An additional component of a [Vm] is its [VmConfiguration].
+    /// Prepare the full environment of a [Vm] without booting it. This requires a [VmConfiguration], in which all resources
+    /// are created within the given [ResourceSystem], a [VmmExecutor] and a [VmmInstallation].
     pub async fn prepare(
         executor: E,
         resource_system: ResourceSystem<S, R>,
@@ -300,10 +299,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         self.vmm_process.get_effective_path_from_local(local_path)
     }
 
+    /// Get a shared reference to the [ResourceSystem] used by this [Vm].
     pub fn get_resource_system(&self) -> &ResourceSystem<S, R> {
         self.vmm_process.get_resource_system()
     }
 
+    /// Get a mutable reference to the [ResourceSystem] used by this [Vm].
     pub fn get_resource_system_mut(&mut self) -> &mut ResourceSystem<S, R> {
         self.vmm_process.get_resource_system_mut()
     }

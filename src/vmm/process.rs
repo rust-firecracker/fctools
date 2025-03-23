@@ -136,8 +136,9 @@ impl std::fmt::Display for VmmProcessError {
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
-    /// Create a new [VmmProcess] from the necessary set of components:
-    /// [VmmExecutor], [ProcessSpawner], [Runtime], [VmmOwnershipModel], [VmmInstallation], [VmmResourceManager].
+    /// Create a new [VmmProcess] from a [VmmExecutor], a [VmmInstallation] and a [ResourceSystem]. All resources necessary for
+    /// the [VmmProcess]'s operation should already be created within this [ResourceSystem] prior to creating a [VmmProcess] and
+    /// preparing its environment.
     pub fn new(executor: E, resource_system: ResourceSystem<S, R>, installation: Arc<VmmInstallation>) -> Self {
         Self {
             executor,
@@ -320,10 +321,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
             .get_effective_path_from_local(&self.installation, local_path.into())
     }
 
+    /// Get a shared reference to the [ResourceSystem] used by this [VmmProcess].
     pub fn get_resource_system(&self) -> &ResourceSystem<S, R> {
         &self.resource_system
     }
 
+    /// Get a mutable reference to the [ResourceSystem] used by this [VmmProcess].
     pub fn get_resource_system_mut(&mut self) -> &mut ResourceSystem<S, R> {
         &mut self.resource_system
     }
