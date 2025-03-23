@@ -26,8 +26,10 @@ use super::{
 /// is a central task that responds to messages from the connected [ResourceSystem] and [Resource]s and spawns various
 /// auxiliary tasks onto the same [Runtime] that perform asynchronous resource actions such as initialization and disposal.
 ///
-/// The [ResourceSystem] allows the creation of new [Resource]s and [Resource]s from [ResourceTemplate]s. After being dropped,
-/// the [ResourceSystem] will transmit a shutdown message that will end the task.
+/// The [ResourceSystem] allows the creation of new [Resource]s and global synchronization with the task. After being dropped,
+/// the [ResourceSystem] will transmit a shutdown message that will end the task. The [ResourceSystem] requires not only a
+/// [Runtime], but also a [ProcessSpawner] and a [VmmOwnershipModel] in order to perform its functionality, and these
+/// objects will be used by VMs and VMM processes that internally embed a [ResourceSystem].
 #[derive(Debug)]
 pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
     push_tx: mpsc::UnboundedSender<ResourceSystemPush<R>>,
@@ -46,10 +48,14 @@ pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
 const RESOURCE_BROADCAST_CAPACITY: usize = 10;
 
 impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
+    /// Create a new [ResourceSystem] with empty buffers for storing resource objects, using the given
+    /// [ProcessSpawner], [Runtime] and [VmmOwnershipModel].
     pub fn new(process_spawner: S, runtime: R, ownership_model: VmmOwnershipModel) -> Self {
         Self::new_inner(Vec::new(), Vec::new(), process_spawner, runtime, ownership_model)
     }
 
+    /// Create a new [ResourceSystem] with pre-reserved buffers of a certain capacity for storing resource objects,
+    /// using the given [ProcessSpawner], [Runtime] and [VmmOwnershipModel].
     pub fn with_capacity(process_spawner: S, runtime: R, ownership_model: VmmOwnershipModel, capacity: usize) -> Self {
         Self::new_inner(
             Vec::with_capacity(capacity),
@@ -94,10 +100,16 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         }
     }
 
+    /// Get a shared slice into an internal buffer that contains all [Resource]s within this [ResourceSystem], not
+    /// including any clones of given out [Resource]s. This slice can be cloned to produce a [Vec] if owned [Resource]
+    /// instances are needed, but, by default, no cloning occurs when calling this function.
     pub fn get_resources(&self) -> &[Resource] {
         &self.resources
     }
 
+    /// Create a [Resource] in this [ResourceSystem] from a given source path and a [ResourceType]. The data will
+    /// immediately be transmitted into the [ResourceSystem]'s central task, and an extra [Resource] clone will be
+    /// stored inside the buffer accessible via [get_resources](ResourceSystem::get_resources).
     pub fn create_resource<P: Into<PathBuf>>(
         &mut self,
         source_path: P,
@@ -135,6 +147,11 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         Ok(resource)
     }
 
+    /// Performs manual synchronization with the underlying central task. This operation waits until all initialization,
+    /// disposal or other scheduled tasks complete (regardless of whether they complete successfully or not). If you
+    /// intend only to wait on a single operation such as a single resource's initialization, prefer using
+    /// [Resource::initialize], [Resource::initialize_with_same_path] or [Resource::dispose] instead, as they will return
+    /// an error if an operation fails, unlike this function.
     pub async fn synchronize(&mut self) -> Result<(), ResourceSystemError> {
         self.push_tx
             .unbounded_send(ResourceSystemPush::Synchronize)
@@ -153,6 +170,7 @@ impl<S: ProcessSpawner, R: Runtime> Drop for ResourceSystem<S, R> {
     }
 }
 
+/// An error that can be emitted by a [ResourceSystem] or a standalone [Resource].
 #[derive(Debug, Clone)]
 pub enum ResourceSystemError {
     IncorrectState(ResourceState),
