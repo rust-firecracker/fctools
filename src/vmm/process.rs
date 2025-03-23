@@ -315,16 +315,16 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
 
     /// Transforms a given local resource path into an effective resource path using the executor. This should be used
     /// with care and only in cases where the resource system is insufficient.
-    pub fn local_to_effective_path(&self, local_path: impl Into<PathBuf>) -> PathBuf {
+    pub fn get_effective_path_from_local(&self, local_path: impl Into<PathBuf>) -> PathBuf {
         self.executor
-            .local_to_effective_path(&self.installation, local_path.into())
+            .get_effective_path_from_local(&self.installation, local_path.into())
     }
 
-    pub fn resource_system(&self) -> &ResourceSystem<S, R> {
+    pub fn get_resource_system(&self) -> &ResourceSystem<S, R> {
         &self.resource_system
     }
 
-    pub fn resource_system_mut(&mut self) -> &mut ResourceSystem<S, R> {
+    pub fn get_resource_system_mut(&mut self) -> &mut ResourceSystem<S, R> {
         &mut self.resource_system
     }
 

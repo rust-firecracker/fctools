@@ -96,7 +96,7 @@ fn vm_logger_test(resource_type: CreatedResourceType) {
         .logger_system(resource_type)
         .run(move |mut vm| async move {
             let log_path = vm
-                .configuration()
+                .get_configuration()
                 .data()
                 .logger_system
                 .as_ref()
@@ -134,7 +134,7 @@ fn vm_metrics_test(resource_type: CreatedResourceType) {
         .metrics_system(resource_type)
         .run(move |mut vm| async move {
             let metrics_path = vm
-                .configuration()
+                .get_configuration()
                 .data()
                 .metrics_system
                 .as_ref()
@@ -156,7 +156,7 @@ fn vm_metrics_test(resource_type: CreatedResourceType) {
 fn vm_processes_vsock() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
         let uds_path = vm
-            .configuration()
+            .get_configuration()
             .data()
             .vsock_device
             .as_ref()
@@ -174,7 +174,7 @@ fn vm_processes_vsock() {
 fn vm_translates_local_to_effective_paths() {
     VmBuilder::new().run(|mut vm| async move {
         let local_path = get_tmp_path();
-        let effective_path = vm.local_to_effective_path(&local_path);
+        let effective_path = vm.get_effective_path_from_local(&local_path);
         assert!(
             local_path == effective_path || effective_path.to_str().unwrap().ends_with(local_path.to_str().unwrap())
         );
@@ -233,7 +233,7 @@ fn vm_tracks_state_with_crash() {
 fn vm_can_snapshot_while_original_is_running() {
     VmBuilder::new().run_with_is_jailed(|mut old_vm, is_jailed| async move {
         old_vm.api_pause().await.unwrap();
-        let create_snapshot = get_create_snapshot(old_vm.resource_system_mut());
+        let create_snapshot = get_create_snapshot(old_vm.get_resource_system_mut());
         let snapshot = old_vm.api_create_snapshot(create_snapshot).await.unwrap();
         let new_vm = prepare_snapshot_vm(&mut old_vm, snapshot.clone(), is_jailed).await;
         restore_snapshot_vm(new_vm).await;
@@ -246,7 +246,7 @@ fn vm_can_snapshot_while_original_is_running() {
 fn vm_can_snapshot_after_original_has_exited() {
     VmBuilder::new().run_with_is_jailed(|mut old_vm, is_jailed| async move {
         old_vm.api_pause().await.unwrap();
-        let create_snapshot = get_create_snapshot(old_vm.resource_system_mut());
+        let create_snapshot = get_create_snapshot(old_vm.get_resource_system_mut());
         let mut snapshot = old_vm.api_create_snapshot(create_snapshot).await.unwrap();
         snapshot
             .copy(&TokioRuntime, get_tmp_path(), get_tmp_path())

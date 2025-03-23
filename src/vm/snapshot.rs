@@ -87,7 +87,7 @@ impl VmSnapshot {
             .create_resource_from_template(self.snapshot)
             .map_err(VmError::ResourceSystemError)?;
 
-        for resource in old_vm.resource_system().get_resources() {
+        for resource in old_vm.get_resource_system().get_resources() {
             if let ResourceType::Moved(_) = resource.get_type() {
                 let mut template = match options.detach_resources_from_old_vm {
                     true => resource.as_template(),

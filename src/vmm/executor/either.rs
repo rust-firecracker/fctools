@@ -38,10 +38,12 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
         }
     }
 
-    fn local_to_effective_path(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
+    fn get_effective_path_from_local(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
         match self {
-            EitherVmmExecutor::Unrestricted(executor) => executor.local_to_effective_path(installation, local_path),
-            EitherVmmExecutor::Jailed(executor) => executor.local_to_effective_path(installation, local_path),
+            EitherVmmExecutor::Unrestricted(executor) => {
+                executor.get_effective_path_from_local(installation, local_path)
+            }
+            EitherVmmExecutor::Jailed(executor) => executor.get_effective_path_from_local(installation, local_path),
         }
     }
 

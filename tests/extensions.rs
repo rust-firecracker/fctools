@@ -122,12 +122,12 @@ mod test_framework;
 fn snapshot_editor_can_rebase_memory() {
     VmBuilder::new().run(|mut vm| async move {
         vm.api_pause().await.unwrap();
-        let create_snapshot = get_create_snapshot(vm.resource_system_mut());
+        let create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
         let base_snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
         vm.api_resume().await.unwrap();
         vm.api_pause().await.unwrap();
 
-        let mut diff_create_snapshot = get_create_snapshot(vm.resource_system_mut());
+        let mut diff_create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
         diff_create_snapshot.snapshot_type = Some(SnapshotType::Diff);
         let diff_snapshot = vm.api_create_snapshot(diff_create_snapshot).await.unwrap();
 
@@ -150,7 +150,7 @@ fn snapshot_editor_can_rebase_memory() {
 fn snapshot_editor_can_get_snapshot_version() {
     VmBuilder::new().run(|mut vm| async move {
         vm.api_pause().await.unwrap();
-        let create_snapshot = get_create_snapshot(vm.resource_system_mut());
+        let create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
         let snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
         vm.api_resume().await.unwrap();
 
@@ -168,7 +168,7 @@ fn snapshot_editor_can_get_snapshot_version() {
 fn snapshot_editor_can_get_snapshot_vcpu_states() {
     VmBuilder::new().run(|mut vm| async move {
         vm.api_pause().await.unwrap();
-        let create_snapshot = get_create_snapshot(vm.resource_system_mut());
+        let create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
         let snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
         vm.api_resume().await.unwrap();
 
@@ -188,7 +188,7 @@ fn snapshot_editor_can_get_snapshot_vcpu_states() {
 fn snapshot_editor_can_get_snapshot_vm_state() {
     VmBuilder::new().run(|mut vm| async move {
         vm.api_pause().await.unwrap();
-        let create_snapshot = get_create_snapshot(vm.resource_system_mut());
+        let create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
         let snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
         vm.api_resume().await.unwrap();
 
@@ -218,7 +218,7 @@ fn metrics_task_can_receive_data_from_fifo() {
 
 async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
     let metrics_path = vm
-        .configuration()
+        .get_configuration()
         .data()
         .metrics_system
         .as_ref()
@@ -248,7 +248,7 @@ fn metrics_task_can_be_cancelled_via_join_handle() {
         .metrics_system(CreatedResourceType::Fifo)
         .run(|mut vm| async move {
             let mut metrics_task = spawn_metrics_task(
-                vm.configuration()
+                vm.get_configuration()
                     .data()
                     .metrics_system
                     .as_ref()

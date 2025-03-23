@@ -165,7 +165,7 @@ async fn vmm_get_socket_path_returns_correct_path() {
 #[tokio::test]
 async fn vmm_inner_to_outer_path_performs_transformation() {
     run_vmm_process_test(false, |mut process| async move {
-        let effective_path = process.local_to_effective_path("/dev/kvm");
+        let effective_path = process.get_effective_path_from_local("/dev/kvm");
 
         if effective_path.to_str().unwrap() != "/dev/kvm"
             && !effective_path.starts_with("/srv/jailer")

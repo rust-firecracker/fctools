@@ -201,7 +201,9 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             ref data,
         } = self.configuration
         {
-            let config_effective_path = self.vmm_process.local_to_effective_path(config_local_path.clone());
+            let config_effective_path = self
+                .vmm_process
+                .get_effective_path_from_local(config_local_path.clone());
             config_path = Some(config_local_path.clone());
             upgrade_owner(
                 &config_effective_path,
@@ -289,21 +291,21 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     }
 
     /// Get a shared reference to the [Vm]'s [VmConfiguration].
-    pub fn configuration(&self) -> &VmConfiguration {
+    pub fn get_configuration(&self) -> &VmConfiguration {
         &self.configuration
     }
 
     /// Translates the given local resource path to an effective resource path.
-    pub fn local_to_effective_path(&self, local_path: impl Into<PathBuf>) -> PathBuf {
-        self.vmm_process.local_to_effective_path(local_path)
+    pub fn get_effective_path_from_local(&self, local_path: impl Into<PathBuf>) -> PathBuf {
+        self.vmm_process.get_effective_path_from_local(local_path)
     }
 
-    pub fn resource_system(&self) -> &ResourceSystem<S, R> {
-        self.vmm_process.resource_system()
+    pub fn get_resource_system(&self) -> &ResourceSystem<S, R> {
+        self.vmm_process.get_resource_system()
     }
 
-    pub fn resource_system_mut(&mut self) -> &mut ResourceSystem<S, R> {
-        self.vmm_process.resource_system_mut()
+    pub fn get_resource_system_mut(&mut self) -> &mut ResourceSystem<S, R> {
+        self.vmm_process.get_resource_system_mut()
     }
 
     fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmStateCheckError> {

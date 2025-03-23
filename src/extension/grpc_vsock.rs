@@ -84,7 +84,7 @@ fn create_endpoint_and_service<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
     configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
 ) -> Result<(Endpoint, FirecrackerTowerService<R::SocketBackend>), VsockGrpcError> {
     let uds_path = vm
-        .configuration()
+        .get_configuration()
         .data()
         .vsock_device
         .as_ref()

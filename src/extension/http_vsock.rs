@@ -112,7 +112,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
 
     async fn vsock_connect_over_http(&self, guest_port: u32) -> Result<SendRequest<Full<Bytes>>, VsockHttpError> {
         let socket_path = self
-            .configuration()
+            .get_configuration()
             .data()
             .vsock_device
             .as_ref()
@@ -144,7 +144,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
         ))
         .build(FirecrackerConnector::<R::SocketBackend>::new());
         let socket_path = self
-            .configuration()
+            .get_configuration()
             .data()
             .vsock_device
             .as_ref()

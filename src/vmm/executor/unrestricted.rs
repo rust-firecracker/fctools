@@ -64,7 +64,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
     }
 
-    fn local_to_effective_path(&self, _installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
+    fn get_effective_path_from_local(&self, _installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
         local_path
     }
 
