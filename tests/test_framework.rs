@@ -227,6 +227,12 @@ async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProce
             ResourceType::Moved(MovedResourceType::Copied),
         )
         .unwrap();
+    jailed_resource_system
+        .create_resource(
+            get_test_path("configs/jailed.json"),
+            ResourceType::Moved(MovedResourceType::Copied),
+        )
+        .unwrap();
 
     (
         TestVmmProcess::new(
@@ -638,28 +644,28 @@ impl VmBuilder {
 
         let (pre_start_hook1, pre_start_hook2) = self.pre_start_hook.unzip();
         tokio::join!(
-            Self::test_worker(
-                self.unrestricted_network_data,
-                VmConfiguration::New {
-                    init_method: self.init_method.clone(),
-                    data: unrestricted_data
-                },
-                EitherVmmExecutor::Unrestricted(unrestricted_executor),
-                unrestricted_resource_system,
-                pre_start_hook1,
-                function.clone(),
-            ),
             // Self::test_worker(
-            //     self.jailed_network_data,
+            //     self.unrestricted_network_data,
             //     VmConfiguration::New {
-            //         init_method: self.init_method,
-            //         data: jailed_data
+            //         init_method: self.init_method.clone(),
+            //         data: unrestricted_data
             //     },
-            //     jailed_executor,
-            //     jailed_resource_system,
-            //     pre_start_hook2,
-            //     function
+            //     EitherVmmExecutor::Unrestricted(unrestricted_executor),
+            //     unrestricted_resource_system,
+            //     pre_start_hook1,
+            //     function.clone(),
             // ),
+            Self::test_worker(
+                self.jailed_network_data,
+                VmConfiguration::New {
+                    init_method: self.init_method,
+                    data: jailed_data
+                },
+                jailed_executor,
+                jailed_resource_system,
+                pre_start_hook2,
+                function
+            ),
         );
     }
 
