@@ -89,17 +89,6 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         }
     }
 
-    pub(crate) async fn wait_for_pending_tasks(&mut self) -> Result<(), ResourceSystemError> {
-        self.push_tx
-            .unbounded_send(ResourceSystemPush::AwaitPendingTasks)
-            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
-
-        match self.pull_rx.next().await {
-            Some(ResourceSystemPull::PendingTasksComplete) => Ok(()),
-            None => Err(ResourceSystemError::ChannelDisconnected),
-        }
-    }
-
     pub fn get_resources(&self) -> &[Resource] {
         &self.resources
     }
@@ -174,6 +163,17 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
 
         self.resources.push(resource.clone());
         Ok(resource)
+    }
+
+    pub async fn synchronize(&mut self) -> Result<(), ResourceSystemError> {
+        self.push_tx
+            .unbounded_send(ResourceSystemPush::Synchronize)
+            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
+
+        match self.pull_rx.next().await {
+            Some(ResourceSystemPull::SynchronizationComplete) => Ok(()),
+            None => Err(ResourceSystemError::ChannelDisconnected),
+        }
     }
 }
 

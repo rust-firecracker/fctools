@@ -53,12 +53,12 @@ pub enum ResourcePull {
 
 pub enum ResourceSystemPush<R: Runtime> {
     AddResource(OwnedResource<R>),
-    AwaitPendingTasks,
+    Synchronize,
     Shutdown,
 }
 
 pub enum ResourceSystemPull {
-    PendingTasksComplete,
+    SynchronizationComplete,
 }
 
 pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
@@ -77,7 +77,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
         FinishedBroadcastTask(usize),
     }
 
-    let mut awaiting_pending_tasks = false;
+    let mut synchronization_in_progress = false;
     let mut broadcast_tasks = Vec::<R::Task<()>>::new();
 
     loop {
@@ -120,8 +120,8 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                 ResourceSystemPush::Shutdown => {
                     return;
                 }
-                ResourceSystemPush::AwaitPendingTasks => {
-                    awaiting_pending_tasks = true;
+                ResourceSystemPush::Synchronize => {
+                    synchronization_in_progress = true;
                 }
             },
             Incoming::ResourcePush(resource_index, push) => {
@@ -207,7 +207,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
             }
         };
 
-        if awaiting_pending_tasks {
+        if synchronization_in_progress {
             let pending_tasks = owned_resources
                 .iter()
                 .filter(|resource| {
@@ -220,8 +220,8 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                 + broadcast_tasks.len();
 
             if pending_tasks == 0 {
-                awaiting_pending_tasks = false;
-                let _ = pull_tx.unbounded_send(ResourceSystemPull::PendingTasksComplete);
+                synchronization_in_progress = false;
+                let _ = pull_tx.unbounded_send(ResourceSystemPull::SynchronizationComplete);
             }
         }
     }

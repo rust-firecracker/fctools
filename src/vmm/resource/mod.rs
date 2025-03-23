@@ -1,5 +1,6 @@
 use std::{
     path::PathBuf,
+    pin::pin,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex, OnceLock,
@@ -71,15 +72,19 @@ impl Clone for Resource {
 impl Resource {
     #[inline]
     pub fn get_state(&self) -> ResourceState {
-        self.poll();
-
         if self.disposed.load(Ordering::Acquire) {
             return ResourceState::Disposed;
         }
 
         match self.init_data.get() {
             Some(_) => ResourceState::Initialized,
-            None => ResourceState::Uninitialized,
+            None => {
+                self.poll();
+                match self.init_data.get() {
+                    Some(_) => ResourceState::Initialized,
+                    None => ResourceState::Uninitialized,
+                }
+            }
         }
     }
 
@@ -156,6 +161,47 @@ impl Resource {
         self.assert_state(ResourceState::Initialized)?;
         let _ = self.push_tx.unbounded_send(ResourcePush::Dispose);
         Ok(())
+    }
+
+    pub async fn initialize(
+        &self,
+        effective_path: PathBuf,
+        local_path: Option<PathBuf>,
+    ) -> Result<(), ResourceSystemError> {
+        self.start_initialization(effective_path, local_path)?;
+
+        match pin!(self.pull_rx.lock().expect("pull_rx mutex was poisoned").recv_direct()).await {
+            Ok(ResourcePull::Initialized(Ok(init_data))) => {
+                let _ = self.init_data.set(init_data);
+                Ok(())
+            }
+            Ok(ResourcePull::Initialized(Err(err))) => Err(err),
+            Ok(_) => Err(ResourceSystemError::MalformedResponse),
+            Err(_) => Err(ResourceSystemError::ChannelDisconnected),
+        }
+    }
+
+    pub async fn initialize_with_same_path(&self) -> Result<(), ResourceSystemError> {
+        let local_path = match self.get_type() {
+            ResourceType::Moved(_) => Some(self.get_source_path()),
+            _ => None,
+        };
+
+        self.initialize(self.get_source_path(), local_path).await
+    }
+
+    pub async fn dispose(&self) -> Result<(), ResourceSystemError> {
+        self.start_disposal()?;
+
+        match pin!(self.pull_rx.lock().expect("pull_rx mutex was poisoned").recv_direct()).await {
+            Ok(ResourcePull::Disposed(Ok(_))) => {
+                self.disposed.store(true, Ordering::Release);
+                Ok(())
+            }
+            Ok(ResourcePull::Disposed(Err(err))) => Err(err),
+            Ok(_) => Err(ResourceSystemError::MalformedResponse),
+            Err(_) => Err(ResourceSystemError::ChannelDisconnected),
+        }
     }
 
     #[inline(always)]

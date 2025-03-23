@@ -295,7 +295,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
 
         self.vmm_process
             .resource_system
-            .wait_for_pending_tasks()
+            .synchronize()
             .await
             .map_err(VmApiError::ResourceSystemError)?;
 

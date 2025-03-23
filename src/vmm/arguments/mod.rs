@@ -304,7 +304,7 @@ mod tests {
             .create_resource("/tmp/metadata.txt", ResourceType::Moved(MovedResourceType::Renamed))
             .unwrap();
         resource.start_initialization_with_same_path().unwrap();
-        resource_system.wait_for_pending_tasks().await.unwrap();
+        resource_system.synchronize().await.unwrap();
         check_without_config(new().metadata(resource), ["--metadata", "/tmp/metadata.txt"]);
     }
 

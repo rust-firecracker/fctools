@@ -157,7 +157,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
             .await
             .map_err(VmmProcessError::ExecutorError)?;
         self.resource_system
-            .wait_for_pending_tasks()
+            .synchronize()
             .await
             .map_err(VmmProcessError::ResourceSystemError)?;
         self.state = VmmProcessState::AwaitingStart;
@@ -175,7 +175,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
                 .map_err(VmmProcessError::ExecutorError)?,
         );
         self.resource_system
-            .wait_for_pending_tasks()
+            .synchronize()
             .await
             .map_err(VmmProcessError::ResourceSystemError)?;
         self.state = VmmProcessState::Started;
@@ -308,7 +308,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
             .await
             .map_err(VmmProcessError::ExecutorError)?;
         self.resource_system
-            .wait_for_pending_tasks()
+            .synchronize()
             .await
             .map_err(VmmProcessError::ResourceSystemError)
     }
