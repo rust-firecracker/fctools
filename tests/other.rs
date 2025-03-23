@@ -22,6 +22,7 @@ async fn installation_does_not_verify_for_missing_files() {
         jailer_path: random_path(),
         snapshot_editor_path: random_path(),
     };
+
     assert_matches::assert_matches!(
         installation
             .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)

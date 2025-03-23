@@ -1,10 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{
-    process_spawner::ProcessSpawner,
-    runtime::Runtime,
-    vmm::{installation::VmmInstallation, resource::VmmResourceManager},
-};
+use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vmm::installation::VmmInstallation};
 
 use super::{
     jailed::{JailRenamer, JailedVmmExecutor},
@@ -42,16 +38,18 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
         }
     }
 
-    fn local_to_effective_path(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
+    fn get_effective_path_from_local(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
         match self {
-            EitherVmmExecutor::Unrestricted(executor) => executor.local_to_effective_path(installation, local_path),
-            EitherVmmExecutor::Jailed(executor) => executor.local_to_effective_path(installation, local_path),
+            EitherVmmExecutor::Unrestricted(executor) => {
+                executor.get_effective_path_from_local(installation, local_path)
+            }
+            EitherVmmExecutor::Jailed(executor) => executor.get_effective_path_from_local(installation, local_path),
         }
     }
 
-    async fn prepare<S: ProcessSpawner, R: Runtime, RM: VmmResourceManager>(
-        &mut self,
-        context: VmmExecutorContext<'_, S, R, RM>,
+    async fn prepare<S: ProcessSpawner, R: Runtime>(
+        &self,
+        context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => executor.prepare(context).await,
@@ -59,9 +57,9 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
         }
     }
 
-    async fn invoke<S: ProcessSpawner, R: Runtime, RM: VmmResourceManager>(
-        &mut self,
-        context: VmmExecutorContext<'_, S, R, RM>,
+    async fn invoke<S: ProcessSpawner, R: Runtime>(
+        &self,
+        context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
     ) -> Result<ProcessHandle<R>, VmmExecutorError> {
         match self {
@@ -70,9 +68,9 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
         }
     }
 
-    async fn cleanup<S: ProcessSpawner, R: Runtime, RM: VmmResourceManager>(
-        &mut self,
-        context: VmmExecutorContext<'_, S, R, RM>,
+    async fn cleanup<S: ProcessSpawner, R: Runtime>(
+        &self,
+        context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => executor.cleanup(context).await,

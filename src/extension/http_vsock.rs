@@ -4,7 +4,7 @@ use bytes::Bytes;
 use http::{Request, Response, Uri};
 use http_body_util::Full;
 use hyper::{body::Incoming, client::conn::http1::SendRequest};
-use hyper_client_sockets::{connector::firecracker::FirecrackerConnector, uri::FirecrackerUri};
+use hyper_client_sockets::{connector::FirecrackerConnector, uri::FirecrackerUri};
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -19,6 +19,7 @@ pub enum VsockHttpError {
     VsockNotConfigured,
     CannotConnect(std::io::Error),
     CannotHandshake(hyper::Error),
+    VsockResourceUninitialized,
 }
 
 impl std::error::Error for VsockHttpError {}
@@ -31,6 +32,7 @@ impl std::fmt::Display for VsockHttpError {
             VsockHttpError::CannotHandshake(err) => {
                 write!(f, "Could not perform an HTTP handshake with the vsock socket: {err}")
             }
+            VsockHttpError::VsockResourceUninitialized => write!(f, "The vsock resource was uninitialized"),
         }
     }
 }
@@ -110,14 +112,14 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
 
     async fn vsock_connect_over_http(&self, guest_port: u32) -> Result<SendRequest<Full<Bytes>>, VsockHttpError> {
         let socket_path = self
-            .configuration()
+            .get_configuration()
             .data()
             .vsock_device
             .as_ref()
             .ok_or(VsockHttpError::VsockNotConfigured)?
             .uds
-            .effective_path()
-            .to_owned();
+            .get_effective_path()
+            .ok_or(VsockHttpError::VsockResourceUninitialized)?;
         let stream = <R::SocketBackend as hyper_client_sockets::Backend>::connect_to_firecracker_socket(
             &socket_path,
             guest_port,
@@ -128,7 +130,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
         let (send_request, connection) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(stream)
             .await
             .map_err(VsockHttpError::CannotHandshake)?;
-        self.runtime.spawn_task(connection);
+        self.vmm_process.resource_system.runtime.spawn_task(connection);
 
         Ok(send_request)
     }
@@ -137,17 +139,19 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockHttpExt for Vm<E, S, R>
         &self,
         guest_port: u32,
     ) -> Result<VsockHttpPool<R::SocketBackend>, VsockHttpError> {
-        let client = hyper_util::client::legacy::Client::builder(RuntimeHyperExecutor(self.runtime.clone()))
-            .build(FirecrackerConnector::<R::SocketBackend>::new());
+        let client = hyper_util::client::legacy::Client::builder(RuntimeHyperExecutor(
+            self.vmm_process.resource_system.runtime.clone(),
+        ))
+        .build(FirecrackerConnector::<R::SocketBackend>::new());
         let socket_path = self
-            .configuration()
+            .get_configuration()
             .data()
             .vsock_device
             .as_ref()
             .ok_or(VsockHttpError::VsockNotConfigured)?
             .uds
-            .effective_path()
-            .to_owned();
+            .get_effective_path()
+            .ok_or(VsockHttpError::VsockResourceUninitialized)?;
 
         Ok(VsockHttpPool {
             client,

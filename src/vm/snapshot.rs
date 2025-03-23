@@ -1,79 +1,112 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use crate::{
+    process_spawner::ProcessSpawner,
     runtime::Runtime,
-    vmm::resource::{
-        moved::{MovedVmmResource, VmmResourceMoveMethod},
-        produced::ProducedVmmResource,
+    vm::models::{LoadSnapshot, MemoryBackend, MemoryBackendType},
+    vmm::{
+        executor::VmmExecutor,
+        ownership::VmmOwnershipModel,
+        resource::{
+            system::{ResourceSystem, ResourceSystemError},
+            MovedResourceType, ResourceState, ResourceType,
+        },
     },
 };
 
 use super::{
     configuration::{VmConfiguration, VmConfigurationData},
-    models::{LoadSnapshot, MemoryBackend, MemoryBackendType},
+    Vm, VmError,
 };
 
 /// The data associated with a snapshot created for a [Vm](crate::vm::Vm).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct VmSnapshot {
-    pub snapshot: ProducedVmmResource,
-    pub mem_file: ProducedVmmResource,
+    pub snapshot_path: PathBuf,
+    pub mem_file_path: PathBuf,
     pub configuration_data: VmConfigurationData,
 }
 
+#[derive(Debug)]
+pub struct PrepareVmFromSnapshotOptions<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
+    pub executor: E,
+    pub process_spawner: S,
+    pub runtime: R,
+    pub moved_resource_type: MovedResourceType,
+    pub ownership_model: VmmOwnershipModel,
+    pub enable_diff_snapshots: Option<bool>,
+    pub resume_vm: Option<bool>,
+}
+
 impl VmSnapshot {
-    pub async fn copy<R: Runtime>(
+    pub async fn copy<P: Into<PathBuf>, Q: Into<PathBuf>, R: Runtime>(
         &mut self,
-        new_snapshot_path: impl Into<PathBuf>,
-        new_mem_file_path: impl Into<PathBuf>,
         runtime: &R,
-    ) -> Result<(), std::io::Error> {
+        new_snapshot_path: P,
+        new_mem_file_path: Q,
+    ) -> Result<(), ResourceSystemError> {
+        let new_snapshot_path = new_snapshot_path.into();
+        let new_mem_file_path = new_mem_file_path.into();
+
         futures_util::try_join!(
-            self.snapshot.copy(new_snapshot_path, runtime),
-            self.mem_file.copy(new_mem_file_path, runtime)
+            runtime.fs_copy(&self.snapshot_path, &new_snapshot_path),
+            runtime.fs_copy(&self.mem_file_path, &new_mem_file_path)
         )
-        .map(|_| ())
+        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+
+        self.snapshot_path = new_snapshot_path;
+        self.mem_file_path = new_mem_file_path;
+        Ok(())
     }
 
-    pub async fn rename<R: Runtime>(
-        &mut self,
-        new_snapshot_path: impl Into<PathBuf>,
-        new_mem_file_path: impl Into<PathBuf>,
-        runtime: &R,
-    ) -> Result<(), std::io::Error> {
-        futures_util::try_join!(
-            self.snapshot.rename(new_snapshot_path, runtime),
-            self.mem_file.rename(new_mem_file_path, runtime)
-        )
-        .map(|_| ())
-    }
-
-    pub async fn remove<R: Runtime>(self, runtime: &R) {
-        let _ = futures_util::try_join!(self.snapshot.delete(runtime), self.mem_file.delete(runtime));
-    }
-
-    pub fn into_configuration(
+    pub async fn prepare_vm<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
         self,
-        move_method: VmmResourceMoveMethod,
-        enable_diff_snapshots: Option<bool>,
-        resume_vm: Option<bool>,
-    ) -> VmConfiguration {
-        let mem_file = MovedVmmResource::new(self.mem_file.effective_path(), move_method);
-        let snapshot = MovedVmmResource::new(self.snapshot.effective_path(), move_method);
+        old_vm: &mut Vm<E, S, R>,
+        options: PrepareVmFromSnapshotOptions<E, S, R>,
+    ) -> Result<Vm<E, S, R>, VmError> {
+        let mut resource_system =
+            ResourceSystem::new(options.process_spawner, options.runtime, options.ownership_model);
+
+        let mem_file = resource_system
+            .create_resource(self.mem_file_path, ResourceType::Moved(options.moved_resource_type))
+            .map_err(VmError::ResourceSystemError)?;
+        let snapshot = resource_system
+            .create_resource(self.snapshot_path, ResourceType::Moved(options.moved_resource_type))
+            .map_err(VmError::ResourceSystemError)?;
+
+        for resource in old_vm.get_resource_system().get_resources() {
+            if let ResourceType::Moved(_) = resource.get_type() {
+                let resource_path = resource.get_effective_path().ok_or_else(|| {
+                    VmError::ResourceSystemError(ResourceSystemError::IncorrectState(ResourceState::Uninitialized))
+                })?;
+
+                resource_system
+                    .create_resource(resource_path, ResourceType::Moved(options.moved_resource_type))
+                    .map_err(VmError::ResourceSystemError)?;
+            }
+        }
 
         let load_snapshot = LoadSnapshot {
-            enable_diff_snapshots,
+            enable_diff_snapshots: options.enable_diff_snapshots,
             mem_backend: MemoryBackend {
                 backend_type: MemoryBackendType::File,
                 backend: mem_file,
             },
             snapshot,
-            resume_vm,
+            resume_vm: options.resume_vm,
         };
 
-        VmConfiguration::RestoredFromSnapshot {
+        let configuration = VmConfiguration::RestoredFromSnapshot {
             load_snapshot,
             data: self.configuration_data,
-        }
+        };
+
+        Vm::prepare(
+            options.executor,
+            resource_system,
+            old_vm.vmm_process.installation.clone(),
+            configuration,
+        )
+        .await
     }
 }

@@ -1,11 +1,11 @@
-use std::{future::Future, marker::PhantomData, path::PathBuf, process::ExitStatus, sync::Arc};
+use std::{future::Future, path::PathBuf, process::ExitStatus, sync::Arc};
 
 use async_once_cell::OnceCell;
 use bytes::{Bytes, BytesMut};
 use http::{Request, Response, StatusCode, Uri};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
-use hyper_client_sockets::{connector::unix::UnixConnector, uri::UnixUri};
+use hyper_client_sockets::{connector::UnixConnector, uri::UnixUri};
 use hyper_util::client::legacy::Client;
 
 use crate::{
@@ -22,23 +22,20 @@ use super::{
         process_handle::{ProcessHandle, ProcessHandlePipes, ProcessHandlePipesError},
         VmmExecutorContext,
     },
-    ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
-    resource::VmmResourceManager,
+    ownership::{upgrade_owner, ChangeOwnerError},
+    resource::system::{ResourceSystem, ResourceSystemError},
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
-/// tied to the given [VmmExecutor] E, [ProcessSpawner] S, [Runtime] R and [VmmResourceManager] RM.
+/// tied to the given [VmmExecutor] E, [ProcessSpawner] S, [Runtime] R.
 #[derive(Debug)]
-pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> {
+pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     executor: E,
-    ownership_model: VmmOwnershipModel,
-    process_spawner: S,
-    runtime: R,
-    installation: Arc<VmmInstallation>,
+    pub(crate) resource_system: ResourceSystem<S, R>,
+    pub(crate) installation: Arc<VmmInstallation>,
     process_handle: Option<ProcessHandle<R>>,
     state: VmmProcessState,
     hyper_client: OnceCell<Client<UnixConnector<R::SocketBackend>, Full<Bytes>>>,
-    marker: PhantomData<RM>,
 }
 
 /// The state of a [VmmProcess].
@@ -94,6 +91,7 @@ pub enum VmmProcessError {
     ProcessWaitFailed(std::io::Error),
     ExecutorError(VmmExecutorError),
     ProcessHandlePipesError(ProcessHandlePipesError),
+    ResourceSystemError(ResourceSystemError),
 }
 
 impl std::error::Error for VmmProcessError {}
@@ -130,59 +128,57 @@ impl std::fmt::Display for VmmProcessError {
             VmmProcessError::ProcessHandlePipesError(err) => {
                 write!(f, "Getting the pipes from the process handle failed: {err}")
             }
+            VmmProcessError::ResourceSystemError(err) => {
+                write!(f, "An error occurred within the resource system: {err}")
+            }
         }
     }
 }
 
-impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> VmmProcess<E, S, R, RM> {
-    /// Create a new [VmmProcess] from the necessary set of components:
-    /// [VmmExecutor], [ProcessSpawner], [Runtime], [VmmOwnershipModel], [VmmInstallation], [VmmResourceManager].
-    pub fn new(
-        executor: E,
-        process_spawner: S,
-        runtime: R,
-        ownership_model: VmmOwnershipModel,
-        installation: Arc<VmmInstallation>,
-    ) -> Self {
-        let installation = installation.into();
+impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
+    /// Create a new [VmmProcess] from a [VmmExecutor], a [VmmInstallation] and a [ResourceSystem]. All resources necessary for
+    /// the [VmmProcess]'s operation should already be created within this [ResourceSystem] prior to creating a [VmmProcess] and
+    /// preparing its environment.
+    pub fn new(executor: E, resource_system: ResourceSystem<S, R>, installation: Arc<VmmInstallation>) -> Self {
         Self {
             executor,
-            ownership_model,
-            process_spawner,
-            runtime,
+            resource_system,
             installation,
             process_handle: None,
             state: VmmProcessState::AwaitingPrepare,
             hyper_client: OnceCell::new(),
-            marker: PhantomData,
         }
     }
 
     /// Prepare the [VmmProcess] environment. Allowed in [VmmProcessState::AwaitingPrepare], will result in [VmmProcessState::AwaitingStart].
-    pub async fn prepare(&mut self, resource_manager: &mut RM) -> Result<(), VmmProcessError> {
+    pub async fn prepare(&mut self) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingPrepare)?;
         self.executor
-            .prepare(self.executor_context(resource_manager))
+            .prepare(self.executor_context())
             .await
             .map_err(VmmProcessError::ExecutorError)?;
+        self.resource_system
+            .synchronize()
+            .await
+            .map_err(VmmProcessError::ResourceSystemError)?;
         self.state = VmmProcessState::AwaitingStart;
         Ok(())
     }
 
     /// Invoke the [VmmProcess] with the given configuration [PathBuf] for the VMM. Allowed in [VmmProcessState::AwaitingStart],
     /// will result in [VmmProcessState::Started].
-    pub async fn invoke(
-        &mut self,
-        resource_manager: &mut RM,
-        config_path: Option<PathBuf>,
-    ) -> Result<(), VmmProcessError> {
+    pub async fn invoke(&mut self, config_path: Option<PathBuf>) -> Result<(), VmmProcessError> {
         self.ensure_state(VmmProcessState::AwaitingStart)?;
         self.process_handle = Some(
             self.executor
-                .invoke(self.executor_context(resource_manager), config_path)
+                .invoke(self.executor_context(), config_path)
                 .await
                 .map_err(VmmProcessError::ExecutorError)?,
         );
+        self.resource_system
+            .synchronize()
+            .await
+            .map_err(VmmProcessError::ResourceSystemError)?;
         self.state = VmmProcessState::Started;
         Ok(())
     }
@@ -201,11 +197,19 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> VmmP
         let hyper_client = self
             .hyper_client
             .get_or_try_init(async {
-                upgrade_owner(&socket_path, self.ownership_model, &self.process_spawner, &self.runtime)
-                    .await
-                    .map_err(VmmProcessError::ChangeOwnerError)?;
+                upgrade_owner(
+                    &socket_path,
+                    self.resource_system.ownership_model,
+                    &self.resource_system.process_spawner,
+                    &self.resource_system.runtime,
+                )
+                .await
+                .map_err(VmmProcessError::ChangeOwnerError)?;
 
-                Ok(Client::builder(RuntimeHyperExecutor(self.runtime.clone())).build(UnixConnector::new()))
+                Ok(
+                    Client::builder(RuntimeHyperExecutor(self.resource_system.runtime.clone()))
+                        .build(UnixConnector::new()),
+                )
             })
             .await?;
 
@@ -298,19 +302,33 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> VmmP
 
     /// Cleans up the [VmmProcess]'s environment. Always call this as a sort of async [Drop] mechanism! Allowed in
     /// [VmmProcessState::Exited] or [VmmProcessState::Crashed].
-    pub async fn cleanup(&mut self, resource_manager: &mut RM) -> Result<(), VmmProcessError> {
+    pub async fn cleanup(&mut self) -> Result<(), VmmProcessError> {
         self.ensure_exited_or_crashed()?;
         self.executor
-            .cleanup(self.executor_context(resource_manager))
+            .cleanup(self.executor_context())
             .await
-            .map_err(VmmProcessError::ExecutorError)
+            .map_err(VmmProcessError::ExecutorError)?;
+        self.resource_system
+            .synchronize()
+            .await
+            .map_err(VmmProcessError::ResourceSystemError)
     }
 
     /// Transforms a given local resource path into an effective resource path using the executor. This should be used
     /// with care and only in cases where the resource system is insufficient.
-    pub fn local_to_effective_path(&self, local_path: impl Into<PathBuf>) -> PathBuf {
+    pub fn get_effective_path_from_local(&self, local_path: impl Into<PathBuf>) -> PathBuf {
         self.executor
-            .local_to_effective_path(&self.installation, local_path.into())
+            .get_effective_path_from_local(&self.installation, local_path.into())
+    }
+
+    /// Get a shared reference to the [ResourceSystem] used by this [VmmProcess].
+    pub fn get_resource_system(&self) -> &ResourceSystem<S, R> {
+        &self.resource_system
+    }
+
+    /// Get a mutable reference to the [ResourceSystem] used by this [VmmProcess].
+    pub fn get_resource_system_mut(&mut self) -> &mut ResourceSystem<S, R> {
+        &mut self.resource_system
     }
 
     fn ensure_state(&mut self, expected: VmmProcessState) -> Result<(), VmmProcessError> {
@@ -337,13 +355,13 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> VmmP
     }
 
     #[inline(always)]
-    fn executor_context<'r>(&self, resource_set: &'r mut RM) -> VmmExecutorContext<'r, S, R, RM> {
+    fn executor_context(&self) -> VmmExecutorContext<S, R> {
         VmmExecutorContext {
             installation: self.installation.clone(),
-            process_spawner: self.process_spawner.clone(),
-            runtime: self.runtime.clone(),
-            ownership_model: self.ownership_model,
-            resource_manager: resource_set,
+            process_spawner: self.resource_system.process_spawner.clone(),
+            runtime: self.resource_system.runtime.clone(),
+            ownership_model: self.resource_system.ownership_model,
+            resources: self.resource_system.get_resources().to_vec(),
         }
     }
 }

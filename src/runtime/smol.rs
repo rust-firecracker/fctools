@@ -8,7 +8,7 @@ use std::{
     pin::Pin,
     process::{ExitStatus, Stdio},
     sync::Arc,
-    task::Poll,
+    task::{Context, Poll},
     time::{Duration, Instant},
 };
 
@@ -175,8 +175,11 @@ impl<O: Send + 'static> RuntimeTask<O> for SmolRuntimeTask<O> {
         self.0.take().expect("Task option can't be None before drop").cancel()
     }
 
-    async fn join(mut self) -> Option<O> {
-        Some(self.0.take().expect("Task option can't be None before drop").await)
+    fn poll_join(&mut self, context: &mut Context) -> Poll<Option<O>> {
+        match self.0 {
+            Some(ref mut task) => Pin::new(task).poll(context).map(Some),
+            _ => Poll::Ready(None),
+        }
     }
 }
 
@@ -213,7 +216,7 @@ pin_project! {
 impl<F: Future<Output = O>, O> Future for TimeoutFuture<F, O> {
     type Output = Result<O, TimeoutError>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let proj = self.project();
 
         if let Poll::Ready(instant) = proj.timer.poll(cx) {

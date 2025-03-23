@@ -10,8 +10,9 @@ use crate::{
     vmm::{
         executor::{process_handle::ProcessHandlePipes, VmmExecutor},
         installation::VmmInstallation,
-        ownership::{upgrade_owner, ChangeOwnerError, VmmOwnershipModel},
+        ownership::{upgrade_owner, ChangeOwnerError},
         process::{VmmProcess, VmmProcessError, VmmProcessState},
+        resource::system::{ResourceSystem, ResourceSystemError},
     },
 };
 use api::VmApiError;
@@ -19,7 +20,7 @@ use bytes::Bytes;
 use configuration::{InitMethod, VmConfiguration};
 use http::Uri;
 use http_body_util::Full;
-use hyper_client_sockets::{connector::unix::UnixConnector, uri::UnixUri};
+use hyper_client_sockets::{connector::UnixConnector, uri::UnixUri};
 use shutdown::{VmShutdownAction, VmShutdownError, VmShutdownOutcome};
 
 pub mod api;
@@ -36,10 +37,7 @@ pub mod snapshot;
 /// to these components with opinionated functionality.
 #[derive(Debug)]
 pub struct Vm<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
-    vmm_process: VmmProcess<E, S, R, VmConfiguration>,
-    process_spawner: S,
-    ownership_model: VmmOwnershipModel,
-    pub(crate) runtime: R,
+    pub(crate) vmm_process: VmmProcess<E, S, R>,
     is_paused: bool,
     configuration: VmConfiguration,
 }
@@ -86,6 +84,7 @@ pub enum VmError {
     SocketWaitTimeout,
     DisabledApiSocketIsUnsupported,
     MissingPathMapping,
+    ResourceSystemError(ResourceSystemError),
 }
 
 impl std::error::Error for VmError {}
@@ -116,6 +115,7 @@ impl std::fmt::Display for VmError {
                 f,
                 "A path mapping was expected to be constructed by the executor, but was not returned"
             ),
+            VmError::ResourceSystemError(err) => write!(f, "A resource system error occurred: {err}"),
         }
     }
 }
@@ -149,39 +149,24 @@ impl std::fmt::Display for VmStateCheckError {
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
-    /// Prepare the full environment of a [Vm] without booting it. Analogously to a [VmmProcess], this requires
-    /// all the necessary components: [VmmExecutor], [ProcessSpawner], [Runtime], [VmmOwnershipModel],
-    /// [Arc<VmmInstallation>]. An additional component of a [Vm] is its [VmConfiguration].
+    /// Prepare the full environment of a [Vm] without booting it. This requires a [VmConfiguration], in which all resources
+    /// are created within the given [ResourceSystem], a [VmmExecutor] and a [VmmInstallation].
     pub async fn prepare(
         executor: E,
-        process_spawner: S,
-        runtime: R,
-        ownership_model: VmmOwnershipModel,
+        resource_system: ResourceSystem<S, R>,
         installation: Arc<VmmInstallation>,
-        mut configuration: VmConfiguration,
+        configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
         if executor.get_socket_path(installation.as_ref()).is_none() {
             return Err(VmError::DisabledApiSocketIsUnsupported);
         }
 
-        let mut vmm_process = VmmProcess::new(
-            executor,
-            process_spawner.clone(),
-            runtime.clone(),
-            ownership_model,
-            installation,
-        );
+        let mut vmm_process = VmmProcess::new(executor, resource_system, installation);
 
-        vmm_process
-            .prepare(&mut configuration)
-            .await
-            .map_err(VmError::ProcessError)?;
+        vmm_process.prepare().await.map_err(VmError::ProcessError)?;
 
         Ok(Self {
             vmm_process,
-            process_spawner,
-            ownership_model,
-            runtime,
             is_paused: false,
             configuration,
         })
@@ -215,18 +200,22 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             ref data,
         } = self.configuration
         {
-            let config_effective_path = self.vmm_process.local_to_effective_path(config_local_path.clone());
+            let config_effective_path = self
+                .vmm_process
+                .get_effective_path_from_local(config_local_path.clone());
             config_path = Some(config_local_path.clone());
             upgrade_owner(
                 &config_effective_path,
-                self.ownership_model,
-                &self.process_spawner,
-                &self.runtime,
+                self.vmm_process.resource_system.ownership_model,
+                &self.vmm_process.resource_system.process_spawner,
+                &self.vmm_process.resource_system.runtime,
             )
             .await
             .map_err(VmError::ChangeOwnerError)?;
 
-            self.runtime
+            self.vmm_process
+                .resource_system
+                .runtime
                 .fs_write(
                     &config_effective_path,
                     serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
@@ -236,14 +225,18 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         }
 
         self.vmm_process
-            .invoke(&mut self.configuration, config_path)
+            .invoke(config_path)
             .await
             .map_err(VmError::ProcessError)?;
 
-        let client = hyper_util::client::legacy::Builder::new(RuntimeHyperExecutor(self.runtime.clone()))
-            .build::<_, Full<Bytes>>(UnixConnector::<R::SocketBackend>::new());
+        let client = hyper_util::client::legacy::Builder::new(RuntimeHyperExecutor(
+            self.vmm_process.resource_system.runtime.clone(),
+        ))
+        .build::<_, Full<Bytes>>(UnixConnector::<R::SocketBackend>::new());
 
-        self.runtime
+        self.vmm_process
+            .resource_system
+            .runtime
             .timeout(socket_wait_timeout, async move {
                 loop {
                     if client
@@ -287,10 +280,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     /// Clean up the full environment of this [Vm] after it being [VmState::Exited] or [VmState::Crashed].
     pub async fn cleanup(&mut self) -> Result<(), VmError> {
         self.ensure_exited_or_crashed().map_err(VmError::StateCheckError)?;
-        self.vmm_process
-            .cleanup(&mut self.configuration)
-            .await
-            .map_err(VmError::ProcessError)
+        self.vmm_process.cleanup().await.map_err(VmError::ProcessError)
     }
 
     /// Take out the [ProcessHandlePipes] of the underlying process handle if possible.
@@ -300,16 +290,26 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     }
 
     /// Get a shared reference to the [Vm]'s [VmConfiguration].
-    pub fn configuration(&self) -> &VmConfiguration {
+    pub fn get_configuration(&self) -> &VmConfiguration {
         &self.configuration
     }
 
     /// Translates the given local resource path to an effective resource path.
-    pub fn local_to_effective_path(&self, local_path: impl Into<PathBuf>) -> PathBuf {
-        self.vmm_process.local_to_effective_path(local_path)
+    pub fn get_effective_path_from_local(&self, local_path: impl Into<PathBuf>) -> PathBuf {
+        self.vmm_process.get_effective_path_from_local(local_path)
     }
 
-    pub(super) fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmStateCheckError> {
+    /// Get a shared reference to the [ResourceSystem] used by this [Vm].
+    pub fn get_resource_system(&self) -> &ResourceSystem<S, R> {
+        self.vmm_process.get_resource_system()
+    }
+
+    /// Get a mutable reference to the [ResourceSystem] used by this [Vm].
+    pub fn get_resource_system_mut(&mut self) -> &mut ResourceSystem<S, R> {
+        self.vmm_process.get_resource_system_mut()
+    }
+
+    fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmStateCheckError> {
         let current_state = self.state();
         if current_state != expected_state {
             Err(VmStateCheckError::Other {
@@ -321,7 +321,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         }
     }
 
-    pub(super) fn ensure_paused_or_running(&mut self) -> Result<(), VmStateCheckError> {
+    fn ensure_paused_or_running(&mut self) -> Result<(), VmStateCheckError> {
         let current_state = self.state();
         if current_state != VmState::Running && current_state != VmState::Paused {
             Err(VmStateCheckError::PausedOrRunning { actual: current_state })

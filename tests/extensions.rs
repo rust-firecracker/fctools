@@ -9,7 +9,7 @@ use fctools::{
     },
     runtime::{tokio::TokioRuntime, RuntimeTask},
     vm::{api::VmApi, models::SnapshotType},
-    vmm::{process::HyperResponseExt, resource::created::CreatedVmmResourceType},
+    vmm::{process::HyperResponseExt, resource::CreatedResourceType},
 };
 use futures_util::StreamExt;
 use http_body_util::Full;
@@ -122,23 +122,23 @@ mod test_framework;
 fn snapshot_editor_can_rebase_memory() {
     VmBuilder::new().run(|mut vm| async move {
         vm.api_pause().await.unwrap();
-        let base_snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
+        let create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
+        let base_snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
         vm.api_resume().await.unwrap();
         vm.api_pause().await.unwrap();
 
-        let mut diff_create_snapshot = get_create_snapshot();
+        let mut diff_create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
         diff_create_snapshot.snapshot_type = Some(SnapshotType::Diff);
         let diff_snapshot = vm.api_create_snapshot(diff_create_snapshot).await.unwrap();
+
         vm.api_resume().await.unwrap();
 
         get_real_firecracker_installation()
             .snapshot_editor(TokioRuntime)
-            .rebase_memory(
-                base_snapshot.mem_file.effective_path(),
-                diff_snapshot.mem_file.effective_path(),
-            )
+            .rebase_memory(base_snapshot.mem_file_path, diff_snapshot.mem_file_path)
             .await
             .unwrap();
+
         shutdown_test_vm(&mut vm).await;
     })
 }
@@ -147,15 +147,18 @@ fn snapshot_editor_can_rebase_memory() {
 fn snapshot_editor_can_get_snapshot_version() {
     VmBuilder::new().run(|mut vm| async move {
         vm.api_pause().await.unwrap();
-        let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
+        let create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
+        let snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
         vm.api_resume().await.unwrap();
 
         let version = get_real_firecracker_installation()
             .snapshot_editor(TokioRuntime)
-            .get_snapshot_version(snapshot.snapshot.effective_path())
+            .get_snapshot_version(snapshot.snapshot_path)
             .await
             .unwrap();
+
         assert_eq!(version.trim(), TestOptions::get().await.toolchain.snapshot_version);
+
         shutdown_test_vm(&mut vm).await;
     });
 }
@@ -164,12 +167,13 @@ fn snapshot_editor_can_get_snapshot_version() {
 fn snapshot_editor_can_get_snapshot_vcpu_states() {
     VmBuilder::new().run(|mut vm| async move {
         vm.api_pause().await.unwrap();
-        let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
+        let create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
+        let snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
         vm.api_resume().await.unwrap();
 
         let data = get_real_firecracker_installation()
             .snapshot_editor(TokioRuntime)
-            .get_snapshot_vcpu_states(snapshot.snapshot.effective_path())
+            .get_snapshot_vcpu_states(snapshot.snapshot_path)
             .await
             .unwrap();
         let first_line = data.lines().next().unwrap();
@@ -183,12 +187,13 @@ fn snapshot_editor_can_get_snapshot_vcpu_states() {
 fn snapshot_editor_can_get_snapshot_vm_state() {
     VmBuilder::new().run(|mut vm| async move {
         vm.api_pause().await.unwrap();
-        let snapshot = vm.api_create_snapshot(get_create_snapshot()).await.unwrap();
+        let create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
+        let snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
         vm.api_resume().await.unwrap();
 
         let data = get_real_firecracker_installation()
             .snapshot_editor(TokioRuntime)
-            .get_snapshot_vm_state(snapshot.snapshot.effective_path())
+            .get_snapshot_vm_state(snapshot.snapshot_path)
             .await
             .unwrap();
         assert!(data.contains("kvm"));
@@ -199,27 +204,28 @@ fn snapshot_editor_can_get_snapshot_vm_state() {
 #[test]
 fn metrics_task_can_receive_data_from_plaintext() {
     VmBuilder::new()
-        .metrics_system(CreatedVmmResourceType::File)
+        .metrics_system(CreatedResourceType::File)
         .run(|vm| test_metrics_recv(false, vm));
 }
 
 #[test]
 fn metrics_task_can_receive_data_from_fifo() {
     VmBuilder::new()
-        .metrics_system(CreatedVmmResourceType::Fifo)
+        .metrics_system(CreatedResourceType::Fifo)
         .run(|vm| test_metrics_recv(true, vm));
 }
 
 async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
     let metrics_path = vm
-        .configuration()
+        .get_configuration()
         .data()
         .metrics_system
         .as_ref()
         .unwrap()
         .metrics
-        .effective_path()
-        .to_owned();
+        .get_effective_path()
+        .unwrap();
+
     let file_type = metadata(&metrics_path).await.unwrap().file_type();
 
     if is_fifo {
@@ -238,17 +244,17 @@ async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
 #[test]
 fn metrics_task_can_be_cancelled_via_join_handle() {
     VmBuilder::new()
-        .metrics_system(CreatedVmmResourceType::Fifo)
+        .metrics_system(CreatedResourceType::Fifo)
         .run(|mut vm| async move {
             let mut metrics_task = spawn_metrics_task(
-                vm.configuration()
+                vm.get_configuration()
                     .data()
                     .metrics_system
                     .as_ref()
                     .unwrap()
                     .metrics
-                    .effective_path()
-                    .to_owned(),
+                    .get_effective_path()
+                    .unwrap(),
                 100,
                 TokioRuntime,
             );
@@ -385,6 +391,7 @@ fn make_vsock_req() -> http::Request<Full<Bytes>> {
 
 async fn assert_vsock_resp(mut response: http::Response<hyper::body::Incoming>) {
     let response_json = response.read_body_to_string().await.unwrap();
+
     assert_eq!(
         serde_json::from_str::<PingResponse>(&response_json).unwrap(),
         PingResponse { c: 20 }

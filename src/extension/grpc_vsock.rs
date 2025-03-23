@@ -11,6 +11,7 @@ pub enum VsockGrpcError {
     VsockNotConfigured,
     ProvidedAddressRejected(tonic::transport::Error),
     ConnectionFailed(tonic::transport::Error),
+    VsockResourceUninitialized,
 }
 
 impl std::error::Error for VsockGrpcError {}
@@ -23,6 +24,7 @@ impl std::fmt::Display for VsockGrpcError {
                 write!(f, "The provided address was rejected as an Endpoint: {err}")
             }
             VsockGrpcError::ConnectionFailed(err) => write!(f, "The gRPC connection failed: {err}"),
+            VsockGrpcError::VsockResourceUninitialized => write!(f, "The vsock resource was uninitialized"),
         }
     }
 }
@@ -82,14 +84,14 @@ fn create_endpoint_and_service<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
     configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
 ) -> Result<(Endpoint, FirecrackerTowerService<R::SocketBackend>), VsockGrpcError> {
     let uds_path = vm
-        .configuration()
+        .get_configuration()
         .data()
         .vsock_device
         .as_ref()
         .ok_or(VsockGrpcError::VsockNotConfigured)?
         .uds
-        .effective_path()
-        .to_owned();
+        .get_effective_path()
+        .ok_or(VsockGrpcError::VsockResourceUninitialized)?;
 
     let mut endpoint =
         Endpoint::try_from(format!("http://[::1]:{guest_port}")).map_err(VsockGrpcError::ProvidedAddressRejected)?;

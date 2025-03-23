@@ -9,7 +9,7 @@ use crate::{process_spawner::ProcessSpawner, runtime::Runtime};
 use super::{
     installation::VmmInstallation,
     ownership::{ChangeOwnerError, VmmOwnershipModel},
-    resource::{VmmResourceError, VmmResourceManager},
+    resource::{system::ResourceSystemError, Resource},
 };
 
 #[cfg(feature = "either-vmm-executor")]
@@ -31,7 +31,7 @@ pub enum VmmExecutorError {
     ProcessWaitError(std::io::Error),
     FilesystemError(std::io::Error),
     ChangeOwnerError(ChangeOwnerError),
-    ResourceError(VmmResourceError),
+    ResourceSystemError(ResourceSystemError),
     ExpectedDirectoryParentMissing(PathBuf),
     TaskJoinFailed,
     ProcessSpawnFailed(std::io::Error),
@@ -58,7 +58,9 @@ impl std::fmt::Display for VmmExecutorError {
             VmmExecutorError::ChangeOwnerError(err) => {
                 write!(f, "An ownership change failed: {err}")
             }
-            VmmExecutorError::ResourceError(err) => write!(f, "An error occurred with a resource: {err}"),
+            VmmExecutorError::ResourceSystemError(err) => {
+                write!(f, "An error occurred within the resource system: {err}")
+            }
             VmmExecutorError::ExpectedDirectoryParentMissing(path) => {
                 write!(f, "A parent of a directory is missing: {}", path.display())
             }
@@ -84,37 +86,64 @@ pub trait VmmExecutor: Send + Sync {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf>;
 
     /// Transform a given local resource path to an effective resource path.
-    fn local_to_effective_path(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf;
+    fn get_effective_path_from_local(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf;
 
-    /// Prepare all transient resources for the VMM invocation.
-    fn prepare<S: ProcessSpawner, R: Runtime, RM: VmmResourceManager>(
-        &mut self,
-        context: VmmExecutorContext<'_, S, R, RM>,
+    /// Prepare all transient resources for the VMM invocation. It is assumed that an implementation of this function
+    /// appropriately schedules the initialization of all [Resource]s inside the given [VmmExecutorContext] to effective
+    /// and local paths according to the executor's discretion. It will therefore be necessary to manually synchronize
+    /// the resource system that the [Resource]s come from in order to ensure the scheduled operations complete.
+    /// This synchronization is automatically performed by VMM processes and VMs.
+    fn prepare<S: ProcessSpawner, R: Runtime>(
+        &self,
+        context: VmmExecutorContext<S, R>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 
     /// Invoke the VMM on the given [VmmInstallation] and return the [ProcessHandle] that performs a connection to
     /// the created process, regardless of it possibly being not a child and rather having been unshare()-d into
     /// a separate PID namespace.
-    fn invoke<S: ProcessSpawner, R: Runtime, RM: VmmResourceManager>(
-        &mut self,
-        context: VmmExecutorContext<'_, S, R, RM>,
+    fn invoke<S: ProcessSpawner, R: Runtime>(
+        &self,
+        context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
     ) -> impl Future<Output = Result<ProcessHandle<R>, VmmExecutorError>> + Send;
 
-    /// Clean up all transient resources of the VMM invocation.
-    fn cleanup<S: ProcessSpawner, R: Runtime, RM: VmmResourceManager>(
-        &mut self,
-        context: VmmExecutorContext<'_, S, R, RM>,
+    /// Clean up all transient resources of the VMM invocation. It is assumed that an implementation of this function
+    /// appropriately schedules the disposal of all [Resource]s inside the given [VmmExecutorContext], except for cases
+    /// when disposal is redundant. It will therefore be necessary to manually synchronize the resource system that
+    /// the [Resource]s come from in order to ensure the scheduled operations complete. This manual synchronization is
+    /// automatically performed by VMM processes and VMs.
+    fn cleanup<S: ProcessSpawner, R: Runtime>(
+        &self,
+        context: VmmExecutorContext<S, R>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
 /// A [VmmExecutorContext] encapsulates the data that a [VmmExecutor] prepare/invoke/cleanup invocation needs in
-/// order to function. Creating a [VmmExecutorContext] is mainly simple, except for needing to pass in an exclusive
-/// mutable reference to a [VmmResourceManager] tied to the 'r lifetime.
-pub struct VmmExecutorContext<'r, S: ProcessSpawner, R: Runtime, RM: VmmResourceManager> {
+/// order to function.
+pub struct VmmExecutorContext<S: ProcessSpawner, R: Runtime> {
+    /// The [VmmInstallation] the invocation is tied to.
     pub installation: Arc<VmmInstallation>,
+    /// A [ProcessSpawner] that the [VmmExecutorContext] is generic over.
     pub process_spawner: S,
+    /// A [Runtime] that the [VmmExecutorContext] is generic over.
     pub runtime: R,
+    /// A [VmmOwnershipModel] to use for ownership operations within the executor.
     pub ownership_model: VmmOwnershipModel,
-    pub resource_manager: &'r mut RM,
+    /// A buffer of all [Resource]s to consider for initialization and disposal.
+    pub resources: Vec<Resource>,
+}
+
+#[cfg(any(feature = "unrestricted-vmm-executor", feature = "jailed-vmm-executor"))]
+#[inline]
+fn expand_context<S: ProcessSpawner, R: Runtime>(
+    arguments: &super::arguments::VmmArguments,
+    context: &mut VmmExecutorContext<S, R>,
+) {
+    if let Some(logs) = arguments.logs.clone() {
+        context.resources.push(logs);
+    }
+
+    if let Some(metrics) = arguments.metrics.clone() {
+        context.resources.push(metrics);
+    }
 }

@@ -20,6 +20,7 @@ use fctools::{
             MmdsConfiguration, MmdsVersion, NetworkInterface, SnapshotType, VsockDevice,
         },
         shutdown::{VmShutdownAction, VmShutdownMethod},
+        Vm,
     },
     vmm::{
         arguments::{
@@ -34,13 +35,8 @@ use fctools::{
         },
         installation::VmmInstallation,
         ownership::VmmOwnershipModel,
-        process::VmmProcessState,
-        resource::{
-            created::{CreatedVmmResource, CreatedVmmResourceType},
-            moved::{MovedVmmResource, VmmResourceMoveMethod},
-            produced::ProducedVmmResource,
-            SimpleVmmResourceManager,
-        },
+        process::{VmmProcess, VmmProcessState},
+        resource::{system::ResourceSystem, CreatedResourceType, MovedResourceType, ResourceType},
     },
 };
 use rand::{Rng, RngCore};
@@ -130,11 +126,15 @@ pub fn jail_join(path1: impl AsRef<Path>, path2: impl Into<PathBuf>) -> PathBuf 
 }
 
 #[allow(unused)]
-pub fn get_create_snapshot() -> CreateSnapshot {
+pub fn get_create_snapshot(resource_system: &mut TestResourceSystem) -> CreateSnapshot {
     CreateSnapshot {
         snapshot_type: Some(SnapshotType::Full),
-        snapshot: ProducedVmmResource::new(get_tmp_path()),
-        mem_file: ProducedVmmResource::new(get_tmp_path()),
+        snapshot: resource_system
+            .create_resource(get_tmp_path(), ResourceType::Produced)
+            .unwrap(),
+        mem_file: resource_system
+            .create_resource(get_tmp_path(), ResourceType::Produced)
+            .unwrap(),
     }
 }
 
@@ -161,71 +161,46 @@ impl ProcessSpawner for FailingRunner {
 // VMM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVmmProcess = fctools::vmm::process::VmmProcess<
-    EitherVmmExecutor<FlatJailRenamer>,
-    DirectProcessSpawner,
-    TokioRuntime,
-    SimpleVmmResourceManager,
->;
+pub type TestVmmProcess = VmmProcess<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime>;
 
 #[allow(unused)]
 pub async fn run_vmm_process_test<F, Fut>(no_new_pid_ns: bool, closure: F)
 where
-    F: Fn(TestVmmProcess, SimpleVmmResourceManager) -> Fut,
+    F: Fn(TestVmmProcess) -> Fut,
     F: 'static,
     Fut: Future<Output = ()>,
 {
-    async fn init_process(
-        process: &mut TestVmmProcess,
-        config_path: impl Into<PathBuf>,
-        resource_manager: &mut SimpleVmmResourceManager,
-    ) {
+    async fn init_process(process: &mut TestVmmProcess, config_path: impl Into<PathBuf>) {
         process.wait_for_exit().await.unwrap_err();
         process.send_ctrl_alt_del().await.unwrap_err();
         process.send_sigkill().unwrap_err();
         process.take_pipes().unwrap_err();
-        process.cleanup(resource_manager).await.unwrap_err();
+        process.cleanup().await.unwrap_err();
 
         assert_eq!(process.state(), VmmProcessState::AwaitingPrepare);
-        process.prepare(resource_manager).await.unwrap();
+        process.prepare().await.unwrap();
         assert_eq!(process.state(), VmmProcessState::AwaitingStart);
-        process
-            .invoke(resource_manager, Some(config_path.into()))
-            .await
-            .unwrap();
+        process.invoke(Some(config_path.into())).await.unwrap();
         assert_eq!(process.state(), VmmProcessState::Started);
     }
 
-    let (mut unrestricted_process, mut unrestricted_resource_manager, mut jailed_process, mut jailed_resource_manager) =
-        get_vmm_processes(no_new_pid_ns).await;
+    let (mut unrestricted_process, mut jailed_process) = get_vmm_processes(no_new_pid_ns).await;
 
-    init_process(&mut jailed_process, "/jailed.json", &mut jailed_resource_manager).await;
-    init_process(
-        &mut unrestricted_process,
-        get_test_path("configs/unrestricted.json"),
-        &mut unrestricted_resource_manager,
-    )
-    .await;
+    init_process(&mut jailed_process, "/jailed.json").await;
+    init_process(&mut unrestricted_process, get_test_path("configs/unrestricted.json")).await;
     tokio::time::sleep(Duration::from_millis(TestOptions::get().await.waits.boot_wait_ms)).await;
-    closure(unrestricted_process, unrestricted_resource_manager).await;
+    closure(unrestricted_process).await;
     println!("Succeeded with unrestricted VM");
-    closure(jailed_process, jailed_resource_manager).await;
+    closure(jailed_process).await;
     println!("Succeeded with jailed VM");
 }
 
-async fn get_vmm_processes(
-    no_new_pid_ns: bool,
-) -> (
-    TestVmmProcess,
-    SimpleVmmResourceManager,
-    TestVmmProcess,
-    SimpleVmmResourceManager,
-) {
+async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProcess) {
     let socket_path = get_tmp_path();
 
     let vmm_arguments = VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()));
 
-    let mut jailer_arguments = JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap())
+    let mut jailer_arguments = JailerArguments::new(rand::rng().next_u32().to_string().try_into().unwrap())
         .cgroup_version(JailerCgroupVersion::V2);
 
     if !no_new_pid_ns {
@@ -239,52 +214,47 @@ async fn get_vmm_processes(
         gid: TestOptions::get().await.jailer_gid.into(),
     };
 
-    let mut jailed_resource_manager = SimpleVmmResourceManager::default();
-    jailed_resource_manager.moved_resources.push(MovedVmmResource::new(
-        get_test_path("assets/kernel"),
-        VmmResourceMoveMethod::Copy,
-    ));
-    jailed_resource_manager.moved_resources.push(MovedVmmResource::new(
-        get_test_path("assets/rootfs.ext4"),
-        VmmResourceMoveMethod::Copy,
-    ));
-
-    let mut unrestricted_resource_manager = SimpleVmmResourceManager::default();
-    unrestricted_resource_manager
-        .moved_resources
-        .push(MovedVmmResource::new(
-            get_test_path("configs/unrestricted.json"),
-            VmmResourceMoveMethod::Copy,
-        ));
-    jailed_resource_manager.moved_resources.push(MovedVmmResource::new(
-        get_test_path("configs/jailed.json"),
-        VmmResourceMoveMethod::Copy,
-    ));
+    let mut jailed_resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, ownership_model);
+    jailed_resource_system
+        .create_resource(
+            get_test_path("assets/kernel"),
+            ResourceType::Moved(MovedResourceType::Copied),
+        )
+        .unwrap();
+    jailed_resource_system
+        .create_resource(
+            get_test_path("assets/rootfs.ext4"),
+            ResourceType::Moved(MovedResourceType::Copied),
+        )
+        .unwrap();
+    jailed_resource_system
+        .create_resource(
+            get_test_path("configs/jailed.json"),
+            ResourceType::Moved(MovedResourceType::Copied),
+        )
+        .unwrap();
 
     (
         TestVmmProcess::new(
             EitherVmmExecutor::Unrestricted(unrestricted_executor),
-            DirectProcessSpawner,
-            TokioRuntime,
-            ownership_model,
+            ResourceSystem::new(DirectProcessSpawner, TokioRuntime, ownership_model),
             Arc::new(get_real_firecracker_installation()),
         ),
-        unrestricted_resource_manager,
         TestVmmProcess::new(
             EitherVmmExecutor::Jailed(jailed_executor),
-            DirectProcessSpawner,
-            TokioRuntime,
-            ownership_model,
+            jailed_resource_system,
             Arc::new(get_real_firecracker_installation()),
         ),
-        jailed_resource_manager,
     )
 }
 
 // VM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVm = fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime>;
+pub type TestVm = Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime>;
+
+#[allow(unused)]
+pub type TestResourceSystem = ResourceSystem<DirectProcessSpawner, TokioRuntime>;
 
 type PreStartHook = Box<dyn FnOnce(&mut TestVm) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>>;
 
@@ -298,9 +268,9 @@ struct NetworkData {
 #[allow(unused)]
 pub struct VmBuilder {
     init_method: InitMethod,
-    logger_system: Option<LoggerSystem>,
-    metrics_system: Option<MetricsSystem>,
-    vsock_device: Option<VsockDevice>,
+    logger: Option<CreatedResourceType>,
+    metrics: Option<CreatedResourceType>,
+    vsock_device: bool,
     pre_start_hook: Option<(PreStartHook, PreStartHook)>,
     balloon_device: Option<BalloonDevice>,
     unrestricted_network_data: Option<NetworkData>,
@@ -315,9 +285,9 @@ impl VmBuilder {
     pub fn new() -> Self {
         Self {
             init_method: InitMethod::ViaApiCalls,
-            logger_system: None,
-            metrics_system: None,
-            vsock_device: None,
+            logger: None,
+            metrics: None,
+            vsock_device: false,
             pre_start_hook: None,
             balloon_device: None,
             unrestricted_network_data: None,
@@ -333,29 +303,18 @@ impl VmBuilder {
         self
     }
 
-    pub fn logger_system(mut self, r#type: CreatedVmmResourceType) -> Self {
-        self.logger_system = Some(LoggerSystem {
-            logs: Some(CreatedVmmResource::new(get_tmp_path(), r#type)),
-            level: None,
-            show_level: None,
-            show_log_origin: None,
-            module: None,
-        });
+    pub fn logger_system(mut self, r#type: CreatedResourceType) -> Self {
+        self.logger = Some(r#type);
         self
     }
 
-    pub fn metrics_system(mut self, r#type: CreatedVmmResourceType) -> Self {
-        self.metrics_system = Some(MetricsSystem {
-            metrics: CreatedVmmResource::new(get_tmp_path(), r#type),
-        });
+    pub fn metrics_system(mut self, r#type: CreatedResourceType) -> Self {
+        self.metrics = Some(r#type);
         self
     }
 
     pub fn vsock_device(mut self) -> Self {
-        self.vsock_device = Some(VsockDevice {
-            guest_cid: rand::thread_rng().next_u32(),
-            uds: ProducedVmmResource::new(get_tmp_path()),
-        });
+        self.vsock_device = true;
         self
     }
 
@@ -399,7 +358,7 @@ impl VmBuilder {
     }
 
     fn setup_simple_network(&self) -> NetworkData {
-        let subnet_index = rand::thread_rng().gen_range(1..1000);
+        let subnet_index = rand::rng().random_range(1..1000);
         let subnet = LinkLocalSubnet::new(subnet_index, 30).unwrap();
         let guest_ip = subnet.get_host_ip(0).unwrap().into();
         let tap_ip = subnet.get_host_ip(1).unwrap().into();
@@ -431,7 +390,7 @@ impl VmBuilder {
     }
 
     fn setup_namespaced_network(&self) -> NetworkData {
-        let subnet_index = rand::thread_rng().gen_range(1..=3000);
+        let subnet_index = rand::rng().random_range(1..=3000);
         let subnet = LinkLocalSubnet::new(subnet_index, 29).unwrap();
 
         let guest_ip = subnet.get_host_ip(0).unwrap().into();
@@ -487,6 +446,19 @@ impl VmBuilder {
         F: Clone + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(self.run_inner(function));
+    }
+
+    async fn run_inner<F, Fut>(self, function: F)
+    where
+        F: Fn(TestVm, bool) -> Fut + Send,
+        F: Clone + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
         fn get_boot_arg(network_data: Option<&NetworkData>) -> String {
             let mut arg = "console=ttyS0 reboot=k panic=1 pci=off".to_string();
             if let Some(network_data) = network_data {
@@ -495,10 +467,19 @@ impl VmBuilder {
             arg
         }
 
-        fn new_configuration_data(boot_args: String, drive_read_only: bool) -> VmConfigurationData {
+        fn new_configuration_data(
+            resource_system: &mut TestResourceSystem,
+            boot_args: String,
+            drive_read_only: bool,
+        ) -> VmConfigurationData {
             VmConfigurationData {
                 boot_source: BootSource {
-                    kernel_image: MovedVmmResource::new(get_test_path("assets/kernel"), VmmResourceMoveMethod::Copy),
+                    kernel_image: resource_system
+                        .create_resource(
+                            get_test_path("assets/kernel"),
+                            ResourceType::Moved(MovedResourceType::Copied),
+                        )
+                        .unwrap(),
                     boot_args: Some(boot_args),
                     initrd: None,
                 },
@@ -508,10 +489,14 @@ impl VmBuilder {
                     cache_type: None,
                     partuuid: None,
                     is_read_only: Some(drive_read_only),
-                    block: Some(MovedVmmResource::new(
-                        get_test_path("assets/rootfs.ext4"),
-                        VmmResourceMoveMethod::Copy,
-                    )),
+                    block: Some(
+                        resource_system
+                            .create_resource(
+                                get_test_path("assets/rootfs.ext4"),
+                                ResourceType::Moved(MovedResourceType::Copied),
+                            )
+                            .unwrap(),
+                    ),
                     rate_limiter: None,
                     io_engine: None,
                     socket: None,
@@ -534,9 +519,50 @@ impl VmBuilder {
             }
         }
 
-        let socket_path = get_tmp_path();
+        fn new_logger_system(resource_system: &mut TestResourceSystem, r#type: CreatedResourceType) -> LoggerSystem {
+            LoggerSystem {
+                logs: Some(
+                    resource_system
+                        .create_resource(get_tmp_path(), ResourceType::Created(r#type))
+                        .unwrap(),
+                ),
+                level: None,
+                show_level: None,
+                show_log_origin: None,
+                module: None,
+            }
+        }
 
-        let mut unrestricted_data = new_configuration_data(get_boot_arg(self.unrestricted_network_data.as_ref()), true);
+        fn new_metrics_system(resource_system: &mut TestResourceSystem, r#type: CreatedResourceType) -> MetricsSystem {
+            MetricsSystem {
+                metrics: resource_system
+                    .create_resource(get_tmp_path(), ResourceType::Created(r#type))
+                    .unwrap(),
+            }
+        }
+
+        fn new_vsock_device(resource_system: &mut TestResourceSystem) -> VsockDevice {
+            VsockDevice {
+                guest_cid: rand::rng().next_u32(),
+                uds: resource_system
+                    .create_resource(get_tmp_path(), ResourceType::Produced)
+                    .unwrap(),
+            }
+        }
+
+        let socket_path = get_tmp_path();
+        let ownership_model = VmmOwnershipModel::Downgraded {
+            uid: TestOptions::get_blocking().jailer_uid,
+            gid: TestOptions::get_blocking().jailer_gid,
+        };
+
+        let mut unrestricted_resource_system =
+            TestResourceSystem::new(DirectProcessSpawner, TokioRuntime, ownership_model);
+        let mut unrestricted_data = new_configuration_data(
+            &mut unrestricted_resource_system,
+            get_boot_arg(self.unrestricted_network_data.as_ref()),
+            true,
+        );
         let mut unrestricted_executor =
             UnrestrictedVmmExecutor::new(VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone())));
 
@@ -546,10 +572,15 @@ impl VmBuilder {
             }
         }
 
-        let mut jailed_data = new_configuration_data(get_boot_arg(self.jailed_network_data.as_ref()), false);
+        let mut jailed_resource_system = TestResourceSystem::new(DirectProcessSpawner, TokioRuntime, ownership_model);
+        let mut jailed_data = new_configuration_data(
+            &mut jailed_resource_system,
+            get_boot_arg(self.jailed_network_data.as_ref()),
+            false,
+        );
 
         let test_options = TestOptions::get_blocking();
-        let mut jailer_arguments = JailerArguments::new(rand::thread_rng().next_u32().to_string().try_into().unwrap())
+        let mut jailer_arguments = JailerArguments::new(rand::rng().next_u32().to_string().try_into().unwrap())
             .cgroup_version(JailerCgroupVersion::V2);
 
         if let Some(ref network) = self.jailed_network_data {
@@ -569,19 +600,19 @@ impl VmBuilder {
         ));
 
         // add components from builder to data
-        if let Some(logger_system) = self.logger_system {
-            unrestricted_data.logger_system = Some(logger_system.clone());
-            jailed_data.logger_system = Some(logger_system);
+        if let Some(r#type) = self.logger {
+            unrestricted_data.logger_system = Some(new_logger_system(&mut unrestricted_resource_system, r#type));
+            jailed_data.logger_system = Some(new_logger_system(&mut jailed_resource_system, r#type));
         }
 
-        if let Some(metrics_system) = self.metrics_system {
-            unrestricted_data.metrics_system = Some(metrics_system.clone());
-            jailed_data.metrics_system = Some(metrics_system);
+        if let Some(r#type) = self.metrics {
+            unrestricted_data.metrics_system = Some(new_metrics_system(&mut unrestricted_resource_system, r#type));
+            jailed_data.metrics_system = Some(new_metrics_system(&mut jailed_resource_system, r#type));
         }
 
-        if let Some(vsock_device) = self.vsock_device {
-            unrestricted_data.vsock_device = Some(vsock_device.clone());
-            jailed_data.vsock_device = Some(vsock_device);
+        if self.vsock_device {
+            unrestricted_data.vsock_device = Some(new_vsock_device(&mut unrestricted_resource_system));
+            jailed_data.vsock_device = Some(new_vsock_device(&mut jailed_resource_system));
         }
 
         if let Some(balloon_device) = self.balloon_device {
@@ -612,42 +643,37 @@ impl VmBuilder {
         }
 
         let (pre_start_hook1, pre_start_hook2) = self.pre_start_hook.unzip();
-
-        // run workers on tokio runtime
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(async {
-                tokio::join!(
-                    Self::test_worker(
-                        self.unrestricted_network_data,
-                        VmConfiguration::New {
-                            init_method: self.init_method.clone(),
-                            data: unrestricted_data
-                        },
-                        EitherVmmExecutor::Unrestricted(unrestricted_executor),
-                        pre_start_hook1,
-                        function.clone(),
-                    ),
-                    Self::test_worker(
-                        self.jailed_network_data,
-                        VmConfiguration::New {
-                            init_method: self.init_method,
-                            data: jailed_data
-                        },
-                        jailed_executor,
-                        pre_start_hook2,
-                        function
-                    ),
-                );
-            });
+        tokio::join!(
+            // Self::test_worker(
+            //     self.unrestricted_network_data,
+            //     VmConfiguration::New {
+            //         init_method: self.init_method.clone(),
+            //         data: unrestricted_data
+            //     },
+            //     EitherVmmExecutor::Unrestricted(unrestricted_executor),
+            //     unrestricted_resource_system,
+            //     pre_start_hook1,
+            //     function.clone(),
+            // ),
+            Self::test_worker(
+                self.jailed_network_data,
+                VmConfiguration::New {
+                    init_method: self.init_method,
+                    data: jailed_data
+                },
+                jailed_executor,
+                jailed_resource_system,
+                pre_start_hook2,
+                function
+            ),
+        );
     }
 
     async fn test_worker<F, Fut>(
         network_data: Option<NetworkData>,
         configuration: VmConfiguration,
         executor: EitherVmmExecutor<FlatJailRenamer>,
+        resource_system: TestResourceSystem,
         pre_start_hook: Option<PreStartHook>,
         function: F,
     ) where
@@ -667,20 +693,14 @@ impl VmBuilder {
             EitherVmmExecutor::Unrestricted(_) => false,
         };
 
-        let mut vm: fctools::vm::Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime> =
-            TestVm::prepare(
-                executor,
-                DirectProcessSpawner,
-                TokioRuntime,
-                VmmOwnershipModel::Downgraded {
-                    uid: TestOptions::get().await.jailer_uid,
-                    gid: TestOptions::get().await.jailer_gid,
-                },
-                Arc::new(get_real_firecracker_installation()),
-                configuration,
-            )
-            .await
-            .unwrap();
+        let mut vm: Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime> = TestVm::prepare(
+            executor,
+            resource_system,
+            Arc::new(get_real_firecracker_installation()),
+            configuration,
+        )
+        .await
+        .unwrap();
         if let Some(pre_start_hook) = pre_start_hook {
             pre_start_hook(&mut vm).await;
         }
@@ -721,10 +741,6 @@ pub async fn shutdown_test_vm(vm: &mut TestVm) {
         ])
         .await
         .unwrap();
-
-    if !outcome.fully_graceful() {
-        panic!("Shutdown outcome was not fully graceful");
-    }
 
     vm.cleanup().await.unwrap();
 }

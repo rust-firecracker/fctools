@@ -30,6 +30,12 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+#[cfg(not(target_os = "linux"))]
+compile_error!("The Firecracker microVM manager does not support non-Linux operating systems");
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+compile_error!("The Firecracker microVM manager does not support any CPU architectures other than x86_64 and aarch64");
+
 #[cfg(feature = "vmm-core")]
 #[cfg_attr(docsrs, doc(cfg(feature = "vmm-core")))]
 pub mod vmm;
