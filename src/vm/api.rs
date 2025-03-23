@@ -14,7 +14,7 @@ use crate::{
         executor::VmmExecutor,
         ownership::ChangeOwnerError,
         process::{HyperResponseExt, VmmProcessError},
-        resource::system::ResourceSystemError,
+        resource::{system::ResourceSystemError, ResourceState},
     },
 };
 
@@ -300,14 +300,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
             .map_err(VmApiError::ResourceSystemError)?;
 
         Ok(VmSnapshot {
-            snapshot: create_snapshot
-                .snapshot
-                .into_template()
-                .map_err(|(_, err)| VmApiError::ResourceSystemError(err))?,
-            mem_file: create_snapshot
-                .mem_file
-                .into_template()
-                .map_err(|(_, err)| VmApiError::ResourceSystemError(err))?,
+            snapshot_path: create_snapshot.snapshot.get_effective_path().ok_or_else(|| {
+                VmApiError::ResourceSystemError(ResourceSystemError::IncorrectState(ResourceState::Uninitialized))
+            })?,
+            mem_file_path: create_snapshot.mem_file.get_effective_path().ok_or_else(|| {
+                VmApiError::ResourceSystemError(ResourceSystemError::IncorrectState(ResourceState::Uninitialized))
+            })?,
             configuration_data: self.configuration.data().clone(),
         })
     }

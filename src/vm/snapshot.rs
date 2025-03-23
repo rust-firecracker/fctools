@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -9,7 +9,6 @@ use crate::{
         ownership::VmmOwnershipModel,
         resource::{
             system::{ResourceSystem, ResourceSystemError},
-            template::ResourceTemplate,
             MovedResourceType, ResourceState, ResourceType,
         },
     },
@@ -23,8 +22,8 @@ use super::{
 /// The data associated with a snapshot created for a [Vm](crate::vm::Vm).
 #[derive(Debug, Clone)]
 pub struct VmSnapshot {
-    pub snapshot: ResourceTemplate,
-    pub mem_file: ResourceTemplate,
+    pub snapshot_path: PathBuf,
+    pub mem_file_path: PathBuf,
     pub configuration_data: VmConfigurationData,
 }
 
@@ -35,7 +34,6 @@ pub struct PrepareVmFromSnapshotOptions<E: VmmExecutor, S: ProcessSpawner, R: Ru
     pub runtime: R,
     pub moved_resource_type: MovedResourceType,
     pub ownership_model: VmmOwnershipModel,
-    pub detach_resources_from_old_vm: bool,
     pub enable_diff_snapshots: Option<bool>,
     pub resume_vm: Option<bool>,
 }
@@ -47,62 +45,43 @@ impl VmSnapshot {
         new_snapshot_path: P,
         new_mem_file_path: Q,
     ) -> Result<(), ResourceSystemError> {
-        futures_util::try_join!(
-            self.snapshot.copy(runtime, new_snapshot_path),
-            self.mem_file.copy(runtime, new_mem_file_path)
-        )
-        .map(|_| ())
-    }
+        let new_snapshot_path = new_snapshot_path.into();
+        let new_mem_file_path = new_mem_file_path.into();
 
-    pub async fn remove<R: Runtime>(self, runtime: &R) -> Result<(), ResourceSystemError> {
-        futures_util::try_join!(self.snapshot.remove(runtime), self.mem_file.remove(runtime))
-            .map(|_| ())
-            .map_err(|(_, err)| err)
+        futures_util::try_join!(
+            runtime.fs_copy(&self.snapshot_path, &new_snapshot_path),
+            runtime.fs_copy(&self.mem_file_path, &new_mem_file_path)
+        )
+        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+
+        self.snapshot_path = new_snapshot_path;
+        self.mem_file_path = new_mem_file_path;
+        Ok(())
     }
 
     pub async fn prepare_vm<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
-        mut self,
+        self,
         old_vm: &mut Vm<E, S, R>,
         options: PrepareVmFromSnapshotOptions<E, S, R>,
     ) -> Result<Vm<E, S, R>, VmError> {
-        if !self
-            .mem_file
-            .deinitialize(ResourceType::Moved(options.moved_resource_type))
-            || !self
-                .snapshot
-                .deinitialize(ResourceType::Moved(options.moved_resource_type))
-        {
-            return Err(VmError::ResourceSystemError(ResourceSystemError::IncorrectState(
-                ResourceState::Uninitialized,
-            )));
-        }
-
         let mut resource_system =
             ResourceSystem::new(options.process_spawner, options.runtime, options.ownership_model);
 
         let mem_file = resource_system
-            .create_resource_from_template(self.mem_file)
+            .create_resource(self.mem_file_path, ResourceType::Moved(options.moved_resource_type))
             .map_err(VmError::ResourceSystemError)?;
         let snapshot = resource_system
-            .create_resource_from_template(self.snapshot)
+            .create_resource(self.snapshot_path, ResourceType::Moved(options.moved_resource_type))
             .map_err(VmError::ResourceSystemError)?;
 
         for resource in old_vm.get_resource_system().get_resources() {
             if let ResourceType::Moved(_) = resource.get_type() {
-                let mut template = match options.detach_resources_from_old_vm {
-                    true => resource.as_template(),
-                    false => resource
-                        .clone()
-                        .into_template()
-                        .map_err(|(_, err)| VmError::ResourceSystemError(err))?,
-                };
-
-                if !template.deinitialize(ResourceType::Moved(options.moved_resource_type)) {
-                    continue;
-                }
+                let resource_path = resource.get_effective_path().ok_or_else(|| {
+                    VmError::ResourceSystemError(ResourceSystemError::IncorrectState(ResourceState::Uninitialized))
+                })?;
 
                 resource_system
-                    .create_resource_from_template(template)
+                    .create_resource(resource_path, ResourceType::Moved(options.moved_resource_type))
                     .map_err(VmError::ResourceSystemError)?;
             }
         }

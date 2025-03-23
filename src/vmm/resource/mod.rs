@@ -11,12 +11,10 @@ use async_broadcast::TryRecvError;
 use futures_channel::mpsc;
 use internal::{ResourceData, ResourceInitData, ResourcePull, ResourcePush};
 use system::ResourceSystemError;
-use template::ResourceTemplate;
 
 mod internal;
 
 pub mod system;
-pub mod template;
 
 /// A type that categorizes a [Resource] based on its relation to a Firecracker microVM environment:
 /// created, moved or produced.
@@ -155,37 +153,6 @@ impl Resource {
         }
     }
 
-    /// Create a [ResourceTemplate] from this [Resource]'s data while still having the [Resource]
-    /// attached to its system.
-    pub fn as_template(&self) -> ResourceTemplate {
-        ResourceTemplate {
-            data: ResourceData {
-                source_path: self.data.source_path.clone(),
-                r#type: self.data.r#type.clone(),
-            },
-            init_data: self.init_data.get().map(|init_data| ResourceInitData {
-                effective_path: init_data.effective_path.clone(),
-                local_path: init_data.local_path.clone(),
-            }),
-        }
-    }
-
-    /// Detach the [Resource] from its system (it will no longer be disposed or tracked by the system)
-    /// and create a [ResourceTemplate] from it.
-    pub fn into_template(self) -> Result<ResourceTemplate, (Self, ResourceSystemError)> {
-        let state = self.get_state();
-
-        if state == ResourceState::Disposed {
-            return Err((self, ResourceSystemError::IncorrectState(state)));
-        }
-
-        if self.push_tx.unbounded_send(ResourcePush::Detach).is_err() {
-            return Err((self, ResourceSystemError::ChannelDisconnected));
-        }
-
-        Ok(self.as_template())
-    }
-
     /// Get the [ResourceType] of this [Resource]. This function never polls.
     pub fn get_type(&self) -> ResourceType {
         self.data.r#type
@@ -295,7 +262,11 @@ impl Resource {
     #[inline(always)]
     fn poll(&self) {
         match self.pull_rx.lock().expect("pull_rx mutex was poisoned").try_recv() {
-            Ok(ResourcePull::Disposed(Ok(_))) | Err(TryRecvError::Closed) => {
+            Ok(ResourcePull::Disposed(Ok(_))) => {
+                self.disposed.store(true, Ordering::Release);
+            }
+            Err(TryRecvError::Closed) => {
+                println!("wat the sheat");
                 self.disposed.store(true, Ordering::Release);
             }
             Ok(ResourcePull::Initialized(Ok(init_data))) => {

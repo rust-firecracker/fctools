@@ -42,7 +42,6 @@ pub struct ResourceInitData {
 pub enum ResourcePush {
     Initialize(ResourceInitData),
     Dispose,
-    Detach,
 }
 
 #[derive(Debug, Clone)]
@@ -150,9 +149,6 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                         ));
 
                         resource.state = OwnedResourceState::Disposing(dispose_task);
-                    }
-                    ResourcePush::Detach => {
-                        owned_resources.remove(resource_index);
                     }
                 }
             }

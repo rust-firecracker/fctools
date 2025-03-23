@@ -19,10 +19,15 @@ use super::{
         resource_system_main_task, OwnedResource, OwnedResourceState, ResourceData, ResourceSystemPull,
         ResourceSystemPush,
     },
-    template::ResourceTemplate,
     Resource, ResourceState, ResourceType,
 };
 
+/// A [ResourceSystem] represents a non-cloneable object connected to a background task running on a [Runtime]. This task
+/// is a central task that responds to messages from the connected [ResourceSystem] and [Resource]s and spawns various
+/// auxiliary tasks onto the same [Runtime] that perform asynchronous resource actions such as initialization and disposal.
+///
+/// The [ResourceSystem] allows the creation of new [Resource]s and [Resource]s from [ResourceTemplate]s. After being dropped,
+/// the [ResourceSystem] will transmit a shutdown message that will end the task.
 #[derive(Debug)]
 pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
     push_tx: mpsc::UnboundedSender<ResourceSystemPush<R>>,
@@ -91,41 +96,6 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
 
     pub fn get_resources(&self) -> &[Resource] {
         &self.resources
-    }
-
-    pub fn create_resource_from_template(
-        &mut self,
-        template: ResourceTemplate,
-    ) -> Result<Resource, ResourceSystemError> {
-        let (push_tx, push_rx) = mpsc::unbounded();
-        let (pull_tx, pull_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
-
-        let owned_resource = OwnedResource {
-            state: match template.init_data.is_some() {
-                true => OwnedResourceState::Initialized,
-                false => OwnedResourceState::Uninitialized,
-            },
-            push_rx,
-            pull_tx,
-            data: Arc::new(template.data),
-            init_data: template.init_data.map(Arc::new),
-        };
-
-        let data = owned_resource.data.clone();
-        self.push_tx
-            .unbounded_send(ResourceSystemPush::AddResource(owned_resource))
-            .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
-
-        let resource = Resource {
-            push_tx,
-            pull_rx: Mutex::new(pull_rx),
-            data,
-            init_data: OnceLock::new(),
-            disposed: Arc::new(AtomicBool::new(false)),
-        };
-
-        self.resources.push(resource.clone());
-        Ok(resource)
     }
 
     pub fn create_resource<P: Into<PathBuf>>(
