@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-#[cfg(all(feature = "syscall-nix", not(feature = "syscall-rustix")))]
+#[cfg(not(feature = "use-rustix"))]
 mod imp_nix {
     #![allow(unused)]
 
@@ -57,7 +57,7 @@ mod imp_nix {
     }
 }
 
-#[cfg(feature = "syscall-rustix")]
+#[cfg(feature = "use-rustix")]
 mod imp_rustix {
     #![allow(unused)]
 
@@ -121,8 +121,8 @@ mod imp_rustix {
     }
 }
 
-#[cfg(feature = "syscall-rustix")]
+#[cfg(feature = "use-rustix")]
 pub use imp_rustix::*;
 
-#[cfg(all(feature = "syscall-nix", not(feature = "syscall-rustix")))]
+#[cfg(not(feature = "use-rustix"))]
 pub use imp_nix::*;

@@ -5,7 +5,7 @@
 //! - VMM arguments (for "firecracker" and "jailer" binaries).
 //! - VMM IDs.
 //! - VMM installations (including the possibility to verify them at runtime).
-//! - VMM resource management (moved, created and produced resources).
+//! - VMM resource management (resources and resource systems).
 //! - VMM ownership models and implementation helpers.
 //!
 //! With the `vmm-executor` feature, a VMM executor trait is additionally available that abstracts

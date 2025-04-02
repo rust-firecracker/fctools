@@ -5,9 +5,10 @@
 //! crates using `fctools` should usually pull in either a built-in implementation of a [Runtime](runtime::Runtime) via either
 //! the `tokio-runtime` or `smol-runtime` features, or install a third-party crate with its own implementation.
 //!
-//! Either the "syscall-nix" or "syscall-rustix" feature must be enabled to provide syscalls for the runtime facilities, otherwise
-//! the crate won't compile. These features use their respective crates internally to provide these syscalls. "nix" uses C FFI to
-//! call into libc and perform syscalls, while "rustix" invokes syscalls directly without any FFI.
+//! By default, the "nix" crate is used by fctools to perform syscalls. The "use-rustix" feature opts into using the "rustix"
+//! crate instead, and should typically only be used by binary crates, and not by libraries. The two internal syscall implementations
+//! are functionally equivalent, though "nix" uses C FFI to call into libc and perform syscalls, while "rustix" invokes syscalls
+//! directly without any FFI.
 //!
 //! The rest of the crate that provides actual functionality is structured in a vertical fashion, with each layer introducing more
 //! useful and high-level features than the one preceding it. There are 6 such layers, from lowest to highest level of abstraction:
@@ -52,8 +53,4 @@ pub mod process_spawner;
 #[cfg_attr(docsrs, doc(cfg(feature = "vm")))]
 pub mod vm;
 
-#[cfg(not(any(feature = "syscall-nix", feature = "syscall-rustix")))]
-compile_error!("Either \"syscall-nix\" or \"syscall-rustix\" must be enabled to provide syscalls");
-
-#[cfg(any(feature = "syscall-nix", feature = "syscall-rustix"))]
 pub(crate) mod syscall;
