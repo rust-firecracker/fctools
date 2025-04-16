@@ -179,7 +179,7 @@ impl Resource {
     }
 
     /// Schedule this [Resource] to be initialized by its system to the given effective and local paths.
-    /// This operation doesn't actually wait for the initialization to occur.
+    /// This operation doesn't actually wait for the initialization to occur. This function may poll.
     pub fn start_initialization(
         &self,
         effective_path: PathBuf,
@@ -197,7 +197,7 @@ impl Resource {
 
     /// Schedule this [Resource] to be initialized by its system to the same effective (and local, if the
     /// resource is moved) path as its source path. This operation doesn't actually wait for the initialization
-    /// to occur.
+    /// to occur. This function may poll.
     pub fn start_initialization_with_same_path(&self) -> Result<(), ResourceSystemError> {
         let local_path = match self.get_type() {
             ResourceType::Moved(_) => Some(self.get_source_path()),
@@ -207,14 +207,15 @@ impl Resource {
         self.start_initialization(self.get_source_path(), local_path)
     }
 
-    /// Schedule this [Resource] to be disposed by its system
+    /// Schedule this [Resource] to be disposed by its system. This function may poll.
     pub fn start_disposal(&self) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Initialized)?;
         let _ = self.push_tx.unbounded_send(ResourcePush::Dispose);
         Ok(())
     }
 
-    /// Schedule and await the initialization of this [Resource] to the given effective and local paths.
+    /// Schedule and await the initialization of this [Resource] to the given effective and local paths. This
+    /// function may poll.
     pub async fn initialize(
         &self,
         effective_path: PathBuf,
@@ -234,7 +235,7 @@ impl Resource {
     }
 
     /// Schedule and await the initialization of this [Resource] to the same effective (and local, if the
-    /// resource is moved) path as its source path.
+    /// resource is moved) path as its source path. This function may poll.
     pub async fn initialize_with_same_path(&self) -> Result<(), ResourceSystemError> {
         let local_path = match self.get_type() {
             ResourceType::Moved(_) => Some(self.get_source_path()),
@@ -244,7 +245,7 @@ impl Resource {
         self.initialize(self.get_source_path(), local_path).await
     }
 
-    /// Schedule and await the disposal of this [Resource].
+    /// Schedule and await the disposal of this [Resource]. This function may poll.
     pub async fn dispose(&self) -> Result<(), ResourceSystemError> {
         self.start_disposal()?;
 
