@@ -644,17 +644,17 @@ impl VmBuilder {
 
         let (pre_start_hook1, pre_start_hook2) = self.pre_start_hook.unzip();
         tokio::join!(
-            // Self::test_worker(
-            //     self.unrestricted_network_data,
-            //     VmConfiguration::New {
-            //         init_method: self.init_method.clone(),
-            //         data: unrestricted_data
-            //     },
-            //     EitherVmmExecutor::Unrestricted(unrestricted_executor),
-            //     unrestricted_resource_system,
-            //     pre_start_hook1,
-            //     function.clone(),
-            // ),
+            Self::test_worker(
+                self.unrestricted_network_data,
+                VmConfiguration::New {
+                    init_method: self.init_method.clone(),
+                    data: unrestricted_data
+                },
+                EitherVmmExecutor::Unrestricted(unrestricted_executor),
+                unrestricted_resource_system,
+                pre_start_hook1,
+                function.clone(),
+            ),
             Self::test_worker(
                 self.jailed_network_data,
                 VmConfiguration::New {

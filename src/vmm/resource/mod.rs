@@ -266,7 +266,6 @@ impl Resource {
                 self.disposed.store(true, Ordering::Release);
             }
             Err(TryRecvError::Closed) => {
-                println!("wat the sheat");
                 self.disposed.store(true, Ordering::Release);
             }
             Ok(ResourcePull::Initialized(Ok(init_data))) => {
