@@ -1,51 +1,6 @@
 use std::{future::Future, path::Path};
 
-use super::{Runtime, RuntimeTask};
-
-#[cfg(feature = "vmm-process")]
-use std::pin::Pin;
-
-/// A utility set of multiple [RuntimeTask]s that are run concurrently which can be waited on to ensure all
-/// contained [RuntimeTask]s complete.
-#[derive(Default)]
-pub struct RuntimeTaskSet<O: Send + 'static, R: Runtime> {
-    tasks: Vec<R::Task<Result<(), O>>>,
-    runtime: R,
-}
-
-impl<O: Send + 'static, R: Runtime> RuntimeTaskSet<O, R> {
-    pub fn new(runtime: R) -> Self {
-        Self {
-            tasks: Vec::new(),
-            runtime,
-        }
-    }
-
-    pub fn spawn<F>(&mut self, future: F)
-    where
-        F: Future<Output = Result<(), O>> + Send + 'static,
-    {
-        self.tasks.push(self.runtime.spawn_task(future));
-    }
-
-    pub fn add(&mut self, task: R::Task<Result<(), O>>) {
-        self.tasks.push(task);
-    }
-
-    pub async fn wait(self) -> Option<Result<(), O>> {
-        for task in self.tasks {
-            match task.join().await {
-                Some(result) => match result {
-                    Ok(()) => {}
-                    Err(err) => return Some(Err(err)),
-                },
-                None => return None,
-            }
-        }
-
-        Some(Ok(()))
-    }
-}
+use super::Runtime;
 
 /// A simple utility that performs recursive chown syscalls on the given directory's [Path] to
 /// the given UID and GID. This operation is implemented via the blocking [std::fs::read_dir]
@@ -66,7 +21,8 @@ pub fn chown_all_blocking(path: &Path, uid: u32, gid: u32) -> Result<(), std::io
 }
 
 /// A [hyper::rt::Executor] implementation that is agnostic over any [Runtime] by simply using [Runtime::spawn_task]
-/// internally.
+/// internally. Any static [Send] future that returns a static [Send] type upon completion is supported, mirroring
+/// the definition of [Runtime::spawn_task] itself.
 #[cfg(feature = "vmm-process")]
 #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
 #[derive(Clone)]
@@ -74,8 +30,13 @@ pub struct RuntimeHyperExecutor<R: Runtime>(pub R);
 
 #[cfg(feature = "vmm-process")]
 #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
-impl<R: Runtime> hyper::rt::Executor<Pin<Box<dyn Future<Output = ()> + Send>>> for RuntimeHyperExecutor<R> {
-    fn execute(&self, future: Pin<Box<dyn Future<Output = ()> + Send>>) {
+impl<R, F> hyper::rt::Executor<F> for RuntimeHyperExecutor<R>
+where
+    R: Runtime,
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    fn execute(&self, future: F) {
         self.0.spawn_task(future);
     }
 }
