@@ -28,7 +28,7 @@ enum MaybeStaticExecutor {
 pub struct SmolRuntime(MaybeStaticExecutor);
 
 impl SmolRuntime {
-    pub fn with_executor(executor: impl Into<Arc<async_executor::Executor<'static>>>) -> Self {
+    pub fn with_executor<E: Into<Arc<async_executor::Executor<'static>>>>(executor: E) -> Self {
         Self(MaybeStaticExecutor::NonStatic(executor.into()))
     }
 

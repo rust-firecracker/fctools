@@ -154,15 +154,15 @@ impl VmShutdownOutcome {
     }
 }
 
-pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
+pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, R: Runtime, I: Iterator<Item = VmShutdownAction>>(
     vm: &mut Vm<E, S, R>,
-    actions: impl IntoIterator<Item = VmShutdownAction>,
+    actions: I,
 ) -> Result<VmShutdownOutcome, VmShutdownError> {
     vm.ensure_paused_or_running()
         .map_err(VmShutdownError::StateCheckError)?;
     let mut errors = Vec::new();
 
-    for (index, action) in actions.into_iter().enumerate() {
+    for (index, action) in actions.enumerate() {
         let result = match action.timeout {
             Some(duration) => vm
                 .vmm_process

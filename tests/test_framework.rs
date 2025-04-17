@@ -119,7 +119,7 @@ pub fn get_tmp_path() -> PathBuf {
 }
 
 #[allow(unused)]
-pub fn jail_join(path1: impl AsRef<Path>, path2: impl Into<PathBuf>) -> PathBuf {
+pub fn jail_join<P: Into<PathBuf>>(path1: impl AsRef<Path>, path2: P) -> PathBuf {
     path1
         .as_ref()
         .join(path2.into().to_string_lossy().trim_start_matches("/"))
@@ -170,7 +170,7 @@ where
     F: 'static,
     Fut: Future<Output = ()>,
 {
-    async fn init_process(process: &mut TestVmmProcess, config_path: impl Into<PathBuf>) {
+    async fn init_process<P: Into<PathBuf>>(process: &mut TestVmmProcess, config_path: P) {
         process.wait_for_exit().await.unwrap_err();
         process.send_ctrl_alt_del().await.unwrap_err();
         process.send_sigkill().unwrap_err();

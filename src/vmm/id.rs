@@ -27,7 +27,7 @@ impl std::fmt::Display for VmmIdError {
 }
 
 impl VmmId {
-    pub fn new(id: impl Into<String>) -> Result<VmmId, VmmIdError> {
+    pub fn new<I: Into<String>>(id: I) -> Result<VmmId, VmmIdError> {
         let id = id.into();
 
         if id.len() < 5 {

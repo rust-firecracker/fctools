@@ -34,12 +34,12 @@ impl<J: JailRenamer + 'static> JailedVmmExecutor<J> {
         }
     }
 
-    pub fn command_modifier(mut self, command_modifier: impl CommandModifier + 'static) -> Self {
+    pub fn command_modifier<M: CommandModifier + 'static>(mut self, command_modifier: M) -> Self {
         self.command_modifier_chain.push(Box::new(command_modifier));
         self
     }
 
-    pub fn command_modifiers(mut self, command_modifiers: impl IntoIterator<Item = Box<dyn CommandModifier>>) -> Self {
+    pub fn command_modifiers<I: IntoIterator<Item = Box<dyn CommandModifier>>>(mut self, command_modifiers: I) -> Self {
         self.command_modifier_chain.extend(command_modifiers);
         self
     }

@@ -37,12 +37,12 @@ impl JailerArguments {
         }
     }
 
-    pub fn cgroup(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+    pub fn cgroup<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
         self.cgroup_values.insert(key.into(), value.into());
         self
     }
 
-    pub fn cgroups(mut self, cgroups: impl IntoIterator<Item = (String, String)>) -> Self {
+    pub fn cgroups<I: IntoIterator<Item = (String, String)>>(mut self, cgroups: I) -> Self {
         self.cgroup_values.extend(cgroups);
         self
     }
@@ -52,7 +52,7 @@ impl JailerArguments {
         self
     }
 
-    pub fn chroot_base_dir(mut self, chroot_base_dir: impl Into<PathBuf>) -> Self {
+    pub fn chroot_base_dir<P: Into<PathBuf>>(mut self, chroot_base_dir: P) -> Self {
         self.chroot_base_dir = Some(chroot_base_dir.into());
         self
     }
@@ -62,7 +62,7 @@ impl JailerArguments {
         self
     }
 
-    pub fn network_namespace_path(mut self, network_namespace_path: impl Into<PathBuf>) -> Self {
+    pub fn network_namespace_path<P: Into<PathBuf>>(mut self, network_namespace_path: P) -> Self {
         self.network_namespace_path = Some(network_namespace_path.into());
         self
     }
@@ -72,7 +72,7 @@ impl JailerArguments {
         self
     }
 
-    pub fn parent_cgroup(mut self, parent_cgroup: impl Into<String>) -> Self {
+    pub fn parent_cgroup<C: Into<String>>(mut self, parent_cgroup: C) -> Self {
         self.parent_cgroup = Some(parent_cgroup.into());
         self
     }

@@ -270,11 +270,11 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     /// Shut down the [Vm] by applying the given sequence of [VmShutdownAction]s until one works or all fail. If even one action works,
     /// a [VmShutdownOutcome] is returned with further information about the shutdown result, otherwise, the [VmShutdownError] caused
     /// by the last [VmShutdownAction] in the sequence is returned.
-    pub async fn shutdown(
+    pub async fn shutdown<I: IntoIterator<Item = VmShutdownAction>>(
         &mut self,
-        actions: impl IntoIterator<Item = VmShutdownAction>,
+        actions: I,
     ) -> Result<VmShutdownOutcome, VmShutdownError> {
-        shutdown::apply(self, actions).await
+        shutdown::apply(self, actions.into_iter()).await
     }
 
     /// Clean up the full environment of this [Vm] after it being [VmState::Exited] or [VmState::Crashed].
@@ -295,7 +295,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     }
 
     /// Translates the given local resource path to an effective resource path.
-    pub fn get_effective_path_from_local(&self, local_path: impl Into<PathBuf>) -> PathBuf {
+    pub fn get_effective_path_from_local<P: Into<PathBuf>>(&self, local_path: P) -> PathBuf {
         self.vmm_process.get_effective_path_from_local(local_path)
     }
 

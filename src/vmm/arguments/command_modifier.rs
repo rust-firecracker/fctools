@@ -22,14 +22,14 @@ pub struct NetnsCommandModifier {
 }
 
 impl NetnsCommandModifier {
-    pub fn new(netns_name: impl Into<String>) -> Self {
+    pub fn new<N: Into<String>>(netns_name: N) -> Self {
         Self {
             netns_name: netns_name.into(),
             iproute2_path: PathBuf::from("/usr/sbin/ip"),
         }
     }
 
-    pub fn iproute2_path(mut self, iproute2_path: impl Into<PathBuf>) -> Self {
+    pub fn iproute2_path<P: Into<PathBuf>>(mut self, iproute2_path: P) -> Self {
         self.iproute2_path = iproute2_path.into();
         self
     }

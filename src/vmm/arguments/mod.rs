@@ -65,7 +65,7 @@ impl VmmArguments {
         self
     }
 
-    pub fn log_module(mut self, log_module: impl Into<String>) -> Self {
+    pub fn log_module<M: Into<String>>(mut self, log_module: M) -> Self {
         self.log_module = Some(log_module.into());
         self
     }
@@ -100,7 +100,7 @@ impl VmmArguments {
         self
     }
 
-    pub fn seccomp_path(mut self, seccomp_path: impl Into<PathBuf>) -> Self {
+    pub fn seccomp_path<P: Into<PathBuf>>(mut self, seccomp_path: P) -> Self {
         self.seccomp_path = Some(seccomp_path.into());
         self
     }
