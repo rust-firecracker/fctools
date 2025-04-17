@@ -7,28 +7,23 @@ mod imp_nix {
 
     use nix::sys::stat::Mode;
 
-    #[inline]
     pub fn chown(path: &Path, uid: u32, gid: u32) -> Result<(), std::io::Error> {
         nix::unistd::chown(path, Some(uid.into()), Some(gid.into())).map_err(|_| std::io::Error::last_os_error())
     }
 
-    #[inline]
     pub fn geteuid() -> u32 {
         nix::unistd::geteuid().as_raw()
     }
 
-    #[inline]
     pub fn getegid() -> u32 {
         nix::unistd::getegid().as_raw()
     }
 
-    #[inline]
     pub fn mkfifo(path: &Path) -> Result<(), std::io::Error> {
         nix::unistd::mkfifo(path, Mode::S_IROTH | Mode::S_IWOTH | Mode::S_IRUSR | Mode::S_IWUSR)
             .map_err(|_| std::io::Error::last_os_error())
     }
 
-    #[inline]
     pub fn pidfd_open(pid: i32) -> Result<OwnedFd, std::io::Error> {
         // pidfd_open isn't wrapped in nix or libc, so a libc-wrapped syscall is needed
         let fd = unsafe { nix::libc::syscall(nix::libc::SYS_pidfd_open, pid, 0) };
@@ -40,7 +35,6 @@ mod imp_nix {
         Ok(unsafe { OwnedFd::from_raw_fd(fd as i32) })
     }
 
-    #[inline]
     pub fn pidfd_send_sigkill(fd: RawFd) -> Result<(), std::io::Error> {
         // pidfd_send_signal isn't wrapped in nix or libc, so a libc-wrapped syscall is needed
         let ret = unsafe { nix::libc::syscall(nix::libc::SYS_pidfd_send_signal, fd, nix::libc::SIGKILL, 0, 0) };
@@ -55,8 +49,6 @@ mod imp_nix {
 
 #[cfg(feature = "rustix-syscall-backend")]
 mod imp_rustix {
-    #![allow(unused)]
-
     use std::{
         os::fd::{BorrowedFd, OwnedFd, RawFd},
         path::Path,
@@ -64,27 +56,23 @@ mod imp_rustix {
 
     use rustix::fs::Mode;
 
-    #[inline]
     pub fn chown(path: &Path, uid: u32, gid: u32) -> Result<(), std::io::Error> {
         rustix::fs::chown(
             path,
-            Some(unsafe { rustix::fs::Uid::from_raw(uid) }),
-            Some(unsafe { rustix::fs::Gid::from_raw(gid) }),
+            Some(rustix::fs::Uid::from_raw(uid)),
+            Some(rustix::fs::Gid::from_raw(gid)),
         )
         .map_err(|errno| std::io::Error::from_raw_os_error(errno.raw_os_error()))
     }
 
-    #[inline]
     pub fn geteuid() -> u32 {
         rustix::process::geteuid().as_raw()
     }
 
-    #[inline]
     pub fn getegid() -> u32 {
         rustix::process::getegid().as_raw()
     }
 
-    #[inline]
     pub fn mkfifo(path: &Path) -> Result<(), std::io::Error> {
         rustix::fs::mknodat(
             unsafe { BorrowedFd::borrow_raw(0) },
@@ -96,7 +84,6 @@ mod imp_rustix {
         .map_err(|errno| std::io::Error::from_raw_os_error(errno.raw_os_error()))
     }
 
-    #[inline]
     pub fn pidfd_open(pid: i32) -> Result<OwnedFd, std::io::Error> {
         rustix::process::pidfd_open(
             rustix::process::Pid::from_raw(pid).ok_or_else(|| {
@@ -110,7 +97,6 @@ mod imp_rustix {
         .map_err(|errno| std::io::Error::from_raw_os_error(errno.raw_os_error()))
     }
 
-    #[inline]
     pub fn pidfd_send_sigkill(fd: RawFd) -> Result<(), std::io::Error> {
         rustix::process::pidfd_send_signal(unsafe { BorrowedFd::borrow_raw(fd) }, rustix::process::Signal::KILL)
             .map_err(|errno| std::io::Error::from_raw_os_error(errno.raw_os_error()))
