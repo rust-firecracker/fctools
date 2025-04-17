@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-#[cfg(not(feature = "use-rustix"))]
+#[cfg(all(feature = "nix-syscall-backend", not(feature = "rustix-syscall-backend")))]
 mod imp_nix {
     #![allow(unused)]
 
@@ -57,7 +57,7 @@ mod imp_nix {
     }
 }
 
-#[cfg(feature = "use-rustix")]
+#[cfg(feature = "rustix-syscall-backend")]
 mod imp_rustix {
     #![allow(unused)]
 
@@ -72,8 +72,8 @@ mod imp_rustix {
     pub fn chown(path: &Path, uid: u32, gid: u32) -> Result<(), std::io::Error> {
         rustix::fs::chown(
             path,
-            Some(unsafe { rustix::fs::Uid::from_raw(uid) }),
-            Some(unsafe { rustix::fs::Gid::from_raw(gid) }),
+            Some(rustix::fs::Uid::from_raw(uid)),
+            Some(rustix::fs::Gid::from_raw(gid)),
         )
         .map_err(|errno| std::io::Error::from_raw_os_error(errno.raw_os_error()))
     }
@@ -116,13 +116,54 @@ mod imp_rustix {
 
     #[inline]
     pub fn pidfd_send_sigkill(fd: RawFd) -> Result<(), std::io::Error> {
-        rustix::process::pidfd_send_signal(unsafe { BorrowedFd::borrow_raw(fd) }, rustix::process::Signal::Kill)
+        rustix::process::pidfd_send_signal(unsafe { BorrowedFd::borrow_raw(fd) }, rustix::process::Signal::KILL)
             .map_err(|errno| std::io::Error::from_raw_os_error(errno.raw_os_error()))
     }
 }
 
-#[cfg(feature = "use-rustix")]
+#[cfg(not(any(feature = "nix-syscall-backend", feature = "rustix-syscall-backend")))]
+mod imp_dummy {
+    use std::{
+        os::fd::{OwnedFd, RawFd},
+        path::Path,
+    };
+
+    #[inline]
+    pub fn chown(path: &Path, uid: u32, gid: u32) -> Result<(), std::io::Error> {
+        panic!("No syscall backend was enabled for fctools");
+    }
+
+    #[inline]
+    pub fn geteuid() -> u32 {
+        panic!("No syscall backend was enabled for fctools");
+    }
+
+    #[inline]
+    pub fn getegid() -> u32 {
+        panic!("No syscall backend was enabled for fctools");
+    }
+
+    #[inline]
+    pub fn mkfifo(path: &Path) -> Result<(), std::io::Error> {
+        panic!("No syscall backend was enabled for fctools");
+    }
+
+    #[inline]
+    pub fn pidfd_open(pid: i32) -> Result<OwnedFd, std::io::Error> {
+        panic!("No syscall backend was enabled for fctools");
+    }
+
+    #[inline]
+    pub fn pidfd_send_sigkill(fd: RawFd) -> Result<(), std::io::Error> {
+        panic!("No syscall backend was enabled for fctools");
+    }
+}
+
+#[cfg(all(feature = "nix-syscall-backend", not(feature = "rustix-syscall-backend")))]
+pub use imp_nix::*;
+
+#[cfg(feature = "rustix-syscall-backend")]
 pub use imp_rustix::*;
 
-#[cfg(not(feature = "use-rustix"))]
-pub use imp_nix::*;
+#[cfg(not(any(feature = "nix-syscall-backend", feature = "rustix-syscall-backend")))]
+pub use imp_dummy::*;
