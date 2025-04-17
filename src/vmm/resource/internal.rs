@@ -6,6 +6,7 @@ use futures_util::StreamExt;
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::{Runtime, RuntimeTask},
+    syscall::SyscallBackend,
     vmm::ownership::{downgrade_owner, upgrade_owner, VmmOwnershipModel},
 };
 
@@ -324,7 +325,7 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
                         .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
                 }
                 CreatedResourceType::Fifo => {
-                    crate::syscall::mkfifo(&init_data.effective_path)
+                    (SyscallBackend::get().mkfifo)(&init_data.effective_path)
                         .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
                 }
             }

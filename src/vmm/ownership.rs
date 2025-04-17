@@ -8,10 +8,11 @@ use std::{
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::{Runtime, RuntimeChild},
+    syscall::SyscallBackend,
 };
 
-pub(crate) static PROCESS_UID: LazyLock<u32> = LazyLock::new(crate::syscall::geteuid);
-pub(crate) static PROCESS_GID: LazyLock<u32> = LazyLock::new(crate::syscall::getegid);
+pub(crate) static PROCESS_UID: LazyLock<u32> = LazyLock::new(|| (SyscallBackend::get().geteuid)());
+pub(crate) static PROCESS_GID: LazyLock<u32> = LazyLock::new(|| (SyscallBackend::get().getegid)());
 
 /// The model used for managing the ownership of resources between the controlling process
 /// (the Rust application using fctools) and the VMM process ("firecracker").
@@ -148,7 +149,7 @@ pub async fn downgrade_owner_recursively<R: Runtime>(
 /// no-ops).
 pub fn downgrade_owner(path: &Path, ownership_model: VmmOwnershipModel) -> Result<(), ChangeOwnerError> {
     if let Some((uid, gid)) = ownership_model.as_downgrade() {
-        crate::syscall::chown(path, uid, gid).map_err(ChangeOwnerError::FlatChownError)
+        (SyscallBackend::get().chown)(path, uid, gid).map_err(ChangeOwnerError::FlatChownError)
     } else {
         Ok(())
     }

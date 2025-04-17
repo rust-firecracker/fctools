@@ -13,6 +13,7 @@ use fctools::{
     extension::link_local::LinkLocalSubnet,
     process_spawner::{DirectProcessSpawner, ProcessSpawner},
     runtime::{tokio::TokioRuntime, Runtime},
+    syscall::SyscallBackend,
     vm::{
         configuration::{InitMethod, VmConfiguration, VmConfigurationData},
         models::{
@@ -183,6 +184,8 @@ where
         process.invoke(Some(config_path.into())).await.unwrap();
         assert_eq!(process.state(), VmmProcessState::Started);
     }
+
+    SyscallBackend::get_nix().enable();
 
     let (mut unrestricted_process, mut jailed_process) = get_vmm_processes(no_new_pid_ns).await;
 
@@ -549,6 +552,8 @@ impl VmBuilder {
                     .unwrap(),
             }
         }
+
+        SyscallBackend::get_nix().enable();
 
         let socket_path = get_tmp_path();
         let ownership_model = VmmOwnershipModel::Downgraded {

@@ -1,9 +1,5 @@
-#![allow(unused)]
-
-#[cfg(not(feature = "use-rustix"))]
+#[cfg(feature = "nix-syscall-backend")]
 mod imp_nix {
-    #![allow(unused)]
-
     use std::{
         os::fd::{FromRawFd, OwnedFd, RawFd},
         path::Path,
@@ -57,7 +53,7 @@ mod imp_nix {
     }
 }
 
-#[cfg(feature = "use-rustix")]
+#[cfg(feature = "rustix-syscall-backend")]
 mod imp_rustix {
     #![allow(unused)]
 
@@ -116,13 +112,64 @@ mod imp_rustix {
 
     #[inline]
     pub fn pidfd_send_sigkill(fd: RawFd) -> Result<(), std::io::Error> {
-        rustix::process::pidfd_send_signal(unsafe { BorrowedFd::borrow_raw(fd) }, rustix::process::Signal::Kill)
+        rustix::process::pidfd_send_signal(unsafe { BorrowedFd::borrow_raw(fd) }, rustix::process::Signal::KILL)
             .map_err(|errno| std::io::Error::from_raw_os_error(errno.raw_os_error()))
     }
 }
 
-#[cfg(feature = "use-rustix")]
-pub use imp_rustix::*;
+use std::{
+    os::fd::{OwnedFd, RawFd},
+    path::Path,
+    sync::OnceLock,
+};
 
-#[cfg(not(feature = "use-rustix"))]
-pub use imp_nix::*;
+static CURRENT_SYSCALL_BACKEND: OnceLock<SyscallBackend> = OnceLock::new();
+
+#[derive(Debug)]
+pub struct SyscallBackend {
+    pub chown: fn(&Path, u32, u32) -> Result<(), std::io::Error>,
+    pub geteuid: fn() -> u32,
+    pub getegid: fn() -> u32,
+    pub mkfifo: fn(&Path) -> Result<(), std::io::Error>,
+    pub pidfd_open: fn(i32) -> Result<OwnedFd, std::io::Error>,
+    pub pidfd_send_sigkill: fn(RawFd) -> Result<(), std::io::Error>,
+}
+
+impl SyscallBackend {
+    #[cfg(feature = "nix-syscall-backend")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "nix-syscall-backend")))]
+    pub fn get_nix() -> Self {
+        SyscallBackend {
+            chown: imp_nix::chown,
+            geteuid: imp_nix::geteuid,
+            getegid: imp_nix::getegid,
+            mkfifo: imp_nix::mkfifo,
+            pidfd_open: imp_nix::pidfd_open,
+            pidfd_send_sigkill: imp_nix::pidfd_send_sigkill,
+        }
+    }
+
+    #[cfg(feature = "rustix-syscall-backend")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "rustix-syscall-backend")))]
+    pub fn get_rustix() -> Self {
+        SyscallBackend {
+            chown: imp_rustix::chown,
+            geteuid: imp_rustix::geteuid,
+            getegid: imp_rustix::getegid,
+            mkfifo: imp_rustix::mkfifo,
+            pidfd_open: imp_rustix::pidfd_open,
+            pidfd_send_sigkill: imp_rustix::pidfd_send_sigkill,
+        }
+    }
+
+    pub fn enable(self) {
+        let _ = CURRENT_SYSCALL_BACKEND.set(self);
+    }
+
+    #[inline(always)]
+    pub(crate) fn get() -> &'static Self {
+        CURRENT_SYSCALL_BACKEND
+            .get()
+            .expect("No syscall backend was enabled for use by the fctools crate")
+    }
+}

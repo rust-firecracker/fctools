@@ -1,5 +1,7 @@
 use std::{future::Future, path::Path};
 
+use crate::syscall::SyscallBackend;
+
 use super::Runtime;
 
 /// A simple utility that performs recursive chown syscalls on the given directory's [Path] to
@@ -17,7 +19,7 @@ pub fn chown_all_blocking(path: &Path, uid: u32, gid: u32) -> Result<(), std::io
         }
     }
 
-    crate::syscall::chown(path, uid, gid)
+    (SyscallBackend::get().chown)(path, uid, gid)
 }
 
 /// A [hyper::rt::Executor] implementation that is agnostic over any [Runtime] by simply using [Runtime::spawn_task]

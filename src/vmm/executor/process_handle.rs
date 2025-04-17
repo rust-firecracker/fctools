@@ -7,7 +7,10 @@ use std::{
     process::ExitStatus,
 };
 
-use crate::runtime::{Runtime, RuntimeAsyncFd, RuntimeChild};
+use crate::{
+    runtime::{Runtime, RuntimeAsyncFd, RuntimeChild},
+    syscall::SyscallBackend,
+};
 
 /// A process handle is a thin abstraction over either an "attached" child process that is a [RuntimeProcess],
 /// or a "detached" certain process that isn't a child and is controlled via a [RuntimeAsyncFd] wrapping a
@@ -70,7 +73,7 @@ impl<R: Runtime> ProcessHandle<R> {
 
     /// Try to create a [ProcessHandle] by allocating a pidfd for the given PID.
     pub fn with_pidfd(pid: i32, runtime: R) -> Result<Self, std::io::Error> {
-        let pidfd = crate::syscall::pidfd_open(pid)?;
+        let pidfd = (SyscallBackend::get().pidfd_open)(pid)?;
         let raw_pidfd = pidfd.as_raw_fd();
 
         let (exited_tx, exited_rx) = futures_channel::oneshot::channel();
@@ -116,7 +119,7 @@ impl<R: Runtime> ProcessHandle<R> {
                     return Err(std::io::Error::other("Trying to send SIGKILL to exited process"));
                 }
 
-                crate::syscall::pidfd_send_sigkill(raw_pidfd)
+                (SyscallBackend::get().pidfd_send_sigkill)(raw_pidfd)
             }
         }
     }

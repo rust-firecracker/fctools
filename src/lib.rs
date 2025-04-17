@@ -53,4 +53,4 @@ pub mod process_spawner;
 #[cfg_attr(docsrs, doc(cfg(feature = "vm")))]
 pub mod vm;
 
-pub(crate) mod syscall;
+pub mod syscall;
