@@ -1,4 +1,4 @@
-use std::{future::Future, num::ParseIntError, path::PathBuf, process::ExitStatus, sync::Arc};
+use std::{future::Future, num::ParseIntError, path::PathBuf, process::ExitStatus};
 
 #[cfg(feature = "jailed-vmm-executor")]
 use jailed::JailRenamerError;
@@ -122,7 +122,7 @@ pub trait VmmExecutor: Send + Sync {
 /// order to function.
 pub struct VmmExecutorContext<S: ProcessSpawner, R: Runtime> {
     /// The [VmmInstallation] the invocation is tied to.
-    pub installation: Arc<VmmInstallation>,
+    pub installation: VmmInstallation,
     /// A [ProcessSpawner] that the [VmmExecutorContext] is generic over.
     pub process_spawner: S,
     /// A [Runtime] that the [VmmExecutorContext] is generic over.

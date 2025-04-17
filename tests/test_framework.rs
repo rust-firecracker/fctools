@@ -107,11 +107,11 @@ pub fn get_test_path(path: &str) -> PathBuf {
 
 #[allow(unused)]
 pub fn get_real_firecracker_installation() -> VmmInstallation {
-    VmmInstallation {
-        firecracker_path: get_test_path("toolchain/firecracker"),
-        jailer_path: get_test_path("toolchain/jailer"),
-        snapshot_editor_path: get_test_path("toolchain/snapshot-editor"),
-    }
+    VmmInstallation::new(
+        get_test_path("toolchain/firecracker"),
+        get_test_path("toolchain/jailer"),
+        get_test_path("toolchain/snapshot-editor"),
+    )
 }
 
 pub fn get_tmp_path() -> PathBuf {
@@ -238,12 +238,12 @@ async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProce
         TestVmmProcess::new(
             EitherVmmExecutor::Unrestricted(unrestricted_executor),
             ResourceSystem::new(DirectProcessSpawner, TokioRuntime, ownership_model),
-            Arc::new(get_real_firecracker_installation()),
+            get_real_firecracker_installation(),
         ),
         TestVmmProcess::new(
             EitherVmmExecutor::Jailed(jailed_executor),
             jailed_resource_system,
-            Arc::new(get_real_firecracker_installation()),
+            get_real_firecracker_installation(),
         ),
     )
 }
@@ -696,7 +696,7 @@ impl VmBuilder {
         let mut vm: Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime> = TestVm::prepare(
             executor,
             resource_system,
-            Arc::new(get_real_firecracker_installation()),
+            get_real_firecracker_installation(),
             configuration,
         )
         .await

@@ -1,5 +1,5 @@
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, ExitStatus, Output, Stdio},
 };
 
@@ -15,7 +15,7 @@ pub trait SnapshotEditorExt {
 impl SnapshotEditorExt for VmmInstallation {
     fn snapshot_editor<R: Runtime>(&self, runtime: R) -> SnapshotEditor<'_, R> {
         SnapshotEditor {
-            path: &self.snapshot_editor_path,
+            path: self.get_snapshot_editor_path(),
             runtime,
         }
     }
@@ -24,7 +24,7 @@ impl SnapshotEditorExt for VmmInstallation {
 /// A struct exposing bindings to a "snapshot-editor" binary of this [VmmInstallation].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SnapshotEditor<'p, R: Runtime> {
-    path: &'p PathBuf,
+    path: &'p Path,
     runtime: R,
 }
 

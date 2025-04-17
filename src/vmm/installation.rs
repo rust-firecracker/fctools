@@ -1,15 +1,20 @@
 use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::Arc,
 };
 
 use crate::runtime::Runtime;
 
 /// A [VmmInstallation] encapsulates release binaries of the most important automatable VMM components:
-/// "firecracker", "jailer" and "snapshot-editor". Using a partial installation with only
-/// some of these binaries is neither recommended nor supported.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct VmmInstallation {
+/// "firecracker", "jailer" and "snapshot-editor". The [VmmInstallation] holds an [Arc] of an inner struct
+/// that owns the paths in order to avoid excessive path copying in memory. As such, cloning a [VmmInstallation]
+/// is cheap and creating an [Arc<VmmInstallation>] is entirely redundant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmmInstallation(Arc<VmmInstallationInner>);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct VmmInstallationInner {
     pub firecracker_path: PathBuf,
     pub jailer_path: PathBuf,
     pub snapshot_editor_path: PathBuf,
@@ -48,6 +53,31 @@ impl std::fmt::Display for VmmInstallationError {
 }
 
 impl VmmInstallation {
+    /// Create a new [VmmInstallation] from three paths to the "firecracker", "jailer" and "snapshot-editor"
+    /// binaries respectively.
+    pub fn new<P: Into<PathBuf>>(firecracker_path: P, jailer_path: P, snapshot_editor_path: P) -> Self {
+        Self(Arc::new(VmmInstallationInner {
+            firecracker_path: firecracker_path.into(),
+            jailer_path: jailer_path.into(),
+            snapshot_editor_path: snapshot_editor_path.into(),
+        }))
+    }
+
+    /// Get a shared reference to this [VmmInstallation]'s path to the "firecracker" binary.
+    pub fn get_firecracker_path(&self) -> &Path {
+        &self.0.firecracker_path
+    }
+
+    /// Get a shared reference to this [VmmInstallation]'s path to the "jailer" binary.
+    pub fn get_jailer_path(&self) -> &Path {
+        &self.0.jailer_path
+    }
+
+    /// Get a shared reference to this [VmmInstallation]'s path to the "snapshot-editor" binary.
+    pub fn get_snapshot_editor_path(&self) -> &Path {
+        &self.0.snapshot_editor_path
+    }
+
     /// Verify the [VmmInstallation] using the given [Runtime] by ensuring all binaries exist,
     /// are executable and yield the correct type and version when spawned and awaited with "--version".
     pub async fn verify<R: Runtime>(
@@ -58,14 +88,14 @@ impl VmmInstallation {
         futures_util::try_join!(
             verify_imp::<R>(
                 runtime,
-                &self.firecracker_path,
+                &self.0.firecracker_path,
                 expected_version.as_ref(),
                 "Firecracker"
             ),
-            verify_imp::<R>(runtime, &self.jailer_path, expected_version.as_ref(), "Jailer"),
+            verify_imp::<R>(runtime, &self.0.jailer_path, expected_version.as_ref(), "Jailer"),
             verify_imp::<R>(
                 runtime,
-                &self.snapshot_editor_path,
+                &self.0.snapshot_editor_path,
                 expected_version.as_ref(),
                 "snapshot-editor"
             )

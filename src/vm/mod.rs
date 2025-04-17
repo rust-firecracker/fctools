@@ -2,7 +2,7 @@
 //! that only need to concern themselves with the high-level details of a Firecracker VM.
 //! These abstractions is built on the `vmm-core`, `vmm-executor` and `vmm-process` features.
 
-use std::{path::PathBuf, process::ExitStatus, sync::Arc, time::Duration};
+use std::{path::PathBuf, process::ExitStatus, time::Duration};
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -33,7 +33,7 @@ pub mod snapshot;
 /// fashion, such as: moving resources in and out, transforming resource paths from inner to outer and vice versa,
 /// removing VM traces, creating snapshots, binding to the exact endpoints of the API server and fallback-based shutdown.
 ///
-/// A [Vm] is tied to 3 components: [VmmExecutor] E, [ProcessSpawner] S and [Runtime] R, as it wraps a [VmmProcess] tied
+/// A [Vm] is generic over 3 components: [VmmExecutor] E, [ProcessSpawner] S and [Runtime] R, as it wraps a [VmmProcess] tied
 /// to these components with opinionated functionality.
 #[derive(Debug)]
 pub struct Vm<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
@@ -154,10 +154,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     pub async fn prepare(
         executor: E,
         resource_system: ResourceSystem<S, R>,
-        installation: Arc<VmmInstallation>,
+        installation: VmmInstallation,
         configuration: VmConfiguration,
     ) -> Result<Self, VmError> {
-        if executor.get_socket_path(installation.as_ref()).is_none() {
+        if executor.get_socket_path(&installation).is_none() {
             return Err(VmError::DisabledApiSocketIsUnsupported);
         }
 

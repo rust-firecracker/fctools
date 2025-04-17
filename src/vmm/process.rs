@@ -1,4 +1,4 @@
-use std::{future::Future, path::PathBuf, process::ExitStatus, sync::Arc};
+use std::{future::Future, path::PathBuf, process::ExitStatus};
 
 use async_once_cell::OnceCell;
 use bytes::{Bytes, BytesMut};
@@ -27,12 +27,12 @@ use super::{
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
-/// tied to the given [VmmExecutor] E, [ProcessSpawner] S, [Runtime] R.
+/// generic over a given [VmmExecutor] E, [ProcessSpawner] S and [Runtime] R.
 #[derive(Debug)]
 pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     executor: E,
     pub(crate) resource_system: ResourceSystem<S, R>,
-    pub(crate) installation: Arc<VmmInstallation>,
+    pub(crate) installation: VmmInstallation,
     process_handle: Option<ProcessHandle<R>>,
     state: VmmProcessState,
     hyper_client: OnceCell<Client<UnixConnector<R::SocketBackend>, Full<Bytes>>>,
@@ -139,7 +139,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     /// Create a new [VmmProcess] from a [VmmExecutor], a [VmmInstallation] and a [ResourceSystem]. All resources necessary for
     /// the [VmmProcess]'s operation should already be created within this [ResourceSystem] prior to creating a [VmmProcess] and
     /// preparing its environment.
-    pub fn new(executor: E, resource_system: ResourceSystem<S, R>, installation: Arc<VmmInstallation>) -> Self {
+    pub fn new(executor: E, resource_system: ResourceSystem<S, R>, installation: VmmInstallation) -> Self {
         Self {
             executor,
             resource_system,
@@ -238,7 +238,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
 
     /// Gets the outer path to the API server socket, if one has been configured, via the executor.
     pub fn get_socket_path(&self) -> Option<PathBuf> {
-        self.executor.get_socket_path(self.installation.as_ref())
+        self.executor.get_socket_path(&self.installation)
     }
 
     /// Send a graceful shutdown request via Ctrl+Alt+Del to the [VmmProcess]. Allowed on x86_64 as per Firecracker docs,

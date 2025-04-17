@@ -17,11 +17,7 @@ async fn installation_does_not_verify_for_missing_files() {
         PathBuf::from(format!("/tmp/{}", Uuid::new_v4()))
     }
 
-    let installation = VmmInstallation {
-        firecracker_path: random_path(),
-        jailer_path: random_path(),
-        snapshot_editor_path: random_path(),
-    };
+    let installation = VmmInstallation::new(random_path(), random_path(), random_path());
 
     assert_matches::assert_matches!(
         installation
@@ -39,11 +35,12 @@ async fn installation_does_not_verify_for_non_executable_files() {
         path
     }
 
-    let installation = VmmInstallation {
-        firecracker_path: non_executable_path().await,
-        jailer_path: non_executable_path().await,
-        snapshot_editor_path: non_executable_path().await,
-    };
+    let installation = VmmInstallation::new(
+        non_executable_path().await,
+        non_executable_path().await,
+        non_executable_path().await,
+    );
+
     assert_matches::assert_matches!(
         installation
             .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)
@@ -54,11 +51,12 @@ async fn installation_does_not_verify_for_non_executable_files() {
 
 #[tokio::test]
 async fn installation_does_not_verify_for_incorrect_binary_type() {
-    let installation = VmmInstallation {
-        firecracker_path: get_test_path("toolchain/jailer"),
-        jailer_path: get_test_path("toolchain/snapshot-editor"),
-        snapshot_editor_path: get_test_path("toolchain/firecracker"),
-    };
+    let installation = VmmInstallation::new(
+        get_test_path("toolchain/jailer"),
+        get_test_path("toolchain/snapshot-editor"),
+        get_test_path("toolchain/firecracker"),
+    );
+
     assert_matches::assert_matches!(
         installation
             .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)
@@ -69,11 +67,12 @@ async fn installation_does_not_verify_for_incorrect_binary_type() {
 
 #[tokio::test]
 async fn installation_does_not_verify_for_incorrect_binary_version() {
-    let installation = VmmInstallation {
-        firecracker_path: get_test_path("toolchain/firecracker-wrong-version"),
-        jailer_path: get_test_path("toolchain/jailer"),
-        snapshot_editor_path: get_test_path("toolchain/snapshot-editor"),
-    };
+    let installation = VmmInstallation::new(
+        get_test_path("toolchain/firecracker-wrong-version"),
+        get_test_path("toolchain/jailer"),
+        get_test_path("toolchain/snapshot-editor"),
+    );
+
     assert_matches::assert_matches!(
         installation
             .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)
@@ -84,11 +83,12 @@ async fn installation_does_not_verify_for_incorrect_binary_version() {
 
 #[tokio::test]
 async fn installation_verifies_for_correct_parameters() {
-    let installation = VmmInstallation {
-        firecracker_path: get_test_path("toolchain/firecracker"),
-        jailer_path: get_test_path("toolchain/jailer"),
-        snapshot_editor_path: get_test_path("toolchain/snapshot-editor"),
-    };
+    let installation = VmmInstallation::new(
+        get_test_path("toolchain/firecracker"),
+        get_test_path("toolchain/jailer"),
+        get_test_path("toolchain/snapshot-editor"),
+    );
+
     installation
         .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)
         .await

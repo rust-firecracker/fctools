@@ -62,7 +62,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         mut context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         // Create jail and delete previous one if necessary
-        let (chroot_base_dir, jail_path) = self.get_paths(context.installation.as_ref());
+        let (chroot_base_dir, jail_path) = self.get_paths(&context.installation);
         upgrade_owner(
             &chroot_base_dir,
             context.ownership_model,
@@ -145,8 +145,8 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
 
         let mut arguments = self
             .jailer_arguments
-            .join(uid, gid, &context.installation.firecracker_path);
-        let mut binary_path = context.installation.jailer_path.clone();
+            .join(uid, gid, context.installation.get_firecracker_path());
+        let mut binary_path = context.installation.get_jailer_path().to_owned();
         arguments.push("--".to_string());
         arguments.extend(self.vmm_arguments.join(config_path));
 
@@ -167,7 +167,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                 "{}.pid",
                 context
                     .installation
-                    .firecracker_path
+                    .get_firecracker_path()
                     .file_name()
                     .and_then(|f| f.to_str())
                     .unwrap_or("firecracker")
@@ -240,7 +240,7 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
         let jail_path = chroot_base_dir
             .join(
                 installation
-                    .firecracker_path
+                    .get_firecracker_path()
                     .file_name()
                     .and_then(|f| f.to_str())
                     .unwrap_or("firecracker"),
