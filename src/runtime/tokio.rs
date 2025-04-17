@@ -33,18 +33,22 @@ impl Runtime for TokioRuntime {
     #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
     type SocketBackend = hyper_client_sockets::tokio::TokioBackend;
 
-    fn spawn_task<F, O>(&self, future: F) -> Self::Task<O>
+    fn spawn_task<F>(&self, future: F) -> Self::Task<F::Output>
     where
-        F: Future<Output = O> + Send + 'static,
-        O: Send + 'static,
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
     {
         TokioRuntimeTask(tokio::task::spawn(future))
     }
 
-    fn timeout<F, O>(&self, duration: Duration, future: F) -> impl Future<Output = Result<O, Self::TimeoutError>> + Send
+    fn timeout<F>(
+        &self,
+        duration: Duration,
+        future: F,
+    ) -> impl Future<Output = Result<F::Output, Self::TimeoutError>> + Send
     where
-        F: Future<Output = O> + Send,
-        O: Send,
+        F: Future + Send,
+        F::Output: Send,
     {
         tokio::time::timeout(duration, future)
     }

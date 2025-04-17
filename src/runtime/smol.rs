@@ -48,10 +48,10 @@ impl Runtime for SmolRuntime {
     #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
     type SocketBackend = hyper_client_sockets::async_io::AsyncIoBackend;
 
-    fn spawn_task<F, O>(&self, future: F) -> Self::Task<O>
+    fn spawn_task<F>(&self, future: F) -> Self::Task<F::Output>
     where
-        F: Future<Output = O> + Send + 'static,
-        O: Send + 'static,
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
     {
         let task = match self.0 {
             MaybeStaticExecutor::NonStatic(ref executor) => executor.spawn(future),
@@ -61,10 +61,14 @@ impl Runtime for SmolRuntime {
         SmolRuntimeTask(Some(task))
     }
 
-    fn timeout<F, O>(&self, duration: Duration, future: F) -> impl Future<Output = Result<O, Self::TimeoutError>> + Send
+    fn timeout<F>(
+        &self,
+        duration: Duration,
+        future: F,
+    ) -> impl Future<Output = Result<F::Output, Self::TimeoutError>> + Send
     where
-        F: Future<Output = O> + Send,
-        O: Send,
+        F: Future + Send,
+        F::Output: Send,
     {
         TimeoutFuture {
             timer: Timer::after(duration),
@@ -205,7 +209,7 @@ impl std::fmt::Display for TimeoutError {
 }
 
 pin_project! {
-    struct TimeoutFuture<F: Future<Output = O>, O> {
+    struct TimeoutFuture<F: Future> {
         #[pin]
         timer: Timer,
         #[pin]
@@ -213,8 +217,8 @@ pin_project! {
     }
 }
 
-impl<F: Future<Output = O>, O> Future for TimeoutFuture<F, O> {
-    type Output = Result<O, TimeoutError>;
+impl<F: Future> Future for TimeoutFuture<F> {
+    type Output = Result<F::Output, TimeoutError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let proj = self.project();

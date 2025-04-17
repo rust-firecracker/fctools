@@ -43,19 +43,19 @@ pub trait Runtime: Clone + Send + Sync + 'static {
     #[cfg_attr(docsrs, doc(cfg(feature = "vmm-process")))]
     type SocketBackend: hyper_client_sockets::Backend + Send + Sync + std::fmt::Debug;
 
-    fn spawn_task<F, O>(&self, future: F) -> Self::Task<O>
+    fn spawn_task<F>(&self, future: F) -> Self::Task<F::Output>
     where
-        F: Future<Output = O> + Send + 'static,
-        O: Send + 'static;
+        F: Future + Send + 'static,
+        F::Output: Send + 'static;
 
-    fn timeout<F, O>(
+    fn timeout<F>(
         &self,
         duration: Duration,
         future: F,
-    ) -> impl Future<Output = Result<O, Self::TimeoutError>> + Send
+    ) -> impl Future<Output = Result<F::Output, Self::TimeoutError>> + Send
     where
-        F: Future<Output = O> + Send,
-        O: Send;
+        F: Future + Send,
+        F::Output: Send;
 
     fn fs_exists(&self, path: &Path) -> impl Future<Output = Result<bool, std::io::Error>> + Send;
 
