@@ -13,7 +13,7 @@ use crate::runtime::Runtime;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VmmInstallation(Arc<VmmInstallationInner>);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 struct VmmInstallationInner {
     pub firecracker_path: PathBuf,
     pub jailer_path: PathBuf,
