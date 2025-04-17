@@ -77,9 +77,9 @@ impl<R: Runtime> ProcessHandle<R> {
         let async_pidfd = runtime.create_async_fd(pidfd)?;
 
         runtime.clone().spawn_task(async move {
-            if async_pidfd.readable().await.is_ok() {
-                let mut exit_status = ExitStatus::from_raw(0);
+            let mut exit_status = ExitStatus::from_raw(0);
 
+            if async_pidfd.readable().await.is_ok() {
                 if let Ok(content) = runtime
                     .fs_read_to_string(&PathBuf::from(format!("/proc/{pid}/stat")))
                     .await
@@ -88,9 +88,9 @@ impl<R: Runtime> ProcessHandle<R> {
                         exit_status = ExitStatus::from_raw(status_raw);
                     }
                 }
-
-                let _ = exited_tx.send(exit_status);
             }
+
+            let _ = exited_tx.send(exit_status);
         });
 
         Ok(Self(ProcessHandleInner::Pidfd {
