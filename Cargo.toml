@@ -131,6 +131,7 @@ full = [
     "snapshot-editor-extension",
 ]
 default = []
+# syscall backends
 nix-syscall-backend = ["dep:nix"]
 rustix-syscall-backend = ["dep:rustix"]
 # runtime-related
