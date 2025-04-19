@@ -4,7 +4,7 @@ use bytes::Bytes;
 use codegen::{GuestAgentServiceClient, Ping, Pong};
 use fctools::{
     extension::{
-        grpc_vsock::VsockGrpcExt, http_vsock::VsockHttpExt, metrics::spawn_metrics_task,
+        grpc_vsock::VsockGrpcExt, http_vsock::VmVsockHttp, metrics::spawn_metrics_task,
         snapshot_editor::SnapshotEditorExt,
     },
     runtime::{tokio::TokioRuntime, RuntimeTask},
@@ -285,7 +285,7 @@ const VSOCK_GRPC_GUEST_PORT: u32 = 9000;
 #[test]
 fn vsock_can_make_plain_http_connection() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
-        let mut connection = vm.vsock_connect_over_http(VSOCK_HTTP_GUEST_PORT).await.unwrap();
+        let mut connection = vm.connect_to_http_over_vsock(VSOCK_HTTP_GUEST_PORT).await.unwrap();
         let response = connection.send_request(make_vsock_req()).await.unwrap();
         assert_vsock_resp(response).await;
         shutdown_test_vm(&mut vm).await;
@@ -295,7 +295,7 @@ fn vsock_can_make_plain_http_connection() {
 #[test]
 fn vsock_can_make_pooled_http_connection() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
-        let connection_pool = vm.vsock_create_http_connection_pool(VSOCK_HTTP_GUEST_PORT).unwrap();
+        let connection_pool = vm.create_http_over_vsock_client(VSOCK_HTTP_GUEST_PORT).unwrap();
         let response = connection_pool.send_request("/ping", make_vsock_req()).await.unwrap();
         assert_vsock_resp(response).await;
         shutdown_test_vm(&mut vm).await;
