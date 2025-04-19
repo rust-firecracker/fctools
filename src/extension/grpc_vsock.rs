@@ -35,27 +35,27 @@ impl std::fmt::Display for VsockGrpcError {
 pub trait VsockGrpcExt {
     /// Connect to a guest port over gRPC eagerly, i.e. by establishing the connection right away.
     /// configure_endpoint can be used as a function to customize Endpoint options via its builder.
-    fn vsock_connect_over_grpc(
+    fn vsock_connect_over_grpc<C: FnOnce(Endpoint) -> Endpoint>(
         &self,
         guest_port: u32,
-        configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
+        configure_endpoint: C,
     ) -> impl Future<Output = Result<Channel, VsockGrpcError>> + Send;
 
     /// Connect to a guest port over gRPC lazily, i.e. not actually establishing the connection until
     /// first usage of the Channel.
     /// configure_endpoint can be used as a function to customize Endpoint options via its builder.
-    fn vsock_lazily_connect_over_grpc(
+    fn vsock_lazily_connect_over_grpc<C: FnOnce(Endpoint) -> Endpoint>(
         &self,
         guest_port: u32,
-        configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
+        configure_endpoint: C,
     ) -> Result<Channel, VsockGrpcError>;
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockGrpcExt for Vm<E, S, R> {
-    fn vsock_connect_over_grpc(
+    fn vsock_connect_over_grpc<C: FnOnce(Endpoint) -> Endpoint>(
         &self,
         guest_port: u32,
-        configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
+        configure_endpoint: C,
     ) -> impl Future<Output = Result<Channel, VsockGrpcError>> + Send {
         let result = create_endpoint_and_service(self, guest_port, configure_endpoint);
         async move {
@@ -67,10 +67,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockGrpcExt for Vm<E, S, R>
         }
     }
 
-    fn vsock_lazily_connect_over_grpc(
+    fn vsock_lazily_connect_over_grpc<C: FnOnce(Endpoint) -> Endpoint>(
         &self,
         guest_port: u32,
-        configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
+        configure_endpoint: C,
     ) -> Result<Channel, VsockGrpcError> {
         let (endpoint, service) = create_endpoint_and_service(self, guest_port, configure_endpoint)?;
         Ok(endpoint.connect_with_connector_lazy(service))
@@ -78,10 +78,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockGrpcExt for Vm<E, S, R>
 }
 
 #[inline]
-fn create_endpoint_and_service<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
+fn create_endpoint_and_service<E: VmmExecutor, S: ProcessSpawner, R: Runtime, C: FnOnce(Endpoint) -> Endpoint>(
     vm: &Vm<E, S, R>,
     guest_port: u32,
-    configure_endpoint: impl FnOnce(Endpoint) -> Endpoint,
+    configure_endpoint: C,
 ) -> Result<(Endpoint, FirecrackerTowerService<R::SocketBackend>), VsockGrpcError> {
     let uds_path = vm
         .get_configuration()

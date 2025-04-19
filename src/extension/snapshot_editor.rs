@@ -59,10 +59,10 @@ impl std::fmt::Display for SnapshotEditorError {
 
 impl<'p, R: Runtime> SnapshotEditor<'p, R> {
     /// Rebase base_memory_path onto diff_memory_path.
-    pub async fn rebase_memory(
+    pub async fn rebase_memory<P: AsRef<Path> + Send, Q: AsRef<Path> + Send>(
         &self,
-        base_memory_path: impl AsRef<Path> + Send,
-        diff_memory_path: impl AsRef<Path> + Send,
+        base_memory_path: P,
+        diff_memory_path: Q,
     ) -> Result<(), SnapshotEditorError> {
         self.run(&[
             "edit-memory",
@@ -83,9 +83,9 @@ impl<'p, R: Runtime> SnapshotEditor<'p, R> {
     }
 
     /// Get the version of a given snapshot.
-    pub async fn get_snapshot_version(
+    pub async fn get_snapshot_version<P: AsRef<Path> + Send>(
         &self,
-        snapshot_path: impl AsRef<Path> + Send,
+        snapshot_path: P,
     ) -> Result<String, SnapshotEditorError> {
         let output = self
             .run(&[
@@ -103,9 +103,9 @@ impl<'p, R: Runtime> SnapshotEditor<'p, R> {
 
     /// Get dbg!-produced vCPU states of a given snapshot. The dbg! format is difficult to parse,
     /// so the merit of invoking this programmatically is limited.
-    pub async fn get_snapshot_vcpu_states(
+    pub async fn get_snapshot_vcpu_states<P: AsRef<Path> + Send>(
         &self,
-        snapshot_path: impl AsRef<Path> + Send,
+        snapshot_path: P,
     ) -> Result<String, SnapshotEditorError> {
         let output = self
             .run(&[
@@ -123,9 +123,9 @@ impl<'p, R: Runtime> SnapshotEditor<'p, R> {
 
     /// Get a dbg!-produced full dump of a VM's state. The dbg! format is difficult to parse,
     /// so the merit of invoking this programmatically is limited.
-    pub async fn get_snapshot_vm_state(
+    pub async fn get_snapshot_vm_state<P: AsRef<Path> + Send>(
         &self,
-        snapshot_path: impl AsRef<Path> + Send,
+        snapshot_path: P,
     ) -> Result<String, SnapshotEditorError> {
         let output = self
             .run(&[

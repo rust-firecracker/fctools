@@ -91,9 +91,9 @@ impl std::fmt::Display for VmApiError {
 /// If the bindings here prove to be in some way inadequate, [VmApi::api_custom_request] allows you to also call the Management
 /// API with an arbitrary HTTP request, though while bypassing some safeguards imposed by the provided bindings.
 pub trait VmApi {
-    fn api_custom_request(
+    fn api_custom_request<U: AsRef<str> + Send>(
         &mut self,
-        route: impl AsRef<str> + Send,
+        uri: U,
         request: Request<Full<Bytes>>,
         new_is_paused: Option<bool>,
     ) -> impl Future<Output = Result<Response<Incoming>, VmApiError>> + Send;
@@ -160,16 +160,16 @@ pub trait VmApi {
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
-    async fn api_custom_request(
+    async fn api_custom_request<U: AsRef<str> + Send>(
         &mut self,
-        route: impl AsRef<str> + Send,
+        uri: U,
         request: Request<Full<Bytes>>,
         new_is_paused: Option<bool>,
     ) -> Result<Response<Incoming>, VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         let response = self
             .vmm_process
-            .send_api_request(route, request)
+            .send_api_request(uri, request)
             .await
             .map_err(VmApiError::ConnectionError)?;
         if let Some(new_is_paused) = new_is_paused {

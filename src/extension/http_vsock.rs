@@ -66,9 +66,9 @@ pub struct VsockHttpPool<B: hyper_client_sockets::Backend + Send + Sync + 'stati
 impl<B: hyper_client_sockets::Backend + Send + Sync + 'static> VsockHttpPool<B> {
     /// Send a HTTP request via this pool. Since this is a pool and not a single connection, only shared access to
     /// the pool is needed.
-    pub async fn send_request(
+    pub async fn send_request<U: AsRef<str> + Send>(
         &self,
-        uri: impl AsRef<str> + Send,
+        uri: U,
         mut request: Request<Full<Bytes>>,
     ) -> Result<Response<Incoming>, VsockHttpPoolError> {
         let uri = uri.as_ref();

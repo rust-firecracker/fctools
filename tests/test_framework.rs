@@ -119,7 +119,7 @@ pub fn get_tmp_path() -> PathBuf {
 }
 
 #[allow(unused)]
-pub fn jail_join<P: Into<PathBuf>>(path1: impl AsRef<Path>, path2: P) -> PathBuf {
+pub fn jail_join<P: AsRef<Path>, Q: Into<PathBuf>>(path1: P, path2: Q) -> PathBuf {
     path1
         .as_ref()
         .join(path2.into().to_string_lossy().trim_start_matches("/"))
@@ -318,9 +318,9 @@ impl VmBuilder {
         self
     }
 
-    pub fn pre_start_hook(
+    pub fn pre_start_hook<H: Fn(&mut TestVm) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> + Clone + 'static>(
         mut self,
-        hook: impl Fn(&mut TestVm) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> + Clone + 'static,
+        hook: H,
     ) -> Self {
         self.pre_start_hook = Some((Box::new(hook.clone()), Box::new(hook)));
         self

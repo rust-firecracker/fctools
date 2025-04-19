@@ -185,13 +185,13 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
 
     /// Send a given request (without a URI being set) to the given route of the Firecracker API server.
     /// Allowed in [VmmProcessState::Started].
-    pub async fn send_api_request(
+    pub async fn send_api_request<U: AsRef<str>>(
         &mut self,
-        route: impl AsRef<str>,
+        uri: U,
         mut request: Request<Full<Bytes>>,
     ) -> Result<Response<Incoming>, VmmProcessError> {
         self.ensure_state(VmmProcessState::Started)?;
-        let route = route.as_ref();
+        let route = uri.as_ref();
         let socket_path = self.get_socket_path().ok_or(VmmProcessError::ApiSocketDisabledError)?;
 
         let hyper_client = self

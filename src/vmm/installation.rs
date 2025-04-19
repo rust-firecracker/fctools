@@ -80,9 +80,9 @@ impl VmmInstallation {
 
     /// Verify the [VmmInstallation] using the given [Runtime] by ensuring all binaries exist,
     /// are executable and yield the correct type and version when spawned and awaited with "--version".
-    pub async fn verify<R: Runtime>(
+    pub async fn verify<R: Runtime, V: AsRef<str>>(
         &self,
-        expected_version: impl AsRef<str>,
+        expected_version: V,
         runtime: &R,
     ) -> Result<(), VmmInstallationError> {
         futures_util::try_join!(
