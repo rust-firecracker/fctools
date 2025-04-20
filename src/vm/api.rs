@@ -32,19 +32,29 @@ use super::{
 /// An error that can be emitted by the [VmApi] Firecracker Management API bindings.
 #[derive(Debug)]
 pub enum VmApiError {
+    /// An error occurred while performing [serde] serialization or deserialization of a JSON.
     SerdeError(serde_json::Error),
+    /// Received an error response from the Firecracker Management API server.
     ReceivedErrorResponse {
+        /// The [StatusCode] returned by the API.
         status_code: StatusCode,
+        /// The [String] blob representing the fault message returned by the API in the JSON response body.
         fault_message: String,
     },
+    /// Building the HTTP request internally failed due to an [http::Error].
     RequestBuildError(http::Error),
+    /// Establishing an HTTP connection to the server failed on the VMM process level.
     ConnectionError(VmmProcessError),
+    /// Receiving the response body from the server failed due to a [hyper::Error].
     ResponseBodyReceiveError(hyper::Error),
+    /// The received response body contained the provided [String] data when no data was expected.
     ResponseBodyContainsUnexpectedData(String),
+    /// Checking the VM state failed.
     StateCheckError(VmStateCheckError),
+    /// Changing the ownership of snapshot files failed.
     SnapshotChangeOwnerError(ChangeOwnerError),
+    /// A [ResourceSystemError] occurred when using the resource system of the VM.
     ResourceSystemError(ResourceSystemError),
-    UninitializedResource,
 }
 
 impl std::error::Error for VmApiError {}
@@ -82,85 +92,100 @@ impl std::fmt::Display for VmApiError {
             VmApiError::ResourceSystemError(err) => {
                 write!(f, "An error occurred within the resource system: {err}")
             }
-            VmApiError::UninitializedResource => write!(f, "A resource in the VM was uninitialized"),
         }
     }
 }
 
 /// An extension to [Vm] providing up-to-date, exhaustive and easy-to-use bindings to the Firecracker Management API.
-/// If the bindings here prove to be in some way inadequate, [VmApi::api_custom_request] allows you to also call the Management
-/// API with an arbitrary HTTP request, though while bypassing some safeguards imposed by the provided bindings.
+/// If the bindings here prove to be in some way inadequate, [VmApi::send_custom_api_request] allows you to also call
+/// the Management API with an arbitrary HTTP request, though while bypassing some safeguards imposed by the
+/// provided bindings.
 pub trait VmApi {
-    fn api_custom_request<U: AsRef<str> + Send>(
+    /// Send a custom [Request] with a [Bytes] payload to the given URI of the Management HTTP server. Should only be used
+    /// for operations not supported by other [VmApi] functions. The "new_is_paused" parameter should optionally contain
+    /// the new value for whether the VM is paused, if the called request modifies whether the VM is paused. Normally,
+    /// this type of tracking is done automatically, but arbitrary API calls bypass this safeguard.
+    fn send_custom_api_request<U: AsRef<str> + Send>(
         &mut self,
         uri: U,
         request: Request<Full<Bytes>>,
         new_is_paused: Option<bool>,
     ) -> impl Future<Output = Result<Response<Incoming>, VmApiError>> + Send;
 
-    fn api_get_info(&mut self) -> impl Future<Output = Result<Info, VmApiError>> + Send;
+    /// Get VM info from the API.
+    fn get_info(&mut self) -> impl Future<Output = Result<Info, VmApiError>> + Send;
 
-    fn api_flush_metrics(&mut self) -> impl Future<Output = Result<(), VmApiError>> + Send;
+    /// Flush the VM's metrics via the API.
+    fn flush_metrics(&mut self) -> impl Future<Output = Result<(), VmApiError>> + Send;
 
-    fn api_get_balloon_device(&mut self) -> impl Future<Output = Result<BalloonDevice, VmApiError>> + Send;
+    /// Get the balloon device of the VM from the API.
+    fn get_balloon_device(&mut self) -> impl Future<Output = Result<BalloonDevice, VmApiError>> + Send;
 
-    fn api_update_balloon_device(
+    /// Update the VM's balloon device via the API.
+    fn update_balloon_device(
         &mut self,
         update_balloon: UpdateBalloonDevice,
     ) -> impl Future<Output = Result<(), VmApiError>> + Send;
 
-    fn api_get_balloon_statistics(&mut self) -> impl Future<Output = Result<BalloonStatistics, VmApiError>> + Send;
+    /// Get the balloon statistics of the VM from the API.
+    fn get_balloon_statistics(&mut self) -> impl Future<Output = Result<BalloonStatistics, VmApiError>> + Send;
 
-    fn api_update_balloon_statistics(
+    /// Update the balloon statistics of the VM via the API.
+    fn update_balloon_statistics(
         &mut self,
         update_balloon_statistics: UpdateBalloonStatistics,
     ) -> impl Future<Output = Result<(), VmApiError>> + Send;
 
-    fn api_update_drive(&mut self, update_drive: UpdateDrive) -> impl Future<Output = Result<(), VmApiError>> + Send;
+    /// Update a drive of the VM via the API.
+    fn update_drive(&mut self, update_drive: UpdateDrive) -> impl Future<Output = Result<(), VmApiError>> + Send;
 
-    fn api_update_network_interface(
+    /// Update a network interface of the VM via the API.
+    fn update_network_interface(
         &mut self,
         update_network_interface: UpdateNetworkInterface,
     ) -> impl Future<Output = Result<(), VmApiError>> + Send;
 
-    fn api_get_machine_configuration(
-        &mut self,
-    ) -> impl Future<Output = Result<MachineConfiguration, VmApiError>> + Send;
+    /// Get the machine configuration of the VM via the API.
+    fn get_machine_configuration(&mut self) -> impl Future<Output = Result<MachineConfiguration, VmApiError>> + Send;
 
-    fn api_create_snapshot(
+    /// Create a snapshot of the VM via the API.
+    fn create_snapshot(
         &mut self,
         create_snapshot: CreateSnapshot,
     ) -> impl Future<Output = Result<VmSnapshot, VmApiError>> + Send;
 
-    fn api_get_firecracker_version(&mut self) -> impl Future<Output = Result<String, VmApiError>> + Send;
+    /// Get the VM's version of Firecracker as a [String] via the API.
+    fn get_firecracker_version(&mut self) -> impl Future<Output = Result<String, VmApiError>> + Send;
 
-    fn api_pause(&mut self) -> impl Future<Output = Result<(), VmApiError>> + Send;
+    /// Pause the VM via the API.
+    fn pause(&mut self) -> impl Future<Output = Result<(), VmApiError>> + Send;
 
-    fn api_resume(&mut self) -> impl Future<Output = Result<(), VmApiError>> + Send;
+    /// Resume the VM via the API.
+    fn resume(&mut self) -> impl Future<Output = Result<(), VmApiError>> + Send;
 
-    fn api_create_mmds<T: Serialize + Send>(&mut self, value: T)
+    /// Create a MMDS for the VM via the API, containing an initial JSON-serializable value.
+    fn create_mmds<T: Serialize + Send>(&mut self, value: T) -> impl Future<Output = Result<(), VmApiError>> + Send;
+
+    /// Update the VM's MMDS contents via the API to a new JSON-serializable value.
+    fn update_mmds<T: Serialize + Send>(&mut self, value: T) -> impl Future<Output = Result<(), VmApiError>> + Send;
+
+    /// Get the contents of the VM's MMDS as a JSON-deserializable value via the API.
+    fn get_mmds<T: DeserializeOwned>(&mut self) -> impl Future<Output = Result<T, VmApiError>> + Send;
+
+    /// Create a MMDS for the VM via the API, containing an initial untyped [serde_json::Value].
+    fn create_mmds_untyped(&mut self, value: &serde_json::Value)
         -> impl Future<Output = Result<(), VmApiError>> + Send;
 
-    fn api_update_mmds<T: Serialize + Send>(&mut self, value: T)
+    /// Update the VM's MMDS contents via the API to a new untyped [serde_json::Value].
+    fn update_mmds_untyped(&mut self, value: &serde_json::Value)
         -> impl Future<Output = Result<(), VmApiError>> + Send;
 
-    fn api_get_mmds<T: DeserializeOwned>(&mut self) -> impl Future<Output = Result<T, VmApiError>> + Send;
-
-    fn api_create_mmds_untyped(
-        &mut self,
-        value: &serde_json::Value,
-    ) -> impl Future<Output = Result<(), VmApiError>> + Send;
-
-    fn api_update_mmds_untyped(
-        &mut self,
-        value: &serde_json::Value,
-    ) -> impl Future<Output = Result<(), VmApiError>> + Send;
-
-    fn api_get_mmds_untyped(&mut self) -> impl Future<Output = Result<serde_json::Value, VmApiError>> + Send;
+    /// Get the contents of the VM's MMDS as an untyped [serde_json::Value].
+    fn get_mmds_untyped(&mut self) -> impl Future<Output = Result<serde_json::Value, VmApiError>> + Send;
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
-    async fn api_custom_request<U: AsRef<str> + Send>(
+    async fn send_custom_api_request<U: AsRef<str> + Send>(
         &mut self,
         uri: U,
         request: Request<Full<Bytes>>,
@@ -179,7 +204,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         Ok(response)
     }
 
-    async fn api_get_info(&mut self) -> Result<Info, VmApiError> {
+    async fn get_info(&mut self) -> Result<Info, VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         let repr: ReprInfo = send_api_request_with_response(self, "/", "GET", None::<i32>).await?;
         Ok(Info {
@@ -190,7 +215,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         })
     }
 
-    async fn api_flush_metrics(&mut self) -> Result<(), VmApiError> {
+    async fn flush_metrics(&mut self) -> Result<(), VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         send_api_request(
             self,
@@ -203,23 +228,23 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         .await
     }
 
-    async fn api_get_balloon_device(&mut self) -> Result<BalloonDevice, VmApiError> {
+    async fn get_balloon_device(&mut self) -> Result<BalloonDevice, VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         send_api_request_with_response(self, "/balloon", "GET", None::<i32>).await
     }
 
-    async fn api_update_balloon_device(&mut self, update_balloon: UpdateBalloonDevice) -> Result<(), VmApiError> {
+    async fn update_balloon_device(&mut self, update_balloon: UpdateBalloonDevice) -> Result<(), VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         send_api_request(self, "/balloon", "PATCH", Some(update_balloon)).await
     }
 
-    async fn api_get_balloon_statistics(&mut self) -> Result<BalloonStatistics, VmApiError> {
+    async fn get_balloon_statistics(&mut self) -> Result<BalloonStatistics, VmApiError> {
         self.ensure_state(VmState::Running)
             .map_err(VmApiError::StateCheckError)?;
         send_api_request_with_response(self, "/balloon/statistics", "GET", None::<i32>).await
     }
 
-    async fn api_update_balloon_statistics(
+    async fn update_balloon_statistics(
         &mut self,
         update_balloon_statistics: UpdateBalloonStatistics,
     ) -> Result<(), VmApiError> {
@@ -227,7 +252,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         send_api_request(self, "/balloon/statistics", "PATCH", Some(update_balloon_statistics)).await
     }
 
-    async fn api_update_drive(&mut self, update_drive: UpdateDrive) -> Result<(), VmApiError> {
+    async fn update_drive(&mut self, update_drive: UpdateDrive) -> Result<(), VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         send_api_request(
             self,
@@ -238,7 +263,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         .await
     }
 
-    async fn api_update_network_interface(
+    async fn update_network_interface(
         &mut self,
         update_network_interface: UpdateNetworkInterface,
     ) -> Result<(), VmApiError> {
@@ -252,12 +277,12 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         .await
     }
 
-    async fn api_get_machine_configuration(&mut self) -> Result<MachineConfiguration, VmApiError> {
+    async fn get_machine_configuration(&mut self) -> Result<MachineConfiguration, VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         send_api_request_with_response(self, "/machine-config", "GET", None::<i32>).await
     }
 
-    async fn api_create_snapshot(&mut self, create_snapshot: CreateSnapshot) -> Result<VmSnapshot, VmApiError> {
+    async fn create_snapshot(&mut self, create_snapshot: CreateSnapshot) -> Result<VmSnapshot, VmApiError> {
         self.ensure_state(VmState::Paused)
             .map_err(VmApiError::StateCheckError)?;
         send_api_request(self, "/snapshot/create", "PUT", Some(&create_snapshot)).await?;
@@ -310,7 +335,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         })
     }
 
-    async fn api_get_firecracker_version(&mut self) -> Result<String, VmApiError> {
+    async fn get_firecracker_version(&mut self) -> Result<String, VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         Ok(
             send_api_request_with_response::<ReprFirecrackerVersion, _, _, _>(self, "/version", "GET", None::<i32>)
@@ -319,7 +344,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         )
     }
 
-    async fn api_pause(&mut self) -> Result<(), VmApiError> {
+    async fn pause(&mut self) -> Result<(), VmApiError> {
         self.ensure_state(VmState::Running)
             .map_err(VmApiError::StateCheckError)?;
         send_api_request(
@@ -335,7 +360,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         Ok(())
     }
 
-    async fn api_resume(&mut self) -> Result<(), VmApiError> {
+    async fn resume(&mut self) -> Result<(), VmApiError> {
         self.ensure_state(VmState::Paused)
             .map_err(VmApiError::StateCheckError)?;
         send_api_request(
@@ -351,32 +376,32 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         Ok(())
     }
 
-    async fn api_create_mmds<T: Serialize + Send>(&mut self, value: T) -> Result<(), VmApiError> {
+    async fn create_mmds<T: Serialize + Send>(&mut self, value: T) -> Result<(), VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         send_api_request(self, "/mmds", "PUT", Some(value)).await
     }
 
-    async fn api_update_mmds<T: Serialize + Send>(&mut self, value: T) -> Result<(), VmApiError> {
+    async fn update_mmds<T: Serialize + Send>(&mut self, value: T) -> Result<(), VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         send_api_request(self, "/mmds", "PATCH", Some(value)).await
     }
 
-    async fn api_get_mmds<T: DeserializeOwned>(&mut self) -> Result<T, VmApiError> {
+    async fn get_mmds<T: DeserializeOwned>(&mut self) -> Result<T, VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         send_api_request_with_response(self, "/mmds", "GET", None::<i32>).await
     }
 
-    async fn api_create_mmds_untyped(&mut self, value: &serde_json::Value) -> Result<(), VmApiError> {
+    async fn create_mmds_untyped(&mut self, value: &serde_json::Value) -> Result<(), VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         send_api_request(self, "/mmds", "PUT", Some(value)).await
     }
 
-    async fn api_update_mmds_untyped(&mut self, value: &serde_json::Value) -> Result<(), VmApiError> {
+    async fn update_mmds_untyped(&mut self, value: &serde_json::Value) -> Result<(), VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         send_api_request(self, "/mmds", "PATCH", Some(value)).await
     }
 
-    async fn api_get_mmds_untyped(&mut self) -> Result<serde_json::Value, VmApiError> {
+    async fn get_mmds_untyped(&mut self) -> Result<serde_json::Value, VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         send_api_request_with_response(self, "/mmds", "GET", None::<i32>).await
     }

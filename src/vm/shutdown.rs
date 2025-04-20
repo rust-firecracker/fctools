@@ -39,7 +39,7 @@ impl VmShutdownMethod {
         match self {
             VmShutdownMethod::Kill => vm.vmm_process.send_sigkill().map_err(VmShutdownError::KillError)?,
             VmShutdownMethod::PauseThenKill => {
-                vm.api_pause().await.map_err(VmShutdownError::PauseError)?;
+                vm.pause().await.map_err(VmShutdownError::PauseError)?;
                 vm.vmm_process.send_sigkill().map_err(VmShutdownError::KillError)?
             }
             VmShutdownMethod::CtrlAltDel => vm
@@ -149,7 +149,8 @@ pub struct VmShutdownOutcome {
 impl VmShutdownOutcome {
     /// Whether the shutdown was "fully graceful": the action that performed it was marked as graceful
     /// and the [ExitStatus] of the process is successful (equal to zero).
-    pub fn fully_graceful(&self) -> bool {
+    #[inline]
+    pub fn is_fully_graceful(&self) -> bool {
         self.graceful && self.exit_status.success()
     }
 }

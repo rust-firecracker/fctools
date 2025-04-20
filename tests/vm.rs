@@ -232,12 +232,12 @@ fn vm_tracks_state_with_crash() {
 #[test]
 fn vm_can_snapshot_while_original_is_running() {
     VmBuilder::new().run_with_is_jailed(|mut old_vm, is_jailed| async move {
-        old_vm.api_pause().await.unwrap();
+        old_vm.pause().await.unwrap();
         let create_snapshot = get_create_snapshot(old_vm.get_resource_system_mut());
-        let snapshot = old_vm.api_create_snapshot(create_snapshot).await.unwrap();
+        let snapshot = old_vm.create_snapshot(create_snapshot).await.unwrap();
         let new_vm = prepare_snapshot_vm(&mut old_vm, snapshot.clone(), is_jailed).await;
         restore_snapshot_vm(new_vm).await;
-        old_vm.api_resume().await.unwrap();
+        old_vm.resume().await.unwrap();
         shutdown_test_vm(&mut old_vm).await;
     });
 }
@@ -245,14 +245,14 @@ fn vm_can_snapshot_while_original_is_running() {
 #[test]
 fn vm_can_snapshot_after_original_has_exited() {
     VmBuilder::new().run_with_is_jailed(|mut old_vm, is_jailed| async move {
-        old_vm.api_pause().await.unwrap();
+        old_vm.pause().await.unwrap();
         let create_snapshot = get_create_snapshot(old_vm.get_resource_system_mut());
-        let mut snapshot = old_vm.api_create_snapshot(create_snapshot).await.unwrap();
+        let mut snapshot = old_vm.create_snapshot(create_snapshot).await.unwrap();
         snapshot
             .copy(&TokioRuntime, get_tmp_path(), get_tmp_path())
             .await
             .unwrap();
-        old_vm.api_resume().await.unwrap();
+        old_vm.resume().await.unwrap();
         let new_vm = prepare_snapshot_vm(&mut old_vm, snapshot.clone(), is_jailed).await;
         shutdown_test_vm(&mut old_vm).await;
         restore_snapshot_vm(new_vm).await;
@@ -321,6 +321,6 @@ async fn restore_snapshot_vm(mut new_vm: TestVm) {
         .unwrap();
     tokio::time::sleep(Duration::from_millis(TestOptions::get().await.waits.boot_wait_ms)).await;
 
-    new_vm.api_get_info().await.unwrap();
+    new_vm.get_info().await.unwrap();
     shutdown_test_vm(&mut new_vm).await;
 }

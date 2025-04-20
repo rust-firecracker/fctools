@@ -16,8 +16,8 @@ use crate::runtime::RuntimeChild;
 use crate::runtime::Runtime;
 
 /// A [ProcessSpawner] concerns itself with spawning a rootful or rootless process from the given binary path and arguments.
-/// The command delegated to the spawner is either a "firecracker" or "jailer" invocation for starting the respective
-/// processes, or an elevated "chown"/"mkdir" invocation from the executors.
+/// The command delegated to the spawner is either a "firecracker", "jailer" or "snapshot-editor" invocation for starting
+/// the respective processes, or an elevated "chown"/"mkdir" invocation from the VMM executors.
 ///
 /// Implementations of a [ProcessSpawner] are cloned highly frequently by fctools, so the [Clone] implementation must be fast
 /// and cheap. If some inner state is stored, storing an [Arc](std::sync::Arc) of it internally is recommended to avoid

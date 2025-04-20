@@ -121,17 +121,17 @@ mod test_framework;
 #[test]
 fn snapshot_editor_can_rebase_memory() {
     VmBuilder::new().run(|mut vm| async move {
-        vm.api_pause().await.unwrap();
+        vm.pause().await.unwrap();
         let create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
-        let base_snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
-        vm.api_resume().await.unwrap();
-        vm.api_pause().await.unwrap();
+        let base_snapshot = vm.create_snapshot(create_snapshot).await.unwrap();
+        vm.resume().await.unwrap();
+        vm.pause().await.unwrap();
 
         let mut diff_create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
         diff_create_snapshot.snapshot_type = Some(SnapshotType::Diff);
-        let diff_snapshot = vm.api_create_snapshot(diff_create_snapshot).await.unwrap();
+        let diff_snapshot = vm.create_snapshot(diff_create_snapshot).await.unwrap();
 
-        vm.api_resume().await.unwrap();
+        vm.resume().await.unwrap();
 
         get_real_firecracker_installation()
             .snapshot_editor(TokioRuntime)
@@ -146,10 +146,10 @@ fn snapshot_editor_can_rebase_memory() {
 #[test]
 fn snapshot_editor_can_get_snapshot_version() {
     VmBuilder::new().run(|mut vm| async move {
-        vm.api_pause().await.unwrap();
+        vm.pause().await.unwrap();
         let create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
-        let snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
-        vm.api_resume().await.unwrap();
+        let snapshot = vm.create_snapshot(create_snapshot).await.unwrap();
+        vm.resume().await.unwrap();
 
         let version = get_real_firecracker_installation()
             .snapshot_editor(TokioRuntime)
@@ -166,10 +166,10 @@ fn snapshot_editor_can_get_snapshot_version() {
 #[test]
 fn snapshot_editor_can_get_snapshot_vcpu_states() {
     VmBuilder::new().run(|mut vm| async move {
-        vm.api_pause().await.unwrap();
+        vm.pause().await.unwrap();
         let create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
-        let snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
-        vm.api_resume().await.unwrap();
+        let snapshot = vm.create_snapshot(create_snapshot).await.unwrap();
+        vm.resume().await.unwrap();
 
         let data = get_real_firecracker_installation()
             .snapshot_editor(TokioRuntime)
@@ -186,10 +186,10 @@ fn snapshot_editor_can_get_snapshot_vcpu_states() {
 #[test]
 fn snapshot_editor_can_get_snapshot_vm_state() {
     VmBuilder::new().run(|mut vm| async move {
-        vm.api_pause().await.unwrap();
+        vm.pause().await.unwrap();
         let create_snapshot = get_create_snapshot(vm.get_resource_system_mut());
-        let snapshot = vm.api_create_snapshot(create_snapshot).await.unwrap();
-        vm.api_resume().await.unwrap();
+        let snapshot = vm.create_snapshot(create_snapshot).await.unwrap();
+        vm.resume().await.unwrap();
 
         let data = get_real_firecracker_installation()
             .snapshot_editor(TokioRuntime)

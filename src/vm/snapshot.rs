@@ -19,11 +19,15 @@ use super::{
     Vm, VmError,
 };
 
-/// The data associated with a snapshot created for a [Vm](crate::vm::Vm).
+/// The data associated with a snapshot created for a [Vm].
 #[derive(Debug, Clone)]
 pub struct VmSnapshot {
+    /// The owned [PathBuf] pointing to the effective location of the snapshot file.
     pub snapshot_path: PathBuf,
+    /// The owned [PathBuf] pointing to the effective location of the memory file.
     pub mem_file_path: PathBuf,
+    /// A clone of the original [Vm]'s [VmConfigurationData], necessary to subsequently create
+    /// a new [Vm].
     pub configuration_data: VmConfigurationData,
 }
 
