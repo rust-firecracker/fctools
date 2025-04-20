@@ -40,7 +40,7 @@ pub enum VmmExecutorError {
     JailRenamerFailed(JailRenamerError),
     ProcessExitedWithIncorrectStatus(ExitStatus),
     ParseIntError(ParseIntError),
-    Other(Box<dyn std::error::Error + Send>),
+    Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl std::error::Error for VmmExecutorError {}

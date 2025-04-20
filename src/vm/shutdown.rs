@@ -140,7 +140,7 @@ pub struct VmShutdownOutcome {
     pub graceful: bool,
     /// The index of the action that performed the shutdown relative to the sequence of actions.
     pub index: usize,
-    /// The recording of all errors that occurred prior to the successful shutdown.
+    /// The sequential recording of all errors that occurred prior to the successful shutdown.
     pub errors: Vec<VmShutdownError>,
 }
 

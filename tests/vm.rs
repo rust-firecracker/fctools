@@ -66,11 +66,11 @@ fn vm_shutdown_test(method: VmShutdownMethod) {
         let method = method.clone();
         async move {
             let outcome = vm
-                .shutdown(VmShutdownAction {
+                .shutdown([VmShutdownAction {
                     method: method.clone(),
                     timeout: None,
                     graceful: true,
-                })
+                }])
                 .await
                 .unwrap();
             assert!(method != VmShutdownMethod::CtrlAltDel || outcome.graceful);

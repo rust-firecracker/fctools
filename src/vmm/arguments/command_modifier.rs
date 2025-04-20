@@ -1,6 +1,3 @@
-#[allow(unused)]
-use super::{jailer::JailerArguments, VmmArguments};
-
 use std::{fmt::Debug, path::PathBuf};
 
 /// A [CommandModifier] is a simple transformation that can be applied to a [Vec<String>] of arguments
@@ -22,6 +19,7 @@ pub struct NetnsCommandModifier {
 }
 
 impl NetnsCommandModifier {
+    /// Create a new [NetnsCommandModifier] from a given name of a network namespace.
     pub fn new<N: Into<String>>(netns_name: N) -> Self {
         Self {
             netns_name: netns_name.into(),
@@ -29,6 +27,7 @@ impl NetnsCommandModifier {
         }
     }
 
+    /// Override the path to iproute2 used by this [NetnsCommandModifier]. The default one is "/usr/sbin/ip".
     pub fn iproute2_path<P: Into<PathBuf>>(mut self, iproute2_path: P) -> Self {
         self.iproute2_path = iproute2_path.into();
         self

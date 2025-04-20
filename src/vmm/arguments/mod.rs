@@ -205,11 +205,17 @@ pub enum VmmApiSocket {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "vm", derive(serde::Serialize, serde::Deserialize))]
 pub enum VmmLogLevel {
+    /// No logging.
     Off,
+    /// Logging all messages.
     Trace,
+    /// Logging debug and higher-priority messages.
     Debug,
+    /// Logging info and higher-priority messages.
     Info,
+    /// Logging warnings and higher-priority messages.
     Warn,
+    /// Logging errors and higher-priority messages.
     Error,
 }
 
