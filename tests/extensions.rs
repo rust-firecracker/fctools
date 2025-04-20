@@ -4,7 +4,7 @@ use bytes::Bytes;
 use codegen::{GuestAgentServiceClient, Ping, Pong};
 use fctools::{
     extension::{
-        grpc_vsock::VsockGrpcExt, http_vsock::VmVsockHttp, metrics::spawn_metrics_task,
+        grpc_vsock::VmVsockGrpc, http_vsock::VmVsockHttp, metrics::spawn_metrics_task,
         snapshot_editor::SnapshotEditorExt,
     },
     runtime::{tokio::TokioRuntime, RuntimeTask},

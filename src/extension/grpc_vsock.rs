@@ -37,7 +37,7 @@ impl std::fmt::Display for VmVsockGrpcError {
 /// the Firecracker vsock device. The established tonic [Channel]-s can be used with codegen or any other type
 /// of tonic client. Only unencrypted connections are supported, as, due to the extensive security already
 /// provided by Firecracker's VMM when performing vsock connections, TLS encryption is largely redundant.
-pub trait VsockGrpcExt {
+pub trait VmVsockGrpc {
     /// Connect to a guest port over gRPC eagerly, i.e. by establishing the connection right away.
     /// configure_endpoint can be used as a function to customize Endpoint options via its builder.
     fn connect_to_grpc_over_vsock<C: FnOnce(Endpoint) -> Endpoint>(
@@ -56,7 +56,7 @@ pub trait VsockGrpcExt {
     ) -> Result<Channel, VmVsockGrpcError>;
 }
 
-impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockGrpcExt for Vm<E, S, R> {
+impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmVsockGrpc for Vm<E, S, R> {
     fn connect_to_grpc_over_vsock<C: FnOnce(Endpoint) -> Endpoint>(
         &self,
         guest_port: u32,
