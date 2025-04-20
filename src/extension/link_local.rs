@@ -18,10 +18,16 @@ const LINK_LOCAL_IP_AMOUNT: u32 = 65536;
 /// An error that can be returned by operations with a LinkLocalSubnet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkLocalSubnetError {
+    /// The provided [Ipv4Inet] is not within a link-local IPv4 subnet.
     NotLinkLocal,
+    /// The provided network length does not fit within a link-local IPv4 subnet.
     NetworkLengthDoesNotFit,
+    /// The provided subnet index does not fit within a link-local IPv4 subnet.
     SubnetIndexDoesNotFit,
+    /// The provided IP index does not fit within a link-local IPv4 subnet.
     IpIndexDoesNotFit,
+    /// An unexpected integer overflow occurred while performing checked
+    /// integer operations internally.
     UnexpectedOverflow,
 }
 
@@ -107,10 +113,12 @@ impl LinkLocalSubnet {
         }
     }
 
+    /// Get the subnet index of this link-local IPv4 subnet.
     pub const fn subnet_index(&self) -> u16 {
         self.subnet_index
     }
 
+    /// Get the network length of this link-local IPv4 subnet.
     pub const fn network_length(&self) -> u8 {
         self.network_length
     }

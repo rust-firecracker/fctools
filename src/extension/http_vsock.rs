@@ -15,7 +15,6 @@ use crate::{
 
 /// An error that can be emitted by the HTTP-over-vsock extension.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum VmVsockHttpError {
     /// The vsock device is not configured for the VM.
     VsockNotConfigured,
@@ -45,7 +44,6 @@ impl std::fmt::Display for VmVsockHttpError {
 
 /// An error that can be emitted by the [VmVsockHttpClient] HTTP client.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum VmVsockHttpClientError {
     /// The provided HTTP URI was invalid in accordance with a provided [http::uri::InvalidUri] error.
     InvalidUri { uri: String, error: http::uri::InvalidUri },

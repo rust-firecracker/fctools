@@ -7,71 +7,76 @@ use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vm::Vm, vmm::exec
 
 /// An error emitted by the gRPC-over-vsock extension.
 #[derive(Debug)]
-pub enum VsockGrpcError {
+pub enum VmVsockGrpcError {
+    /// The virtio-vsock device is not configured for the VM.
     VsockNotConfigured,
+    /// The provided guest port was rejected as a gRPC address by [tonic].
     ProvidedAddressRejected(tonic::transport::Error),
-    ConnectionFailed(tonic::transport::Error),
+    /// An I/O error occurred while establishing a gRPC connection through [tonic].
+    ConnectionError(tonic::transport::Error),
+    /// The vsock Unix socket resource was uninitialized.
     VsockResourceUninitialized,
 }
 
-impl std::error::Error for VsockGrpcError {}
+impl std::error::Error for VmVsockGrpcError {}
 
-impl std::fmt::Display for VsockGrpcError {
+impl std::fmt::Display for VmVsockGrpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VsockGrpcError::VsockNotConfigured => write!(f, "A vsock device was not configured for this VM"),
-            VsockGrpcError::ProvidedAddressRejected(err) => {
+            VmVsockGrpcError::VsockNotConfigured => write!(f, "A vsock device was not configured for this VM"),
+            VmVsockGrpcError::ProvidedAddressRejected(err) => {
                 write!(f, "The provided address was rejected as an Endpoint: {err}")
             }
-            VsockGrpcError::ConnectionFailed(err) => write!(f, "The gRPC connection failed: {err}"),
-            VsockGrpcError::VsockResourceUninitialized => write!(f, "The vsock resource was uninitialized"),
+            VmVsockGrpcError::ConnectionError(err) => write!(f, "The gRPC connection failed: {err}"),
+            VmVsockGrpcError::VsockResourceUninitialized => write!(f, "The vsock resource was uninitialized"),
         }
     }
 }
 
 /// An extension that allows connecting to guest applications that expose a gRPC server being tunneled over
 /// the Firecracker vsock device. The established tonic [Channel]-s can be used with codegen or any other type
-/// of tonic client.
+/// of tonic client. Only unencrypted connections are supported, as, due to the extensive security already
+/// provided by Firecracker's VMM when performing vsock connections, TLS encryption is largely redundant.
 pub trait VsockGrpcExt {
     /// Connect to a guest port over gRPC eagerly, i.e. by establishing the connection right away.
     /// configure_endpoint can be used as a function to customize Endpoint options via its builder.
-    fn vsock_connect_over_grpc<C: FnOnce(Endpoint) -> Endpoint>(
+    fn connect_to_grpc_over_vsock<C: FnOnce(Endpoint) -> Endpoint>(
         &self,
         guest_port: u32,
         configure_endpoint: C,
-    ) -> impl Future<Output = Result<Channel, VsockGrpcError>> + Send;
+    ) -> impl Future<Output = Result<Channel, VmVsockGrpcError>> + Send;
 
     /// Connect to a guest port over gRPC lazily, i.e. not actually establishing the connection until
     /// first usage of the Channel.
     /// configure_endpoint can be used as a function to customize Endpoint options via its builder.
-    fn vsock_lazily_connect_over_grpc<C: FnOnce(Endpoint) -> Endpoint>(
+    fn connect_lazily_to_grpc_over_vsock<C: FnOnce(Endpoint) -> Endpoint>(
         &self,
         guest_port: u32,
         configure_endpoint: C,
-    ) -> Result<Channel, VsockGrpcError>;
+    ) -> Result<Channel, VmVsockGrpcError>;
 }
 
 impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VsockGrpcExt for Vm<E, S, R> {
-    fn vsock_connect_over_grpc<C: FnOnce(Endpoint) -> Endpoint>(
+    fn connect_to_grpc_over_vsock<C: FnOnce(Endpoint) -> Endpoint>(
         &self,
         guest_port: u32,
         configure_endpoint: C,
-    ) -> impl Future<Output = Result<Channel, VsockGrpcError>> + Send {
+    ) -> impl Future<Output = Result<Channel, VmVsockGrpcError>> + Send {
         let result = create_endpoint_and_service(self, guest_port, configure_endpoint);
         async move {
             let (endpoint, service) = result?;
             endpoint
                 .connect_with_connector(service)
                 .await
-                .map_err(VsockGrpcError::ConnectionFailed)
+                .map_err(VmVsockGrpcError::ConnectionError)
         }
     }
 
-    fn vsock_lazily_connect_over_grpc<C: FnOnce(Endpoint) -> Endpoint>(
+    fn connect_lazily_to_grpc_over_vsock<C: FnOnce(Endpoint) -> Endpoint>(
         &self,
         guest_port: u32,
         configure_endpoint: C,
-    ) -> Result<Channel, VsockGrpcError> {
+    ) -> Result<Channel, VmVsockGrpcError> {
         let (endpoint, service) = create_endpoint_and_service(self, guest_port, configure_endpoint)?;
         Ok(endpoint.connect_with_connector_lazy(service))
     }
@@ -82,19 +87,19 @@ fn create_endpoint_and_service<E: VmmExecutor, S: ProcessSpawner, R: Runtime, C:
     vm: &Vm<E, S, R>,
     guest_port: u32,
     configure_endpoint: C,
-) -> Result<(Endpoint, FirecrackerTowerService<R::SocketBackend>), VsockGrpcError> {
+) -> Result<(Endpoint, FirecrackerTowerService<R::SocketBackend>), VmVsockGrpcError> {
     let uds_path = vm
         .get_configuration()
         .data()
         .vsock_device
         .as_ref()
-        .ok_or(VsockGrpcError::VsockNotConfigured)?
+        .ok_or(VmVsockGrpcError::VsockNotConfigured)?
         .uds
         .get_effective_path()
-        .ok_or(VsockGrpcError::VsockResourceUninitialized)?;
+        .ok_or(VmVsockGrpcError::VsockResourceUninitialized)?;
 
     let mut endpoint =
-        Endpoint::try_from(format!("http://[::1]:{guest_port}")).map_err(VsockGrpcError::ProvidedAddressRejected)?;
+        Endpoint::try_from(format!("http://[::1]:{guest_port}")).map_err(VmVsockGrpcError::ProvidedAddressRejected)?;
     endpoint = configure_endpoint(endpoint);
 
     let service = FirecrackerTowerService {

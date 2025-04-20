@@ -306,7 +306,7 @@ fn vsock_can_make_pooled_http_connection() {
 fn vsock_can_perform_unary_grpc_request() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
         let channel = vm
-            .vsock_connect_over_grpc(VSOCK_GRPC_GUEST_PORT, |endpoint| endpoint)
+            .connect_to_grpc_over_vsock(VSOCK_GRPC_GUEST_PORT, |endpoint| endpoint)
             .await
             .unwrap();
         let mut client = GuestAgentServiceClient::new(channel);
@@ -319,7 +319,10 @@ fn vsock_can_perform_unary_grpc_request() {
 #[test]
 fn vsock_can_perform_client_streaming_grpc_request() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
-        let channel = vm.vsock_connect_over_grpc(VSOCK_GRPC_GUEST_PORT, |e| e).await.unwrap();
+        let channel = vm
+            .connect_to_grpc_over_vsock(VSOCK_GRPC_GUEST_PORT, |e| e)
+            .await
+            .unwrap();
         let mut client = GuestAgentServiceClient::new(channel);
         let stream = futures_util::stream::repeat(Ping { number: 2 }).take(4);
         let response = client.client_streaming(stream).await.unwrap();
@@ -331,8 +334,11 @@ fn vsock_can_perform_client_streaming_grpc_request() {
 #[test]
 fn vsock_can_perform_server_streaming_grpc_request() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
-        let mut client =
-            GuestAgentServiceClient::new(vm.vsock_connect_over_grpc(VSOCK_GRPC_GUEST_PORT, |e| e).await.unwrap());
+        let mut client = GuestAgentServiceClient::new(
+            vm.connect_to_grpc_over_vsock(VSOCK_GRPC_GUEST_PORT, |e| e)
+                .await
+                .unwrap(),
+        );
         let mut streaming = client.server_streaming(Ping { number: 5 }).await.unwrap().into_inner();
         let mut count = 0;
 
@@ -349,8 +355,11 @@ fn vsock_can_perform_server_streaming_grpc_request() {
 #[test]
 fn vsock_can_perform_duplex_streaming_grpc_request() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
-        let mut client =
-            GuestAgentServiceClient::new(vm.vsock_connect_over_grpc(VSOCK_GRPC_GUEST_PORT, |e| e).await.unwrap());
+        let mut client = GuestAgentServiceClient::new(
+            vm.connect_to_grpc_over_vsock(VSOCK_GRPC_GUEST_PORT, |e| e)
+                .await
+                .unwrap(),
+        );
         let request_stream =
             futures_util::stream::iter(vec![Ping { number: 1 }, Ping { number: 2 }, Ping { number: 3 }]);
         let mut response_stream = client.duplex_streaming(request_stream).await.unwrap().into_inner();
@@ -371,7 +380,9 @@ fn vsock_can_perform_duplex_streaming_grpc_request() {
 #[test]
 fn vsock_can_connect_to_grpc_lazily() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
-        let channel = vm.vsock_lazily_connect_over_grpc(VSOCK_GRPC_GUEST_PORT, |e| e).unwrap();
+        let channel = vm
+            .connect_lazily_to_grpc_over_vsock(VSOCK_GRPC_GUEST_PORT, |e| e)
+            .unwrap();
         let mut client = GuestAgentServiceClient::new(channel);
         let response = client.unary(Ping { number: 5 }).await.unwrap();
         assert_eq!(response.into_inner(), Pong { number: 25 });
