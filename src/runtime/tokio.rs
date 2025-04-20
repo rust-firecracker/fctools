@@ -19,6 +19,8 @@ use tokio_util::compat::{Compat, TokioAsyncReadCompatExt, TokioAsyncWriteCompatE
 
 use super::{util::chown_all_blocking, Runtime, RuntimeAsyncFd, RuntimeChild, RuntimeTask};
 
+/// The [Runtime] implementation backed by the [tokio] crate. Since [tokio] heavily utilizes thread-local
+/// storage, this struct is zero-sized and doesn't store anything.
 #[derive(Clone)]
 pub struct TokioRuntime;
 
@@ -97,7 +99,7 @@ impl Runtime for TokioRuntime {
         let path = path.to_owned();
         match tokio::task::spawn_blocking(move || chown_all_blocking(&path, uid, gid)).await {
             Ok(result) => result,
-            Err(_) => Err(std::io::Error::other("chownr_impl blocking task panicked")),
+            Err(_) => Err(std::io::Error::other("chown_all_blocking blocking task panicked")),
         }
     }
 
@@ -153,6 +155,7 @@ impl Runtime for TokioRuntime {
     }
 }
 
+/// The [RuntimeTask] implementation for the [TokioRuntime].
 pub struct TokioRuntimeTask<O: Send + 'static>(JoinHandle<O>);
 
 impl<O: Send + 'static> RuntimeTask<O> for TokioRuntimeTask<O> {
@@ -173,6 +176,7 @@ impl<O: Send + 'static> RuntimeTask<O> for TokioRuntimeTask<O> {
     }
 }
 
+/// The [RuntimeAsyncFd] implementation for the [TokioRuntime].
 pub struct TokioRuntimeAsyncFd(AsyncFd<OwnedFd>);
 
 impl RuntimeAsyncFd for TokioRuntimeAsyncFd {
@@ -183,6 +187,7 @@ impl RuntimeAsyncFd for TokioRuntimeAsyncFd {
     }
 }
 
+/// The [RuntimeChild] implementation for the [TokioRuntime].
 #[derive(Debug)]
 pub struct TokioRuntimeChild {
     child: Child,
@@ -210,15 +215,15 @@ impl RuntimeChild for TokioRuntimeChild {
         self.child.start_kill()
     }
 
-    fn stdout(&mut self) -> &mut Option<Self::Stdout> {
+    fn get_stdout(&mut self) -> &mut Option<Self::Stdout> {
         &mut self.stdout
     }
 
-    fn stdin(&mut self) -> &mut Option<Self::Stdin> {
+    fn get_stdin(&mut self) -> &mut Option<Self::Stdin> {
         &mut self.stdin
     }
 
-    fn stderr(&mut self) -> &mut Option<Self::Stderr> {
+    fn get_stderr(&mut self) -> &mut Option<Self::Stderr> {
         &mut self.stderr
     }
 

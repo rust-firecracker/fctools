@@ -122,7 +122,7 @@ impl ProcessSpawner for SuProcessSpawner {
         )?;
 
         let stdin = process
-            .stdin()
+            .get_stdin()
             .as_mut()
             .ok_or_else(|| std::io::Error::other("Stdin not received"))?;
         stdin.write_all(format!("{}\n", self.0.password).as_bytes()).await?;
@@ -185,7 +185,7 @@ impl ProcessSpawner for SudoProcessSpawner {
             Stdio::piped(),
         )?;
         let stdin_ref = child
-            .stdin()
+            .get_stdin()
             .as_mut()
             .ok_or_else(|| std::io::Error::other("Stdin not received"))?;
 

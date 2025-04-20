@@ -24,14 +24,18 @@ enum MaybeStaticExecutor {
     Static(&'static async_executor::StaticExecutor),
 }
 
+/// The [Runtime] implementation backed by the "async-*" family of crates.
 #[derive(Clone)]
 pub struct SmolRuntime(MaybeStaticExecutor);
 
 impl SmolRuntime {
+    /// Create a [SmolRuntime] from a potentially [Arc]ed statically lifetimed [async_executor::Executor],
+    /// not taking advantage of [async_executor::StaticExecutor] optimizations.
     pub fn with_executor<E: Into<Arc<async_executor::Executor<'static>>>>(executor: E) -> Self {
         Self(MaybeStaticExecutor::NonStatic(executor.into()))
     }
 
+    /// Create a [SmolRuntime] from a static reference to an optimized [async_executor::StaticExecutor].
     pub fn with_static_executor(executor: &'static async_executor::StaticExecutor) -> Self {
         Self(MaybeStaticExecutor::Static(executor))
     }
@@ -172,6 +176,7 @@ impl Runtime for SmolRuntime {
     }
 }
 
+/// The [RuntimeTask] implementation for the [SmolRuntime].
 pub struct SmolRuntimeTask<O: Send + 'static>(Option<async_task::Task<O>>);
 
 impl<O: Send + 'static> RuntimeTask<O> for SmolRuntimeTask<O> {
@@ -195,8 +200,10 @@ impl<O: Send + 'static> Drop for SmolRuntimeTask<O> {
     }
 }
 
+/// The timeout error yielded by the [SmolRuntime].
 #[derive(Debug)]
 pub struct TimeoutError {
+    /// The [Instant] at which the timeout occurred.
     pub instant: Instant,
 }
 
@@ -235,6 +242,7 @@ impl<F: Future> Future for TimeoutFuture<F> {
     }
 }
 
+/// The [RuntimeAsyncFd] implementation for the [SmolRuntime].
 pub struct SmolRuntimeAsyncFd(async_io::Async<OwnedFd>);
 
 impl RuntimeAsyncFd for SmolRuntimeAsyncFd {
@@ -243,6 +251,7 @@ impl RuntimeAsyncFd for SmolRuntimeAsyncFd {
     }
 }
 
+/// The [RuntimeChild] implementation for the [SmolRuntime].
 #[derive(Debug)]
 pub struct SmolRuntimeChild {
     child: Child,
@@ -270,15 +279,15 @@ impl RuntimeChild for SmolRuntimeChild {
         self.child.kill()
     }
 
-    fn stdout(&mut self) -> &mut Option<Self::Stdout> {
+    fn get_stdout(&mut self) -> &mut Option<Self::Stdout> {
         &mut self.stdout
     }
 
-    fn stderr(&mut self) -> &mut Option<Self::Stderr> {
+    fn get_stderr(&mut self) -> &mut Option<Self::Stderr> {
         &mut self.stderr
     }
 
-    fn stdin(&mut self) -> &mut Option<Self::Stdin> {
+    fn get_stdin(&mut self) -> &mut Option<Self::Stdin> {
         &mut self.stdin
     }
 

@@ -31,9 +31,12 @@ pub struct SnapshotEditor<'p, R: Runtime> {
 /// An error that can be emitted by a "snapshot-editor" invocation.
 #[derive(Debug)]
 pub enum SnapshotEditorError {
-    ProcessSpawnFailed(std::io::Error),
-    ProcessWaitFailed(std::io::Error),
+    /// Running the "snapshot-editor" process yielded an I/O error.
+    ProcessRunError(std::io::Error),
+    /// The "snapshot-editor" process exited with a non-zero exit status.
     ExitedWithNonZeroStatus(ExitStatus),
+    /// The provided paths were not in UTF-8 format. Non-UTF-8 paths are currently
+    /// not supported by the extension.
     NonUTF8Path,
 }
 
@@ -42,11 +45,8 @@ impl std::error::Error for SnapshotEditorError {}
 impl std::fmt::Display for SnapshotEditorError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SnapshotEditorError::ProcessSpawnFailed(err) => {
-                write!(f, "Spawning the snapshot-editor-process failed: {err}")
-            }
-            SnapshotEditorError::ProcessWaitFailed(err) => {
-                write!(f, "Waiting on the exit of the snapshot-editor process failed: {err}")
+            SnapshotEditorError::ProcessRunError(err) => {
+                write!(f, "Running the snapshot-editor-process failed: {err}")
             }
             SnapshotEditorError::ExitedWithNonZeroStatus(exit_status) => write!(
                 f,
@@ -152,7 +152,7 @@ impl<'p, R: Runtime> SnapshotEditor<'p, R> {
             .runtime
             .run_child(command)
             .await
-            .map_err(SnapshotEditorError::ProcessSpawnFailed)?;
+            .map_err(SnapshotEditorError::ProcessRunError)?;
 
         if !output.status.success() {
             return Err(SnapshotEditorError::ExitedWithNonZeroStatus(output.status));

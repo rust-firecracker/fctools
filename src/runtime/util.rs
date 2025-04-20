@@ -1,3 +1,5 @@
+//! Extra utilities for runtime implementors.
+
 use std::{future::Future, path::Path};
 
 use super::Runtime;
