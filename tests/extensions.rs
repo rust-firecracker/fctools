@@ -283,20 +283,20 @@ const VSOCK_HTTP_GUEST_PORT: u32 = 8000;
 const VSOCK_GRPC_GUEST_PORT: u32 = 9000;
 
 #[test]
-fn vsock_can_make_plain_http_connection() {
+fn vsock_can_use_http_client_backed_by_connection() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
-        let mut connection = vm.connect_to_http_over_vsock(VSOCK_HTTP_GUEST_PORT).await.unwrap();
-        let response = connection.send_request(make_vsock_req()).await.unwrap();
+        let client = vm.connect_to_http_over_vsock(VSOCK_HTTP_GUEST_PORT).await.unwrap();
+        let response = client.send_request(make_vsock_req()).await.unwrap();
         assert_vsock_resp(response).await;
         shutdown_test_vm(&mut vm).await;
     });
 }
 
 #[test]
-fn vsock_can_make_pooled_http_connection() {
+fn vsock_can_use_http_client_backed_by_connection_pool() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
-        let connection_pool = vm.create_http_over_vsock_client(VSOCK_HTTP_GUEST_PORT).unwrap();
-        let response = connection_pool.send_request("/ping", make_vsock_req()).await.unwrap();
+        let client = vm.connect_to_http_over_vsock_via_pool(VSOCK_HTTP_GUEST_PORT).unwrap();
+        let response = client.send_request(make_vsock_req()).await.unwrap();
         assert_vsock_resp(response).await;
         shutdown_test_vm(&mut vm).await;
     });
