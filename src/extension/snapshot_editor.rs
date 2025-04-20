@@ -1,6 +1,7 @@
 use std::{
+    ffi::OsString,
     path::Path,
-    process::{Command, ExitStatus, Output, Stdio},
+    process::{ExitStatus, Output},
 };
 
 use crate::{runtime::Runtime, vmm::installation::VmmInstallation};
@@ -142,15 +143,14 @@ impl<'p, R: Runtime> SnapshotEditor<'p, R> {
     }
 
     async fn run(&self, args: &[&str]) -> Result<Output, SnapshotEditorError> {
-        let mut command = Command::new(self.path);
-        command.args(args);
-        command.stdout(Stdio::piped());
-        command.stderr(Stdio::null());
-        command.stdin(Stdio::null());
-
         let output = self
             .runtime
-            .run_child(command)
+            .run_process(
+                self.path.as_os_str(),
+                args.iter().map(OsString::from).collect(),
+                true,
+                false,
+            )
             .await
             .map_err(SnapshotEditorError::ProcessRunError)?;
 

@@ -1,11 +1,12 @@
 //! A runtime implementation using Tokio's different features for all of its components.
 
 use std::{
+    ffi::{OsStr, OsString},
     future::Future,
     os::fd::OwnedFd,
     path::Path,
     pin::Pin,
-    process::Stdio,
+    process::{Output, Stdio},
     task::{Context, Poll},
     time::Duration,
 };
@@ -17,7 +18,10 @@ use tokio::{
 };
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-use super::{util::chown_all_blocking, Runtime, RuntimeAsyncFd, RuntimeChild, RuntimeTask};
+use super::{
+    util::{chown_all_blocking, get_stdio_from_piped},
+    Runtime, RuntimeAsyncFd, RuntimeChild, RuntimeTask,
+};
 
 /// The [Runtime] implementation backed by the [tokio] crate. Since [tokio] heavily utilizes thread-local
 /// storage, this struct is zero-sized and doesn't store anything.
@@ -122,17 +126,19 @@ impl Runtime for TokioRuntime {
         Ok(TokioRuntimeAsyncFd(AsyncFd::new(fd)?))
     }
 
-    fn spawn_child(
+    fn spawn_process(
         &self,
-        command: std::process::Command,
-        stdout: Stdio,
-        stderr: Stdio,
-        stdin: Stdio,
+        program: &OsStr,
+        args: Vec<OsString>,
+        stdout: bool,
+        stderr: bool,
+        stdin: bool,
     ) -> Result<Self::Child, std::io::Error> {
-        let mut child = tokio::process::Command::from(command)
-            .stdout(stdout)
-            .stderr(stderr)
-            .stdin(stdin)
+        let mut child = tokio::process::Command::new(program)
+            .args(args)
+            .stdout(get_stdio_from_piped(stdout))
+            .stderr(get_stdio_from_piped(stderr))
+            .stdin(get_stdio_from_piped(stdin))
             .spawn()?;
 
         let stdout = child.stdout.take().map(|stdout| stdout.compat());
@@ -147,11 +153,19 @@ impl Runtime for TokioRuntime {
         })
     }
 
-    fn run_child(
+    fn run_process(
         &self,
-        command: std::process::Command,
-    ) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send {
-        tokio::process::Command::from(command).output()
+        program: &OsStr,
+        args: Vec<OsString>,
+        stdout: bool,
+        stderr: bool,
+    ) -> impl Future<Output = Result<Output, std::io::Error>> + Send {
+        tokio::process::Command::new(program)
+            .args(args)
+            .stdout(get_stdio_from_piped(stdout))
+            .stderr(get_stdio_from_piped(stderr))
+            .stdin(Stdio::null())
+            .output()
     }
 }
 

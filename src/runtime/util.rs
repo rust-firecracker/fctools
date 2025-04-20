@@ -1,6 +1,6 @@
 //! Extra utilities for runtime implementors.
 
-use std::{future::Future, path::Path};
+use std::{future::Future, path::Path, process::Stdio};
 
 use super::Runtime;
 
@@ -40,5 +40,14 @@ where
 {
     fn execute(&self, future: F) {
         self.0.spawn_task(future);
+    }
+}
+
+/// Inlined helper returning nulled [Stdio] if piped is false, piped [Stdio] otherwise.
+#[inline(always)]
+pub fn get_stdio_from_piped(piped: bool) -> Stdio {
+    match piped {
+        true => Stdio::piped(),
+        false => Stdio::null(),
     }
 }

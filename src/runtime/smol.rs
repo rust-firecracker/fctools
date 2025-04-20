@@ -2,6 +2,7 @@
 //! for its components.
 
 use std::{
+    ffi::{OsStr, OsString},
     future::Future,
     os::unix::prelude::OwnedFd,
     path::Path,
@@ -15,6 +16,8 @@ use std::{
 use async_io::Timer;
 use async_process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use pin_project_lite::pin_project;
+
+use crate::runtime::util::get_stdio_from_piped;
 
 use super::{util::chown_all_blocking, Runtime, RuntimeAsyncFd, RuntimeChild, RuntimeTask};
 
@@ -144,35 +147,37 @@ impl Runtime for SmolRuntime {
         Ok(SmolRuntimeAsyncFd(async_io::Async::new(fd)?))
     }
 
-    fn spawn_child(
+    fn spawn_process(
         &self,
-        command: std::process::Command,
-        stdout: Stdio,
-        stderr: Stdio,
-        stdin: Stdio,
+        program: &OsStr,
+        args: Vec<OsString>,
+        stdout: bool,
+        stderr: bool,
+        stdin: bool,
     ) -> Result<Self::Child, std::io::Error> {
-        let mut child = async_process::Command::from(command)
-            .stdout(stdout)
-            .stderr(stderr)
-            .stdin(stdin)
-            .spawn()?;
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        let stdin = child.stdin.take();
+        let mut command = async_process::Command::new(program);
+        command
+            .args(args)
+            .stdout(get_stdio_from_piped(stdout))
+            .stderr(get_stdio_from_piped(stderr))
+            .stdin(get_stdio_from_piped(stdin));
 
-        Ok(SmolRuntimeChild {
-            child,
-            stdout,
-            stderr,
-            stdin,
-        })
+        Ok(SmolRuntimeChild(command.spawn()?))
     }
 
-    fn run_child(
+    fn run_process(
         &self,
-        command: std::process::Command,
+        program: &OsStr,
+        args: Vec<OsString>,
+        stdout: bool,
+        stderr: bool,
     ) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send {
-        async_process::Command::from(command).output()
+        async_process::Command::new(program)
+            .args(args)
+            .stdout(get_stdio_from_piped(stdout))
+            .stderr(get_stdio_from_piped(stderr))
+            .stdin(Stdio::null())
+            .output()
     }
 }
 
@@ -253,12 +258,7 @@ impl RuntimeAsyncFd for SmolRuntimeAsyncFd {
 
 /// The [RuntimeChild] implementation for the [SmolRuntime].
 #[derive(Debug)]
-pub struct SmolRuntimeChild {
-    child: Child,
-    stdout: Option<ChildStdout>,
-    stderr: Option<ChildStderr>,
-    stdin: Option<ChildStdin>,
-}
+pub struct SmolRuntimeChild(Child);
 
 impl RuntimeChild for SmolRuntimeChild {
     type Stdout = ChildStdout;
@@ -268,38 +268,38 @@ impl RuntimeChild for SmolRuntimeChild {
     type Stdin = ChildStdin;
 
     fn try_wait(&mut self) -> Result<Option<ExitStatus>, std::io::Error> {
-        self.child.try_status()
+        self.0.try_status()
     }
 
     fn wait(&mut self) -> impl Future<Output = Result<ExitStatus, std::io::Error>> + Send {
-        self.child.status()
+        self.0.status()
     }
 
     fn kill(&mut self) -> Result<(), std::io::Error> {
-        self.child.kill()
+        self.0.kill()
     }
 
     fn get_stdout(&mut self) -> &mut Option<Self::Stdout> {
-        &mut self.stdout
+        &mut self.0.stdout
     }
 
     fn get_stderr(&mut self) -> &mut Option<Self::Stderr> {
-        &mut self.stderr
+        &mut self.0.stderr
     }
 
     fn get_stdin(&mut self) -> &mut Option<Self::Stdin> {
-        &mut self.stdin
+        &mut self.0.stdin
     }
 
     fn take_stdout(&mut self) -> Option<Self::Stdout> {
-        self.stdout.take()
+        self.0.stdout.take()
     }
 
     fn take_stderr(&mut self) -> Option<Self::Stderr> {
-        self.stderr.take()
+        self.0.stderr.take()
     }
 
     fn take_stdin(&mut self) -> Option<Self::Stdin> {
-        self.stdin.take()
+        self.0.stdin.take()
     }
 }

@@ -13,9 +13,6 @@ use std::{
 #[cfg(feature = "elevation-process-spawners")]
 use crate::runtime::RuntimeChild;
 
-#[cfg(any(feature = "direct-process-spawner", feature = "elevation-process-spawners"))]
-use std::process::{Command, Stdio};
-
 use crate::runtime::Runtime;
 
 /// A [ProcessSpawner] concerns itself with spawning a rootful or rootless process from the given binary path and arguments.
@@ -26,7 +23,7 @@ use crate::runtime::Runtime;
 /// and cheap. If some inner state is stored, storing an [Arc](std::sync::Arc) of it internally is recommended to avoid
 /// expensive copying operations.
 pub trait ProcessSpawner: Clone + Send + Sync + 'static {
-    /// Spawn the process with the given binary path and arguments.
+    /// Spawn the process with the given binary path and arguments, optionally nulling as many of its pipes as feasible.
     fn spawn<R: Runtime>(
         &self,
         binary_path: &Path,
@@ -42,36 +39,23 @@ pub trait ProcessSpawner: Clone + Send + Sync + 'static {
 #[cfg_attr(docsrs, doc(cfg(feature = "direct-process-spawner")))]
 pub struct DirectProcessSpawner;
 
-#[inline(always)]
-#[cfg(any(feature = "direct-process-spawner", feature = "elevation-process-spawners"))]
-fn get_stdio(pipes_to_null: bool) -> Stdio {
-    if pipes_to_null {
-        Stdio::null()
-    } else {
-        Stdio::piped()
-    }
-}
-
 #[cfg(feature = "direct-process-spawner")]
 #[cfg_attr(docsrs, doc(cfg(feature = "direct-process-spawner")))]
 impl ProcessSpawner for DirectProcessSpawner {
-    async fn spawn<R: Runtime>(
+    fn spawn<R: Runtime>(
         &self,
-        path: &Path,
+        binary_path: &Path,
         arguments: Vec<String>,
         pipes_to_null: bool,
         runtime: &R,
-    ) -> Result<R::Child, std::io::Error> {
-        let mut command = Command::new(path);
-        command.args(arguments);
-        let child = runtime.spawn_child(
-            command,
-            get_stdio(pipes_to_null),
-            get_stdio(pipes_to_null),
-            get_stdio(pipes_to_null),
-        )?;
-
-        Ok(child)
+    ) -> impl Future<Output = Result<R::Child, std::io::Error>> + Send {
+        std::future::ready(runtime.spawn_process(
+            binary_path.as_os_str(),
+            arguments.into_iter().map(OsString::from).collect(),
+            !pipes_to_null,
+            !pipes_to_null,
+            !pipes_to_null,
+        ))
     }
 }
 
@@ -109,17 +93,12 @@ impl ProcessSpawner for SuProcessSpawner {
         pipes_to_null: bool,
         runtime: &R,
     ) -> Result<R::Child, std::io::Error> {
-        let command = Command::new(match self.0.su_path {
+        let program = match self.0.su_path {
             Some(ref path) => path.as_os_str(),
             None => SU_OS_STRING.as_os_str(),
-        });
+        };
 
-        let mut process = runtime.spawn_child(
-            command,
-            get_stdio(pipes_to_null),
-            get_stdio(pipes_to_null),
-            Stdio::piped(),
-        )?;
+        let mut process = runtime.spawn_process(program, Vec::new(), !pipes_to_null, !pipes_to_null, true)?;
 
         let stdin = process
             .get_stdin()
@@ -172,18 +151,15 @@ impl ProcessSpawner for SudoProcessSpawner {
         pipes_to_null: bool,
         runtime: &R,
     ) -> Result<R::Child, std::io::Error> {
-        let mut command = Command::new(match self.0.sudo_path {
+        let program = match self.0.sudo_path {
             Some(ref path) => path.as_os_str(),
             None => SUDO_OS_STRING.as_os_str(),
-        });
-        command.arg("-S").arg("-s").arg(path).args(arguments);
+        };
 
-        let mut child = runtime.spawn_child(
-            command,
-            get_stdio(pipes_to_null),
-            get_stdio(pipes_to_null),
-            Stdio::piped(),
-        )?;
+        let mut args = vec![OsString::from("-S"), OsString::from("-s"), OsString::from(path)];
+        args.extend(arguments.into_iter().map(OsString::from));
+
+        let mut child = runtime.spawn_process(program, args, !pipes_to_null, !pipes_to_null, true)?;
         let stdin_ref = child
             .get_stdin()
             .as_mut()

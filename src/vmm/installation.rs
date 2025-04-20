@@ -1,6 +1,6 @@
 use std::{
+    ffi::OsString,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
     sync::Arc,
 };
 
@@ -118,15 +118,8 @@ async fn verify_imp<R: Runtime>(
         return Err(VmmInstallationError::BinaryMissing);
     }
 
-    let mut command = Command::new(path);
-    command
-        .arg("--version")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .stdin(Stdio::null());
-
     let output = runtime
-        .run_child(command)
+        .run_process(path.as_os_str(), vec![OsString::from("--version")], true, false)
         .await
         .map_err(|_| VmmInstallationError::BinaryNotExecutable)?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();

@@ -7,10 +7,11 @@
 //! implementors are available via the optional `runtime-util` feature.
 
 use std::{
+    ffi::{OsStr, OsString},
     future::Future,
     os::fd::OwnedFd,
     path::Path,
-    process::{ExitStatus, Stdio},
+    process::ExitStatus,
     task::{Context, Poll},
     time::Duration,
 };
@@ -123,19 +124,25 @@ pub trait Runtime: Clone + Send + Sync + 'static {
     /// Create an asynchronous file descriptor from the given [OwnedFd], tying it to this [Runtime]'s I/O reactor.
     fn create_async_fd(&self, fd: OwnedFd) -> Result<Self::AsyncFd, std::io::Error>;
 
-    /// Spawn a child process asynchronously on this [Runtime] from a [std::process::Command].
-    fn spawn_child(
+    /// Spawn a child process asynchronously on this [Runtime], using the given program, arguments and flags determining
+    /// whether the stdout, stderr and stdin pipes are nulled or piped.
+    fn spawn_process(
         &self,
-        command: std::process::Command,
-        stdout: Stdio,
-        stderr: Stdio,
-        stdin: Stdio,
+        program: &OsStr,
+        args: Vec<OsString>,
+        stdout: bool,
+        stderr: bool,
+        stdin: bool,
     ) -> Result<Self::Child, std::io::Error>;
 
-    /// Run a child process asynchronously on this [Runtime] until completion from a [std::process::Command].
-    fn run_child(
+    /// Run a child process asynchronously on this [Runtime] until completion, using the given program, arguments and flags
+    /// determining whether the stdout and stderr pipes are nulled or piped.
+    fn run_process(
         &self,
-        command: std::process::Command,
+        program: &OsStr,
+        args: Vec<OsString>,
+        stdout: bool,
+        stderr: bool,
     ) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send;
 }
 
