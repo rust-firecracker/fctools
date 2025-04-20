@@ -73,17 +73,25 @@ impl std::fmt::Display for VmState {
 /// All errors that can be produced by a [Vm].
 #[derive(Debug)]
 pub enum VmError {
+    /// A [VmmProcessError] occurred.
     ProcessError(VmmProcessError),
+    /// A [ChangeOwnerError] occurred.
     ChangeOwnerError(ChangeOwnerError),
+    /// An I/O error occurred while performing operations on the filesystem.
     FilesystemError(std::io::Error),
-    TaskJoinFailed,
-    MkfifoError(std::io::Error),
+    /// The [VmState] of the [Vm] was incorrect due to a reason specified within a [VmStateCheckError].
     StateCheckError(VmStateCheckError),
+    /// A [VmApiError] error occurred while making Management API calls automatically as part of VM startup.
     ApiError(VmApiError),
-    ConfigurationSerdeError(serde_json::Error),
+    /// An error occurred while serializing the VM's configuration to JSON via [serde_json] as part of VM startup.
+    SerdeError(serde_json::Error),
+    /// A future waiting for the Management API Unix socket to become available timed out in accordance with the
+    /// provided timeout [Duration].
     SocketWaitTimeout,
+    /// Using a [VmConfiguration] with a disabled Management API Unix socket was attempted, which is not supported
+    /// by the VM layer.
     DisabledApiSocketIsUnsupported,
-    MissingPathMapping,
+    /// A [ResourceSystemError] occurred.
     ResourceSystemError(ResourceSystemError),
 }
 
@@ -99,21 +107,15 @@ impl std::fmt::Display for VmError {
             VmError::FilesystemError(err) => {
                 write!(f, "A filesystem operation backed by the runtime failed: {err}")
             }
-            VmError::TaskJoinFailed => write!(f, "Joining on an async task via the runtime failed"),
-            VmError::MkfifoError(err) => write!(f, "Making a FIFO named pipe failed: {err}"),
             VmError::StateCheckError(err) => write!(f, "A state check of the VM failed: {err}"),
             VmError::ApiError(err) => write!(f, "A request issued to the API server internally failed: {err}"),
-            VmError::ConfigurationSerdeError(err) => {
+            VmError::SerdeError(err) => {
                 write!(f, "Serialization of the transient JSON configuration failed: {err}")
             }
             VmError::SocketWaitTimeout => write!(f, "The wait for the API socket to become available timed out"),
             VmError::DisabledApiSocketIsUnsupported => write!(
                 f,
                 "Attempted to use a VM configuration with a disabled API socket, which is not supported"
-            ),
-            VmError::MissingPathMapping => write!(
-                f,
-                "A path mapping was expected to be constructed by the executor, but was not returned"
             ),
             VmError::ResourceSystemError(err) => write!(f, "A resource system error occurred: {err}"),
         }
@@ -218,7 +220,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
                 .runtime
                 .fs_write(
                     &config_effective_path,
-                    serde_json::to_string(data).map_err(VmError::ConfigurationSerdeError)?,
+                    serde_json::to_string(data).map_err(VmError::SerdeError)?,
                 )
                 .await
                 .map_err(VmError::FilesystemError)?;

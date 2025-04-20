@@ -160,7 +160,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmVsockHttp for Vm<E, S, R> 
     ) -> Result<VmVsockHttpClient<Self::SocketBackend>, VmVsockHttpError> {
         let socket_path = self
             .get_configuration()
-            .data()
+            .get_data()
             .vsock_device
             .as_ref()
             .ok_or(VmVsockHttpError::VsockNotConfigured)?
@@ -194,7 +194,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmVsockHttp for Vm<E, S, R> 
         .build(FirecrackerConnector::<R::SocketBackend>::new());
         let socket_path = self
             .get_configuration()
-            .data()
+            .get_data()
             .vsock_device
             .as_ref()
             .ok_or(VmVsockHttpError::VsockNotConfigured)?

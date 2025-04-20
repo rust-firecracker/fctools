@@ -14,19 +14,25 @@ use super::models::{
 pub enum VmConfiguration {
     /// The VM is new, thus its initialization process is controlled.
     New {
+        /// The [InitMethod] used for initializing this VM.
         init_method: InitMethod,
+        /// The [VmConfigurationData] tied to this VM.
         data: VmConfigurationData,
     },
     /// The VM is restored from a snapshot, thus its initialization process is derived from that of the snapshot.
     RestoredFromSnapshot {
+        /// The [LoadSnapshot] used for loading the snapshot this VM needs to be restored from.
         load_snapshot: LoadSnapshot,
+        /// The [VmConfigurationData] tied to this VM. It must be the exact same as the one from the original VM,
+        /// which is guaranteed if you use the default snapshot-creating functionality via the API.
         data: VmConfigurationData,
     },
 }
 
 impl VmConfiguration {
     /// Get a mutable reference to the [VmConfigurationData] inside this configuration.
-    pub fn data_mut(&mut self) -> &mut VmConfigurationData {
+    #[inline]
+    pub fn get_data_mut(&mut self) -> &mut VmConfigurationData {
         match self {
             VmConfiguration::New {
                 init_method: _,
@@ -40,7 +46,8 @@ impl VmConfiguration {
     }
 
     /// Get a shared reference to the [VmConfigurationData] inside this configuration.
-    pub fn data(&self) -> &VmConfigurationData {
+    #[inline]
+    pub fn get_data(&self) -> &VmConfigurationData {
         match self {
             VmConfiguration::New {
                 init_method: _,
@@ -58,21 +65,32 @@ impl VmConfiguration {
 /// is required for initialization to proceed.
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct VmConfigurationData {
+    /// The [BootSource] for this VM, mandatory.
     #[serde(rename = "boot-source")]
     pub boot_source: BootSource,
+    /// A buffer of all [Drive]s attached to this VM, mandatory.
     pub drives: Vec<Drive>,
+    /// The [MachineConfiguration] for this VM, mandatory.
     #[serde(rename = "machine-config")]
     pub machine_configuration: MachineConfiguration,
+    /// The [CpuTemplate] for this VM, optional.
     #[serde(rename = "cpu-config")]
     pub cpu_template: Option<CpuTemplate>,
+    /// A buffer of all [NetworkInterface]s attached to this VM, mandatory.
     #[serde(rename = "network-interfaces")]
     pub network_interfaces: Vec<NetworkInterface>,
+    /// The [BalloonDevice] for this VM, optional.
     pub balloon_device: Option<BalloonDevice>,
+    /// The [VsockDevice] for this VM, optional.
     pub vsock_device: Option<VsockDevice>,
+    /// The [LoggerSystem] for this VM, optional.
     pub logger_system: Option<LoggerSystem>,
+    /// The [MetricsSystem] for this VM, optional.
     pub metrics_system: Option<MetricsSystem>,
+    /// The [MmdsConfiguration] for this VM, optional.
     #[serde(rename = "mmds-config")]
     pub mmds_configuration: Option<MmdsConfiguration>,
+    /// The [EntropyDevice] for this VM, optional.
     pub entropy_device: Option<EntropyDevice>,
 }
 

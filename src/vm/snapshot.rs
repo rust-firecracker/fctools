@@ -31,18 +31,27 @@ pub struct VmSnapshot {
     pub configuration_data: VmConfigurationData,
 }
 
+/// The data necessary to prepare a [Vm] from a [VmSnapshot].
 #[derive(Debug)]
 pub struct PrepareVmFromSnapshotOptions<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
+    /// The [VmmExecutor] for the new [Vm].
     pub executor: E,
+    /// The [ProcessSpawner] for the new [Vm].
     pub process_spawner: S,
+    /// The [Runtime] for the new [Vm].
     pub runtime: R,
+    /// The [MovedResourceType] to assign to all resources moved from the old to the new VM.
     pub moved_resource_type: MovedResourceType,
+    /// The [VmmOwnershipModel] of the new [Vm].
     pub ownership_model: VmmOwnershipModel,
+    /// Optionally, whether to enable diff snapshots when restoring the new VM.
     pub enable_diff_snapshots: Option<bool>,
+    /// Optionally, whether to resume the new VM immediately.
     pub resume_vm: Option<bool>,
 }
 
 impl VmSnapshot {
+    /// Copy the snapshot and memory files of this [VmSnapshot] to new locations via the provided [Runtime].
     pub async fn copy<P: Into<PathBuf>, Q: Into<PathBuf>, R: Runtime>(
         &mut self,
         runtime: &R,
@@ -63,6 +72,9 @@ impl VmSnapshot {
         Ok(())
     }
 
+    /// A helper that automates the most common cases of preparing a new [Vm] from a [VmSnapshot] using
+    /// the options supported in [PrepareVmFromSnapshotOptions]. Everything done internally by this function
+    /// is public, so custom alternatives that take care of more advanced cases are possible and encouraged.
     pub async fn prepare_vm<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
         self,
         old_vm: &mut Vm<E, S, R>,

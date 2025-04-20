@@ -331,7 +331,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
             mem_file_path: create_snapshot.mem_file.get_effective_path().ok_or_else(|| {
                 VmApiError::ResourceSystemError(ResourceSystemError::IncorrectState(ResourceState::Uninitialized))
             })?,
-            configuration_data: self.configuration.data().clone(),
+            configuration_data: self.configuration.get_data().clone(),
         })
     }
 

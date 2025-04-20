@@ -97,7 +97,7 @@ fn vm_logger_test(resource_type: CreatedResourceType) {
         .run(move |mut vm| async move {
             let log_path = vm
                 .get_configuration()
-                .data()
+                .get_data()
                 .logger_system
                 .as_ref()
                 .unwrap()
@@ -135,7 +135,7 @@ fn vm_metrics_test(resource_type: CreatedResourceType) {
         .run(move |mut vm| async move {
             let metrics_path = vm
                 .get_configuration()
-                .data()
+                .get_data()
                 .metrics_system
                 .as_ref()
                 .unwrap()
@@ -157,7 +157,7 @@ fn vm_processes_vsock() {
     VmBuilder::new().vsock_device().run(|mut vm| async move {
         let uds_path = vm
             .get_configuration()
-            .data()
+            .get_data()
             .vsock_device
             .as_ref()
             .unwrap()

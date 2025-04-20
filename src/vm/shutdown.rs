@@ -53,8 +53,8 @@ impl VmShutdownMethod {
                     .stdin
                     .write_all(bytes)
                     .await
-                    .map_err(VmShutdownError::SerialError)?;
-                pipes.stdin.flush().await.map_err(VmShutdownError::SerialError)?
+                    .map_err(VmShutdownError::SerialWriteError)?;
+                pipes.stdin.flush().await.map_err(VmShutdownError::SerialWriteError)?
             }
         }
 
@@ -79,29 +79,27 @@ pub struct VmShutdownAction {
     pub graceful: bool,
 }
 
-// Allow a single action to be passed by internally converting it to a Once iterator.
-impl IntoIterator for VmShutdownAction {
-    type Item = VmShutdownAction;
-
-    type IntoIter = std::iter::Once<VmShutdownAction>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        std::iter::once(self)
-    }
-}
-
 /// An error that can occur while applying a sequence of [VmShutdownAction]s to a [Vm].
 #[derive(Debug)]
 pub enum VmShutdownError {
+    /// A [VmStateCheckError] occurred.
     StateCheckError(VmStateCheckError),
+    /// No [VmShutdownAction]s were specified to be performed.
     NoActionsSpecified,
+    /// A [VmShutdownAction]'s future timed out in accordance with the provided [Duration] timeout.
     Timeout,
+    /// Waiting for the VMM process to exit failed due to a [VmmProcessError].
     WaitForExitError(VmmProcessError),
+    /// Killing the VMM process failed due to a [VmmProcessError].
     KillError(VmmProcessError),
+    /// Pausing the VM failed due to a [VmApiError].
     PauseError(VmApiError),
+    /// Sending Ctrl+Alt+Del to the VM failed due to a [VmmProcessError].
     SendCtrlAltDelError(VmmProcessError),
+    /// Taking out the pipes of the VMM process failed due to a [VmmProcessError].
     TakePipesError(VmmProcessError),
-    SerialError(std::io::Error),
+    /// Writing serial data to the pipes of the VMM process failed due to an I/O error.
+    SerialWriteError(std::io::Error),
 }
 
 impl std::error::Error for VmShutdownError {}
@@ -127,7 +125,7 @@ impl std::fmt::Display for VmShutdownError {
                 f,
                 "Taking the pipes from the VM to perform a serial write failed: {err}"
             ),
-            VmShutdownError::SerialError(err) => write!(f, "Performing a serial write to stdin failed: {err}"),
+            VmShutdownError::SerialWriteError(err) => write!(f, "Performing a serial write to stdin failed: {err}"),
         }
     }
 }

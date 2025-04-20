@@ -218,7 +218,7 @@ fn metrics_task_can_receive_data_from_fifo() {
 async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
     let metrics_path = vm
         .get_configuration()
-        .data()
+        .get_data()
         .metrics_system
         .as_ref()
         .unwrap()
@@ -248,7 +248,7 @@ fn metrics_task_can_be_cancelled_via_join_handle() {
         .run(|mut vm| async move {
             let mut metrics_task = spawn_metrics_task(
                 vm.get_configuration()
-                    .data()
+                    .get_data()
                     .metrics_system
                     .as_ref()
                     .unwrap()
