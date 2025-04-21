@@ -355,13 +355,13 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     }
 
     #[inline(always)]
-    fn executor_context(&self) -> VmmExecutorContext<S, R> {
+    fn executor_context(&self) -> VmmExecutorContext<'_, S, R> {
         VmmExecutorContext {
             installation: self.installation.clone(),
             process_spawner: self.resource_system.process_spawner.clone(),
             runtime: self.resource_system.runtime.clone(),
             ownership_model: self.resource_system.ownership_model,
-            resources: self.resource_system.get_resources().to_vec(),
+            resources: self.resource_system.get_resources(),
         }
     }
 }

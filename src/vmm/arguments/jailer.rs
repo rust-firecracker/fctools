@@ -100,7 +100,8 @@ impl JailerArguments {
     }
 
     /// Join the [JailerArguments] into a [Vec] of process arguments, using the given jailer target UID and GID as
-    /// well as a [Path] to the "firecracker" binary.
+    /// well as a [Path] to the "firecracker" binary. The order in which the argument [String]s are inserted into
+    /// the resulting [Vec] is not stable!
     pub fn join(&self, uid: u32, gid: u32, firecracker_binary_path: &Path) -> Vec<String> {
         let mut args = Vec::with_capacity(8);
         args.push("--exec-file".to_string());

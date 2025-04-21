@@ -95,7 +95,7 @@ pub trait VmmExecutor: Send + Sync {
     /// This synchronization is automatically performed by VMM processes and VMs.
     fn prepare<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<S, R>,
+        context: VmmExecutorContext<'_, S, R>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 
     /// Invoke the VMM on the given [VmmInstallation] and return the [ProcessHandle] that performs a connection to
@@ -103,7 +103,7 @@ pub trait VmmExecutor: Send + Sync {
     /// a separate PID namespace.
     fn invoke<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<S, R>,
+        context: VmmExecutorContext<'_, S, R>,
         config_path: Option<PathBuf>,
     ) -> impl Future<Output = Result<ProcessHandle<R>, VmmExecutorError>> + Send;
 
@@ -114,13 +114,15 @@ pub trait VmmExecutor: Send + Sync {
     /// automatically performed by VMM processes and VMs.
     fn cleanup<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<S, R>,
+        context: VmmExecutorContext<'_, S, R>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
 /// A [VmmExecutorContext] encapsulates the data that a [VmmExecutor] prepare/invoke/cleanup invocation needs in
-/// order to function.
-pub struct VmmExecutorContext<S: ProcessSpawner, R: Runtime> {
+/// order to function. It is tied to a lifetime representing that of all [Resource]s being operated with and to
+/// a generic [ProcessSpawner] as well as [Runtime].
+#[derive(Debug, Clone)]
+pub struct VmmExecutorContext<'r, S: ProcessSpawner, R: Runtime> {
     /// The [VmmInstallation] the invocation is tied to.
     pub installation: VmmInstallation,
     /// A [ProcessSpawner] that the [VmmExecutorContext] is generic over.
@@ -129,6 +131,6 @@ pub struct VmmExecutorContext<S: ProcessSpawner, R: Runtime> {
     pub runtime: R,
     /// A [VmmOwnershipModel] to use for ownership operations within the executor.
     pub ownership_model: VmmOwnershipModel,
-    /// A buffer of all [Resource]s to consider for initialization and disposal.
-    pub resources: Vec<Resource>,
+    /// A shared slice of all [Resource]s to consider for initialization and disposal.
+    pub resources: &'r [Resource],
 }

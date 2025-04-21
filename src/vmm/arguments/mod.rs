@@ -53,13 +53,6 @@ impl VmmArguments {
         self
     }
 
-    /// Specify the [Resource] pointing to the log file for the VMM.
-    pub fn logs(mut self, logs: Resource) -> Self {
-        self.resource_buffer.push(logs);
-        self.log_resource_index = Some(self.resource_buffer.len() - 1);
-        self
-    }
-
     /// Enable the showing of the log level by the VMM.
     pub fn show_log_level(mut self) -> Self {
         self.show_log_level = true;
@@ -90,6 +83,25 @@ impl VmmArguments {
         self
     }
 
+    /// Set the maximum size of the MMDS storage of the VMM, in bytes.
+    pub fn mmds_size_limit(mut self, mmds_size_limit: u32) -> Self {
+        self.mmds_size_limit = Some(mmds_size_limit);
+        self
+    }
+
+    /// Disable seccomp filtering, which is enabled by default for security purposes.
+    pub fn disable_seccomp(mut self) -> Self {
+        self.disable_seccomp = true;
+        self
+    }
+
+    /// Specify the [Resource] pointing to the log file for the VMM.
+    pub fn logs(mut self, logs: Resource) -> Self {
+        self.resource_buffer.push(logs);
+        self.log_resource_index = Some(self.resource_buffer.len() - 1);
+        self
+    }
+
     /// Specify the [Resource] pointing to the metadata file for the VMM.
     pub fn metadata(mut self, metadata: Resource) -> Self {
         self.resource_buffer.push(metadata);
@@ -101,18 +113,6 @@ impl VmmArguments {
     pub fn metrics(mut self, metrics: Resource) -> Self {
         self.resource_buffer.push(metrics);
         self.metrics_resource_index = Some(self.resource_buffer.len() - 1);
-        self
-    }
-
-    /// Set the maximum size of the MMDS storage of the VMM, in bytes.
-    pub fn mmds_size_limit(mut self, mmds_size_limit: u32) -> Self {
-        self.mmds_size_limit = Some(mmds_size_limit);
-        self
-    }
-
-    /// Disable seccomp filtering, which is enabled by default for security purposes.
-    pub fn disable_seccomp(mut self) -> Self {
-        self.disable_seccomp = true;
         self
     }
 
@@ -130,7 +130,7 @@ impl VmmArguments {
 
     /// Join these [VmmArguments] into a [Vec] of process arguments, using the given optional config path.
     /// This function assumes all resources inside this [VmmArguments] struct are initialized, otherwise a panic is
-    /// emitted. The order in which argument [String]s are inserted into the resulting [Vec] is not stable!
+    /// emitted. The order in which the argument [String]s are inserted into the resulting [Vec] is not stable!
     pub fn join(&self, config_path: Option<PathBuf>) -> Vec<String> {
         let mut args = Vec::with_capacity(1);
 

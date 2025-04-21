@@ -59,7 +59,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
 
     async fn prepare<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<S, R>,
+        context: VmmExecutorContext<'_, S, R>,
     ) -> Result<(), VmmExecutorError> {
         // Create jail and delete previous one if necessary
         let (chroot_base_dir, jail_path) = self.get_paths(&context.installation);
@@ -125,7 +125,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
 
     async fn invoke<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<S, R>,
+        context: VmmExecutorContext<'_, S, R>,
         config_path: Option<PathBuf>,
     ) -> Result<ProcessHandle<R>, VmmExecutorError> {
         downgrade_owner_recursively(
@@ -201,7 +201,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
 
     async fn cleanup<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<S, R>,
+        context: VmmExecutorContext<'_, S, R>,
     ) -> Result<(), VmmExecutorError> {
         let (_, jail_path) = self.get_paths(&context.installation);
 
