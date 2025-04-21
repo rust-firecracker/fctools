@@ -8,106 +8,129 @@ pub mod jailer;
 /// Arguments that can be passed to the main VMM/"firecracker" binary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VmmArguments {
-    // main
     pub(crate) api_socket: VmmApiSocket,
-    // logging
+
     log_level: Option<VmmLogLevel>,
-    pub(crate) logs: Option<Resource>,
     show_log_origin: bool,
     log_module: Option<String>,
     show_log_level: bool,
-    // misc
     enable_boot_timer: bool,
     api_max_payload_bytes: Option<u32>,
-    metadata: Option<Resource>,
-    pub(crate) metrics: Option<Resource>,
     mmds_size_limit: Option<u32>,
     disable_seccomp: bool,
-    seccomp_path: Option<PathBuf>,
+
+    log_resource_index: Option<usize>,
+    metadata_resource_index: Option<usize>,
+    metrics_resource_index: Option<usize>,
+    seccomp_filter_resource_index: Option<usize>,
+    resource_buffer: Vec<Resource>,
 }
 
 impl VmmArguments {
+    /// Create new [VmmArguments] with the given [VmmApiSocket] configuration for the VMM's API socket.
     pub fn new(api_socket: VmmApiSocket) -> Self {
         Self {
             api_socket,
             log_level: None,
-            logs: None,
             show_log_origin: false,
             log_module: None,
             show_log_level: false,
             enable_boot_timer: false,
             api_max_payload_bytes: None,
-            metadata: None,
-            metrics: None,
             mmds_size_limit: None,
             disable_seccomp: false,
-            seccomp_path: None,
+            log_resource_index: None,
+            metadata_resource_index: None,
+            metrics_resource_index: None,
+            seccomp_filter_resource_index: None,
+            resource_buffer: Vec::new(),
         }
     }
 
+    /// Set the [VmmLogLevel] for the [VmmArguments].
     pub fn log_level(mut self, log_level: VmmLogLevel) -> Self {
         self.log_level = Some(log_level);
         self
     }
 
+    /// Specify the [Resource] pointing to the log file for the VMM.
     pub fn logs(mut self, logs: Resource) -> Self {
-        self.logs = Some(logs);
+        self.resource_buffer.push(logs);
+        self.log_resource_index = Some(self.resource_buffer.len() - 1);
         self
     }
 
+    /// Enable the showing of the log level by the VMM.
     pub fn show_log_level(mut self) -> Self {
         self.show_log_level = true;
         self
     }
 
+    /// Enable the showing of the log origin by the VMM.
     pub fn show_log_origin(mut self) -> Self {
         self.show_log_origin = true;
         self
     }
 
+    /// Set the text representing the log module being filtered for by the VMM.
     pub fn log_module<M: Into<String>>(mut self, log_module: M) -> Self {
         self.log_module = Some(log_module.into());
         self
     }
 
+    /// Enable the boot timer for the VMM.
     pub fn enable_boot_timer(mut self) -> Self {
         self.enable_boot_timer = true;
         self
     }
 
+    /// Set the max size of HTTP request payloads in bytes for the VMM's API server.
     pub fn api_max_payload_bytes(mut self, amount: u32) -> Self {
         self.api_max_payload_bytes = Some(amount);
         self
     }
 
+    /// Specify the [Resource] pointing to the metadata file for the VMM.
     pub fn metadata(mut self, metadata: Resource) -> Self {
-        self.metadata = Some(metadata);
+        self.resource_buffer.push(metadata);
+        self.metadata_resource_index = Some(self.resource_buffer.len() - 1);
         self
     }
 
+    /// Specify the [Resource] pointing to the metrics file for the VMM.
     pub fn metrics(mut self, metrics: Resource) -> Self {
-        self.metrics = Some(metrics);
+        self.resource_buffer.push(metrics);
+        self.metrics_resource_index = Some(self.resource_buffer.len() - 1);
         self
     }
 
+    /// Set the maximum size of the MMDS storage of the VMM, in bytes.
     pub fn mmds_size_limit(mut self, mmds_size_limit: u32) -> Self {
         self.mmds_size_limit = Some(mmds_size_limit);
         self
     }
 
+    /// Disable seccomp filtering, which is enabled by default for security purposes.
     pub fn disable_seccomp(mut self) -> Self {
         self.disable_seccomp = true;
         self
     }
 
-    pub fn seccomp_path<P: Into<PathBuf>>(mut self, seccomp_path: P) -> Self {
-        self.seccomp_path = Some(seccomp_path.into());
+    /// Specify the [Resource] pointing to a custom seccomp filter file for the VMM.
+    pub fn seccomp_filter(mut self, seccomp_filter: Resource) -> Self {
+        self.resource_buffer.push(seccomp_filter);
+        self.seccomp_filter_resource_index = Some(self.resource_buffer.len() - 1);
         self
+    }
+
+    /// Get a shared slice into an internal buffer holding all [Resource]s tied to these [VmmArguments].
+    pub fn get_resources(&self) -> &[Resource] {
+        &self.resource_buffer
     }
 
     /// Join these [VmmArguments] into a [Vec] of process arguments, using the given optional config path.
     /// This function assumes all resources inside this [VmmArguments] struct are initialized, otherwise a panic is
-    /// emitted.
+    /// emitted. The order in which argument [String]s are inserted into the resulting [Vec] is not stable!
     pub fn join(&self, config_path: Option<PathBuf>) -> Vec<String> {
         let mut args = Vec::with_capacity(1);
 
@@ -129,11 +152,6 @@ impl VmmArguments {
         if let Some(log_level) = self.log_level {
             args.push("--level".to_string());
             args.push(log_level.to_string());
-        }
-
-        if let Some(ref log_path) = self.logs {
-            args.push("--log-path".to_string());
-            args.push(log_path.get_source_path().to_string_lossy().into_owned());
         }
 
         if self.show_log_origin {
@@ -158,23 +176,7 @@ impl VmmArguments {
             args.push(max_payload.to_string());
         }
 
-        if let Some(ref metadata) = self.metadata {
-            args.push("--metadata".to_string());
-            args.push(
-                metadata
-                    .get_local_path()
-                    .expect("Uninitialized resource passed to argument join")
-                    .to_string_lossy()
-                    .into_owned(),
-            );
-        }
-
-        if let Some(ref metrics_path) = self.metrics {
-            args.push("--metrics-path".to_string());
-            args.push(metrics_path.get_source_path().to_string_lossy().into_owned());
-        }
-
-        if let Some(ref limit) = self.mmds_size_limit {
+        if let Some(limit) = self.mmds_size_limit {
             args.push("--mmds-size-limit".to_string());
             args.push(limit.to_string());
         }
@@ -183,16 +185,42 @@ impl VmmArguments {
             args.push("--no-seccomp".to_string());
         }
 
-        if let Some(ref seccomp_path) = self.seccomp_path {
+        if let Some(index) = self.log_resource_index {
+            args.push("--log-path".to_string());
+            args.push(self.get_resource_path_string(index));
+        }
+
+        if let Some(index) = self.metadata_resource_index {
+            args.push("--metadata".to_string());
+            args.push(self.get_resource_path_string(index));
+        }
+
+        if let Some(index) = self.metrics_resource_index {
+            args.push("--metrics-path".to_string());
+            args.push(self.get_resource_path_string(index));
+        }
+
+        if let Some(index) = self.seccomp_filter_resource_index {
             args.push("--seccomp-filter".to_string());
-            args.push(seccomp_path.to_string_lossy().into_owned());
+            args.push(self.get_resource_path_string(index));
         }
 
         args
     }
+
+    #[inline(always)]
+    fn get_resource_path_string(&self, index: usize) -> String {
+        self.resource_buffer
+            .get(index)
+            .expect("Resource buffer doesn't contain index")
+            .get_local_path()
+            .expect("Resource is uninitialized at the time of argument join")
+            .to_string_lossy()
+            .into_owned()
+    }
 }
 
-/// A configuration of a VMM API Unix socket.
+/// A configuration of a VMM's API Unix socket.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VmmApiSocket {
     /// The socket should be disabled via --no-api argument.
@@ -201,7 +229,7 @@ pub enum VmmApiSocket {
     Enabled(PathBuf),
 }
 
-/// A level of logging applied by the VMM.
+/// A level of logging used by the VMM.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "vm", derive(serde::Serialize, serde::Deserialize))]
 pub enum VmmLogLevel {
@@ -335,7 +363,11 @@ mod tests {
 
     #[test]
     fn seccomp_path_can_be_set() {
-        check_without_config(new().seccomp_path("/tmp/seccomp"), ["--seccomp-filter", "/tmp/seccomp"]);
+        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
+        let resource = resource_system
+            .create_resource("/tmp/seccomp", ResourceType::Created(CreatedResourceType::File))
+            .unwrap();
+        check_without_config(new().seccomp_filter(resource), ["--seccomp-filter", "/tmp/seccomp"]);
     }
 
     #[test]

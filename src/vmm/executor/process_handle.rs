@@ -10,8 +10,8 @@ use std::{
 use crate::runtime::{Runtime, RuntimeAsyncFd, RuntimeChild};
 
 /// A process handle is a thin abstraction over either an "attached" child process that is a [RuntimeProcess],
-/// or a "detached" certain process that isn't a child and is controlled via a [RuntimeAsyncFd] wrapping a
-/// Linux pidfd.
+/// or a "detached" certain process that (in most cases, as it would make sense to use an "attached" process otherwise)
+/// isn't a child and is controlled via a [RuntimeAsyncFd] wrapping a Linux pidfd.
 #[derive(Debug)]
 pub struct ProcessHandle<R: Runtime>(ProcessHandleInner<R>);
 
@@ -19,16 +19,25 @@ pub struct ProcessHandle<R: Runtime>(ProcessHandleInner<R>);
 /// [ProcessHandle]s that haven't had their pipes dropped to /dev/null.
 #[derive(Debug)]
 pub struct ProcessHandlePipes<P: RuntimeChild> {
+    /// The I/O handle to the stdout pipe of the process.
     pub stdout: P::Stdout,
+    /// The I/O handle to the stderr pipe of the process.
     pub stderr: P::Stderr,
+    /// The I/O handle to the stdin pipe of the process.
     pub stdin: P::Stdin,
 }
 
 /// An error that didn't allow the extraction of [ProcessHandlePipes] from a [ProcessHandle].
 #[derive(Debug)]
 pub enum ProcessHandlePipesError {
+    /// The underlying process is being controlled in a "detached" manner, meaning its pipes are not under
+    /// the control of the current application process.
     ProcessIsDetached,
+    /// The pipes of the underlying process have already been taken out and subsequently dropped by the VMM executor
+    /// responsible for the creation of this [ProcessHandle].
     PipesWereDropped,
+    /// The pipes of the underlying process have already been taken out prior to the current call of [ProcessHandle::get_pipes],
+    /// meaning that they are no longer accessible.
     PipesWereAlreadyTaken,
 }
 
@@ -64,12 +73,12 @@ enum ProcessHandleInner<R: Runtime> {
 
 impl<R: Runtime> ProcessHandle<R> {
     /// Create a [ProcessHandle] from a [RuntimeChild] that is attached to the current process.
-    pub fn with_child(child: R::Child, pipes_dropped: bool) -> Self {
+    pub fn from_child(child: R::Child, pipes_dropped: bool) -> Self {
         Self(ProcessHandleInner::Child { child, pipes_dropped })
     }
 
     /// Try to create a [ProcessHandle] by allocating a pidfd for the given PID.
-    pub fn with_pidfd(pid: i32, runtime: R) -> Result<Self, std::io::Error> {
+    pub fn from_pidfd(pid: i32, runtime: R) -> Result<Self, std::io::Error> {
         let pidfd = crate::syscall::pidfd_open(pid)?;
         let raw_pidfd = pidfd.as_raw_fd();
 

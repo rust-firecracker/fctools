@@ -11,7 +11,7 @@ use crate::{
     },
 };
 
-use super::{expand_context, process_handle::ProcessHandle, VmmExecutor, VmmExecutorContext, VmmExecutorError};
+use super::{process_handle::ProcessHandle, VmmExecutor, VmmExecutorContext, VmmExecutorError};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
@@ -59,7 +59,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
 
     async fn prepare<S: ProcessSpawner, R: Runtime>(
         &self,
-        mut context: VmmExecutorContext<S, R>,
+        context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         // Create jail and delete previous one if necessary
         let (chroot_base_dir, jail_path) = self.get_paths(&context.installation);
@@ -103,9 +103,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         }
 
         // Apply created resources
-        expand_context(&self.vmm_arguments, &mut context);
-
-        for resource in context.resources {
+        for resource in context.resources.iter().chain(self.vmm_arguments.get_resources()) {
             match resource.get_type() {
                 ResourceType::Created(_) | ResourceType::Produced => {
                     resource.start_initialization(jail_path.jail_join(&resource.get_source_path()), None)
@@ -195,9 +193,9 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                 }
             };
 
-            Ok(ProcessHandle::with_pidfd(pid, context.runtime).map_err(VmmExecutorError::PidfdAllocationError)?)
+            Ok(ProcessHandle::from_pidfd(pid, context.runtime).map_err(VmmExecutorError::PidfdAllocationError)?)
         } else {
-            Ok(ProcessHandle::with_child(process, false))
+            Ok(ProcessHandle::from_child(process, false))
         }
     }
 

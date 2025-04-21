@@ -9,7 +9,6 @@ use crate::vmm::id::VmmId;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JailerArguments {
     pub(crate) jail_id: VmmId,
-
     cgroup_values: HashMap<String, String>,
     cgroup_version: Option<JailerCgroupVersion>,
     pub(crate) chroot_base_dir: Option<PathBuf>,
@@ -22,6 +21,7 @@ pub struct JailerArguments {
 }
 
 impl JailerArguments {
+    /// Create new [JailerArguments] tied to the provided [VmmId] as the jail ID.
     pub fn new(jail_id: VmmId) -> Self {
         Self {
             jail_id,
@@ -37,57 +37,69 @@ impl JailerArguments {
         }
     }
 
+    /// Add a cgroup key-value pair to the [JailerArguments].
     pub fn cgroup<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
         self.cgroup_values.insert(key.into(), value.into());
         self
     }
 
+    /// Add an iterator of cgroup key-value pairs to the [JailerArguments].
     pub fn cgroups<I: IntoIterator<Item = (String, String)>>(mut self, cgroups: I) -> Self {
         self.cgroup_values.extend(cgroups);
         self
     }
 
+    /// Specify the jailer's [JailerCgroupVersion].
     pub fn cgroup_version(mut self, cgroup_version: JailerCgroupVersion) -> Self {
         self.cgroup_version = Some(cgroup_version);
         self
     }
 
+    /// Specify the path to the base chroot directory for the jailer.
     pub fn chroot_base_dir<P: Into<PathBuf>>(mut self, chroot_base_dir: P) -> Self {
         self.chroot_base_dir = Some(chroot_base_dir.into());
         self
     }
 
+    /// Enable jailer daemonization, which is disabled by default.
     pub fn daemonize(mut self) -> Self {
         self.daemonize = true;
         self
     }
 
+    /// Specify the path (usually located within either /var/run/netns or /run/netns when using iproute2 or fcnet
+    /// for setting up microVM networking) to the network namespace for the jailer to enter.
     pub fn network_namespace_path<P: Into<PathBuf>>(mut self, network_namespace_path: P) -> Self {
         self.network_namespace_path = Some(network_namespace_path.into());
         self
     }
 
+    /// Enable execution within a newly created PID namespace, which is disabled by default.
     pub fn exec_in_new_pid_ns(mut self) -> Self {
         self.exec_in_new_pid_ns = true;
         self
     }
 
+    /// Specify a parent cgroup for the jailer.
     pub fn parent_cgroup<C: Into<String>>(mut self, parent_cgroup: C) -> Self {
         self.parent_cgroup = Some(parent_cgroup.into());
         self
     }
 
+    /// Specify the limit on the maximum size of files created by the Firecracker process spawned by the jailer,
+    /// in bytes.
     pub fn max_file_size_limit(mut self, max_file_size_limit: u64) -> Self {
         self.max_file_size_limit = Some(max_file_size_limit);
         self
     }
 
+    /// Specify the limit on the highest file descriptor allocated by the Firecracker process spawned by the jailer.
     pub fn max_fd_limit(mut self, max_fd_limit: u64) -> Self {
         self.max_fd_limit = Some(max_fd_limit);
         self
     }
 
-    /// Join these arguments into a [Vec] of process arguments, using the given jailer target UID and GID as
+    /// Join the [JailerArguments] into a [Vec] of process arguments, using the given jailer target UID and GID as
     /// well as a [Path] to the "firecracker" binary.
     pub fn join(&self, uid: u32, gid: u32, firecracker_binary_path: &Path) -> Vec<String> {
         let mut args = Vec::with_capacity(8);

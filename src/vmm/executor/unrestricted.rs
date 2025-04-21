@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-use super::{expand_context, process_handle::ProcessHandle, VmmExecutor, VmmExecutorContext, VmmExecutorError};
+use super::{process_handle::ProcessHandle, VmmExecutor, VmmExecutorContext, VmmExecutorError};
 
 /// A [VmmExecutor] that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
 /// This [VmmExecutor] allows rootless execution, given that the user has been granted access to /dev/kvm, but using
@@ -70,10 +70,8 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
     async fn prepare<S: ProcessSpawner, R: Runtime>(
         &self,
-        mut context: VmmExecutorContext<S, R>,
+        context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
-        expand_context(&self.vmm_arguments, &mut context);
-
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
             let process_spawner = context.process_spawner.clone();
             let ownership_model = context.ownership_model;
@@ -95,7 +93,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             }
         }
 
-        for resource in context.resources {
+        for resource in context.resources.iter().chain(self.vmm_arguments.get_resources()) {
             resource
                 .start_initialization_with_same_path()
                 .map_err(VmmExecutorError::ResourceSystemError)?;
@@ -126,12 +124,12 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             .spawn(&binary_path, arguments, self.pipes_to_null, &context.runtime)
             .await
             .map_err(VmmExecutorError::ProcessSpawnFailed)?;
-        Ok(ProcessHandle::with_child(child, self.pipes_to_null))
+        Ok(ProcessHandle::from_child(child, self.pipes_to_null))
     }
 
     async fn cleanup<S: ProcessSpawner, R: Runtime>(
         &self,
-        mut context: VmmExecutorContext<S, R>,
+        context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
             let process_spawner = context.process_spawner.clone();
@@ -154,9 +152,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             }
         }
 
-        expand_context(&self.vmm_arguments, &mut context);
-
-        for resource in context.resources {
+        for resource in context.resources.iter().chain(self.vmm_arguments.get_resources()) {
             if !matches!(resource.get_type(), ResourceType::Moved(_)) {
                 resource
                     .start_disposal()

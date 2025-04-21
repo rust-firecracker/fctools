@@ -132,18 +132,3 @@ pub struct VmmExecutorContext<S: ProcessSpawner, R: Runtime> {
     /// A buffer of all [Resource]s to consider for initialization and disposal.
     pub resources: Vec<Resource>,
 }
-
-#[cfg(any(feature = "unrestricted-vmm-executor", feature = "jailed-vmm-executor"))]
-#[inline]
-fn expand_context<S: ProcessSpawner, R: Runtime>(
-    arguments: &super::arguments::VmmArguments,
-    context: &mut VmmExecutorContext<S, R>,
-) {
-    if let Some(logs) = arguments.logs.clone() {
-        context.resources.push(logs);
-    }
-
-    if let Some(metrics) = arguments.metrics.clone() {
-        context.resources.push(metrics);
-    }
-}
