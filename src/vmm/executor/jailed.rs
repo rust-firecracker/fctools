@@ -26,6 +26,8 @@ pub struct JailedVmmExecutor<P: LocalPathResolver> {
 }
 
 impl<P: LocalPathResolver> JailedVmmExecutor<P> {
+    /// Create a new [JailedVmmExecutor] from [VmmArguments], [JailerArguments] and the specified [LocalPathResolver]
+    /// implementation's instance.
     pub fn new(vmm_arguments: VmmArguments, jailer_arguments: JailerArguments, local_path_resolver: P) -> Self {
         Self {
             vmm_arguments,
@@ -35,11 +37,13 @@ impl<P: LocalPathResolver> JailedVmmExecutor<P> {
         }
     }
 
+    /// Add a [CommandModifier] implementation to the end of the [CommandModifier] chain.
     pub fn command_modifier<M: CommandModifier>(mut self, command_modifier: M) -> Self {
         self.command_modifier_chain.push(Box::new(command_modifier));
         self
     }
 
+    /// Sequentially insert an iterator of boxed [CommandModifier]s to the end of the [CommandModifier] chain.
     pub fn command_modifiers<I: IntoIterator<Item = Box<dyn CommandModifier>>>(mut self, command_modifiers: I) -> Self {
         self.command_modifier_chain.extend(command_modifiers);
         self

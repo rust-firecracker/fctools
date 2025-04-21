@@ -130,7 +130,7 @@ pub trait VmmExecutor: Send + Sync {
 /// order to function. It is tied to a lifetime representing that of all [Resource]s being operated with and to
 /// a generic [ProcessSpawner] as well as [Runtime].
 #[derive(Debug, Clone)]
-pub struct VmmExecutorContext<'r, S: ProcessSpawner, R: Runtime> {
+pub struct VmmExecutorContext<'c, S: ProcessSpawner, R: Runtime> {
     /// The [VmmInstallation] the invocation is tied to.
     pub installation: VmmInstallation,
     /// A [ProcessSpawner] that the [VmmExecutorContext] is generic over.
@@ -140,5 +140,5 @@ pub struct VmmExecutorContext<'r, S: ProcessSpawner, R: Runtime> {
     /// A [VmmOwnershipModel] to use for ownership operations within the executor.
     pub ownership_model: VmmOwnershipModel,
     /// A shared slice of all [Resource]s to consider for initialization and disposal.
-    pub resources: &'r [Resource],
+    pub resources: &'c [Resource],
 }

@@ -26,6 +26,7 @@ pub struct UnrestrictedVmmExecutor {
 }
 
 impl UnrestrictedVmmExecutor {
+    /// Create a new [UnrestrictedVmmExecutor] from a [VmmArguments] instance.
     pub fn new(vmm_arguments: VmmArguments) -> Self {
         Self {
             vmm_arguments,
@@ -35,21 +36,27 @@ impl UnrestrictedVmmExecutor {
         }
     }
 
+    /// Add a [CommandModifier] implementation to the end of the [CommandModifier] chain.
     pub fn command_modifier<C: CommandModifier>(mut self, command_modifier: C) -> Self {
         self.command_modifier_chain.push(Box::new(command_modifier));
         self
     }
 
+    /// Sequentially insert an iterator of boxed [CommandModifier]s to the end of the [CommandModifier] chain.
     pub fn command_modifiers<I: IntoIterator<Item = Box<dyn CommandModifier>>>(mut self, command_modifiers: I) -> Self {
         self.command_modifier_chain.extend(command_modifiers);
         self
     }
 
+    /// Configure the [UnrestrictedVmmExecutor] to set the pipes of the [ProcessHandle]'s process to null, meaning
+    /// that they won't be accessible via a [ProcessHandle::get_pipes] call.
     pub fn pipes_to_null(mut self) -> Self {
         self.pipes_to_null = true;
         self
     }
 
+    /// Set an optional [VmmId] for Firecracker to use. If not specified, a default value decided on by Firecracker itself
+    /// will be used instead.
     pub fn id(mut self, id: VmmId) -> Self {
         self.id = Some(id);
         self
