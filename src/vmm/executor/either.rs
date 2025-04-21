@@ -3,34 +3,34 @@ use std::path::PathBuf;
 use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vmm::installation::VmmInstallation};
 
 use super::{
-    jailed::{JailRenamer, JailedVmmExecutor},
+    jailed::{JailedVmmExecutor, LocalPathResolver},
     process_handle::ProcessHandle,
     unrestricted::UnrestrictedVmmExecutor,
     VmmExecutor, VmmExecutorContext, VmmExecutorError,
 };
 
-/// [EitherVmmExecutor] encapsulates either an unrestricted or a jailed executor with the
-/// given [JailRenamer] behind an enum with [VmmExecutor] implemented. fctools was specifically
-/// designed against heap allocation and dynamic dispatch, so this is a statically dispatched
-/// enum instead.
-pub enum EitherVmmExecutor<J: JailRenamer + 'static> {
+/// [EitherVmmExecutor] encapsulates either an [UnrestrictedVmmExecutor] or a [JailedVmmExecutor]
+/// with the given [LocalPathResolver] behind an enum with [VmmExecutor] implemented on it. fctools was
+/// specifically designed with the minimization of heap allocation and dynamic dispatch, so this is a
+/// statically dispatched workaround provided out-of-the-box.
+pub enum EitherVmmExecutor<P: LocalPathResolver + 'static> {
     Unrestricted(UnrestrictedVmmExecutor),
-    Jailed(JailedVmmExecutor<J>),
+    Jailed(JailedVmmExecutor<P>),
 }
 
-impl<J: JailRenamer + 'static> From<UnrestrictedVmmExecutor> for EitherVmmExecutor<J> {
+impl<J: LocalPathResolver + 'static> From<UnrestrictedVmmExecutor> for EitherVmmExecutor<J> {
     fn from(value: UnrestrictedVmmExecutor) -> Self {
         EitherVmmExecutor::Unrestricted(value)
     }
 }
 
-impl<J: JailRenamer + 'static> From<JailedVmmExecutor<J>> for EitherVmmExecutor<J> {
+impl<J: LocalPathResolver + 'static> From<JailedVmmExecutor<J>> for EitherVmmExecutor<J> {
     fn from(value: JailedVmmExecutor<J>) -> Self {
         EitherVmmExecutor::Jailed(value)
     }
 }
 
-impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
+impl<J: LocalPathResolver + 'static> VmmExecutor for EitherVmmExecutor<J> {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => executor.get_socket_path(installation),
@@ -38,12 +38,10 @@ impl<J: JailRenamer + 'static> VmmExecutor for EitherVmmExecutor<J> {
         }
     }
 
-    fn get_effective_path_from_local(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
+    fn resolve_effective_path(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
         match self {
-            EitherVmmExecutor::Unrestricted(executor) => {
-                executor.get_effective_path_from_local(installation, local_path)
-            }
-            EitherVmmExecutor::Jailed(executor) => executor.get_effective_path_from_local(installation, local_path),
+            EitherVmmExecutor::Unrestricted(executor) => executor.resolve_effective_path(installation, local_path),
+            EitherVmmExecutor::Jailed(executor) => executor.resolve_effective_path(installation, local_path),
         }
     }
 

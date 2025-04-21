@@ -14,27 +14,28 @@ use crate::{
 use super::{process_handle::ProcessHandle, VmmExecutor, VmmExecutorContext, VmmExecutorError};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
-/// run "firecracker". This executor, due to jailer design, can only run as root, even though the "firecracker"
-/// process itself won't unless configured to run as UID 0 and GID 0 (root).
+/// run "firecracker". The "jailer", by design, can only run as "root", even though the "firecracker" process itself
+/// won't do so unless explicitly configured to run as UID 0 and GID 0, which corresponds to "root".
+/// A [JailedVmmExecutor] is tied to a [LocalPathResolver] it uses in order to function.
 #[derive(Debug)]
-pub struct JailedVmmExecutor<J: JailRenamer + 'static> {
+pub struct JailedVmmExecutor<P: LocalPathResolver> {
     vmm_arguments: VmmArguments,
     jailer_arguments: JailerArguments,
-    jail_renamer: J,
+    local_path_resolver: P,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
 }
 
-impl<J: JailRenamer + 'static> JailedVmmExecutor<J> {
-    pub fn new(vmm_arguments: VmmArguments, jailer_arguments: JailerArguments, jail_renamer: J) -> Self {
+impl<P: LocalPathResolver> JailedVmmExecutor<P> {
+    pub fn new(vmm_arguments: VmmArguments, jailer_arguments: JailerArguments, local_path_resolver: P) -> Self {
         Self {
             vmm_arguments,
             jailer_arguments,
-            jail_renamer,
+            local_path_resolver,
             command_modifier_chain: Vec::new(),
         }
     }
 
-    pub fn command_modifier<M: CommandModifier + 'static>(mut self, command_modifier: M) -> Self {
+    pub fn command_modifier<M: CommandModifier>(mut self, command_modifier: M) -> Self {
         self.command_modifier_chain.push(Box::new(command_modifier));
         self
     }
@@ -45,7 +46,7 @@ impl<J: JailRenamer + 'static> JailedVmmExecutor<J> {
     }
 }
 
-impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
+impl<P: LocalPathResolver> VmmExecutor for JailedVmmExecutor<P> {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
         match &self.vmm_arguments.api_socket {
             VmmApiSocket::Disabled => None,
@@ -53,7 +54,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         }
     }
 
-    fn get_effective_path_from_local(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
+    fn resolve_effective_path(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
         self.get_paths(installation).1.jail_join(&local_path)
     }
 
@@ -61,7 +62,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
         &self,
         context: VmmExecutorContext<'_, S, R>,
     ) -> Result<(), VmmExecutorError> {
-        // Create jail and delete previous one if necessary
+        // Create the jail and delete the previous one if necessary
         let (chroot_base_dir, jail_path) = self.get_paths(&context.installation);
         upgrade_owner(
             &chroot_base_dir,
@@ -91,7 +92,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             .await
             .map_err(VmmExecutorError::FilesystemError)?;
 
-        // Ensure socket parent directory exists so that the firecracker process can bind inside of it
+        // Ensure that the socket parent directory exists so that the firecracker process can bind inside of it
         if let VmmApiSocket::Enabled(ref socket_path) = self.vmm_arguments.api_socket {
             if let Some(socket_parent_dir) = socket_path.parent() {
                 context
@@ -102,7 +103,6 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             }
         }
 
-        // Apply created resources
         for resource in context.resources.iter().chain(self.vmm_arguments.get_resources()) {
             match resource.get_type() {
                 ResourceType::Created(_) | ResourceType::Produced => {
@@ -110,9 +110,9 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
                 }
                 ResourceType::Moved(_) => {
                     let local_path = self
-                        .jail_renamer
-                        .rename_for_jail(&resource.get_source_path())
-                        .map_err(VmmExecutorError::JailRenamerFailed)?;
+                        .local_path_resolver
+                        .resolve_local_path(&resource.get_source_path())
+                        .map_err(VmmExecutorError::LocalPathResolverError)?;
                     let effective_path = jail_path.jail_join(&local_path);
                     resource.start_initialization(effective_path, Some(local_path))
                 }
@@ -152,7 +152,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
             command_modifier.apply(&mut binary_path, &mut arguments);
         }
 
-        // nulling the pipes is redundant since jailer can do this itself via daemonization
+        // Nulling the pipes is redundant since the jailer can do this itself via daemonization
         let mut process = context
             .process_spawner
             .spawn(&binary_path, arguments, false, &context.runtime)
@@ -173,7 +173,7 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
 
             let exit_status = process.wait().await.map_err(VmmExecutorError::ProcessWaitError)?;
             if !exit_status.success() {
-                return Err(VmmExecutorError::ProcessExitedWithIncorrectStatus(exit_status));
+                return Err(VmmExecutorError::ProcessExitedWithNonZeroStatus(exit_status));
             }
 
             upgrade_owner(
@@ -226,15 +226,15 @@ impl<J: JailRenamer + 'static> VmmExecutor for JailedVmmExecutor<J> {
     }
 }
 
-impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
+impl<P: LocalPathResolver> JailedVmmExecutor<P> {
     fn get_paths(&self, installation: &VmmInstallation) -> (PathBuf, PathBuf) {
         let chroot_base_dir = self
             .jailer_arguments
             .chroot_base_dir
             .clone()
-            .unwrap_or(PathBuf::from("/srv/jailer"));
+            .unwrap_or_else(|| PathBuf::from("/srv/jailer"));
 
-        // example: /srv/jailer/firecracker/1/root
+        // Example of a resulting jail_path: /srv/jailer/firecracker/1/root
         let jail_path = chroot_base_dir
             .join(
                 installation
@@ -250,45 +250,46 @@ impl<R: JailRenamer + 'static> JailedVmmExecutor<R> {
     }
 }
 
-/// An error that can be emitted by a [JailRenamer].
+/// An error that can be emitted by a [LocalPathResolver] implementation.
 #[derive(Debug)]
-pub enum JailRenamerError {
-    PathHasNoFilename(PathBuf),
+pub enum LocalPathResolverError {
+    /// The provided source path had no filename.
+    SourcePathHasNoFilename,
+    /// Another type of error occurred. This error variant is reserved for custom [LocalPathResolver] implementations
+    /// and is not used by the built-in [FlatLocalPathResolver].
     Other(Box<dyn std::error::Error + Send>),
 }
 
-impl std::error::Error for JailRenamerError {}
+impl std::error::Error for LocalPathResolverError {}
 
-impl std::fmt::Display for JailRenamerError {
+impl std::fmt::Display for LocalPathResolverError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            JailRenamerError::PathHasNoFilename(path) => {
-                write!(f, "A supposed file has no filename: {}", path.display())
-            }
-            JailRenamerError::Other(err) => write!(f, "Another error occurred: {err}"),
+            LocalPathResolverError::SourcePathHasNoFilename => write!(f, "The provided source path had no filename"),
+            LocalPathResolverError::Other(err) => write!(f, "Another error occurred: {err}"),
         }
     }
 }
 
-/// A trait defining a method of conversion between an outer path and an inner path. This conversion
-/// should always produce the same path (or error) for the same given outside-jail path.
-pub trait JailRenamer: Send + Sync + Clone {
-    /// Rename the outer path to an inner path.
-    fn rename_for_jail(&self, outer_path: &Path) -> Result<PathBuf, JailRenamerError>;
+/// A trait defining a method of resolving a resource's local path from its source path. This conversion
+/// should always produce the same local path (or error) for the same given source path.
+pub trait LocalPathResolver: Send + Sync + Clone {
+    /// Convert the provided source path to a local path within the jail.
+    fn resolve_local_path(&self, source_path: &Path) -> Result<PathBuf, LocalPathResolverError>;
 }
 
-/// A resolver that transforms a host path with filename (including extension) "p" into /p
-/// inside the jail. Given that files have unique names, this should be enough for most scenarios.
+/// A [LocalPathResolver] that transforms a source path with filename (including extension) "p" into a "/p" local path.
+/// Given that files have unique names, this should be sufficient for most production scenarios.
 #[derive(Debug, Clone, Default)]
-pub struct FlatJailRenamer;
+pub struct FlatLocalPathResolver;
 
-impl JailRenamer for FlatJailRenamer {
-    fn rename_for_jail(&self, outside_path: &Path) -> Result<PathBuf, JailRenamerError> {
+impl LocalPathResolver for FlatLocalPathResolver {
+    fn resolve_local_path(&self, outside_path: &Path) -> Result<PathBuf, LocalPathResolverError> {
         Ok(PathBuf::from(
             "/".to_owned()
                 + &outside_path
                     .file_name()
-                    .ok_or_else(|| JailRenamerError::PathHasNoFilename(outside_path.to_owned()))?
+                    .ok_or(LocalPathResolverError::SourcePathHasNoFilename)?
                     .to_string_lossy(),
         ))
     }
@@ -312,7 +313,7 @@ mod tests {
 
     use crate::vmm::executor::jailed::JailJoin;
 
-    use super::{FlatJailRenamer, JailRenamer};
+    use super::{FlatLocalPathResolver, LocalPathResolver};
 
     #[test]
     fn jail_join_performs_correctly() {
@@ -323,16 +324,20 @@ mod tests {
     }
 
     #[test]
-    fn flat_jail_renamer_moves_correctly() {
-        let renamer = FlatJailRenamer::default();
-        assert_renamer(&renamer, "/opt/file", "/file");
-        assert_renamer(&renamer, "/tmp/some_path.txt", "/some_path.txt");
-        assert_renamer(&renamer, "/some/complex/outside/path/filename.ext4", "/filename.ext4");
+    fn flat_local_path_resolver_moves_correctly() {
+        let renamer = FlatLocalPathResolver::default();
+        assert_local_path_resolver(&renamer, "/opt/file", "/file");
+        assert_local_path_resolver(&renamer, "/tmp/some_path.txt", "/some_path.txt");
+        assert_local_path_resolver(&renamer, "/some/complex/outside/path/filename.ext4", "/filename.ext4");
     }
 
-    fn assert_renamer(renamer: &impl JailRenamer, path: &str, expectation: &str) {
+    fn assert_local_path_resolver<P: LocalPathResolver>(renamer: &P, path: &str, expectation: &str) {
         assert_eq!(
-            renamer.rename_for_jail(&PathBuf::from(path)).unwrap().to_str().unwrap(),
+            renamer
+                .resolve_local_path(&PathBuf::from(path))
+                .unwrap()
+                .to_str()
+                .unwrap(),
             expectation
         );
     }

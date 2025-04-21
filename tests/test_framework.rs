@@ -30,7 +30,7 @@ use fctools::{
         },
         executor::{
             either::EitherVmmExecutor,
-            jailed::{FlatJailRenamer, JailedVmmExecutor},
+            jailed::{FlatLocalPathResolver, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
         },
         installation::VmmInstallation,
@@ -161,7 +161,7 @@ impl ProcessSpawner for FailingRunner {
 // VMM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVmmProcess = VmmProcess<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime>;
+pub type TestVmmProcess = VmmProcess<EitherVmmExecutor<FlatLocalPathResolver>, DirectProcessSpawner, TokioRuntime>;
 
 #[allow(unused)]
 pub async fn run_vmm_process_test<F, Fut>(no_new_pid_ns: bool, closure: F)
@@ -208,7 +208,7 @@ async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProce
     }
 
     let unrestricted_executor = UnrestrictedVmmExecutor::new(vmm_arguments.clone());
-    let jailed_executor = JailedVmmExecutor::new(vmm_arguments, jailer_arguments, FlatJailRenamer::default());
+    let jailed_executor = JailedVmmExecutor::new(vmm_arguments, jailer_arguments, FlatLocalPathResolver::default());
     let ownership_model = VmmOwnershipModel::Downgraded {
         uid: TestOptions::get().await.jailer_uid.into(),
         gid: TestOptions::get().await.jailer_gid.into(),
@@ -251,7 +251,7 @@ async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProce
 // VM TEST FRAMEWORK
 
 #[allow(unused)]
-pub type TestVm = Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime>;
+pub type TestVm = Vm<EitherVmmExecutor<FlatLocalPathResolver>, DirectProcessSpawner, TokioRuntime>;
 
 #[allow(unused)]
 pub type TestResourceSystem = ResourceSystem<DirectProcessSpawner, TokioRuntime>;
@@ -596,7 +596,7 @@ impl VmBuilder {
         let jailed_executor = EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(socket_path)),
             jailer_arguments,
-            FlatJailRenamer::default(),
+            FlatLocalPathResolver::default(),
         ));
 
         // add components from builder to data
@@ -672,7 +672,7 @@ impl VmBuilder {
     async fn test_worker<F, Fut>(
         network_data: Option<NetworkData>,
         configuration: VmConfiguration,
-        executor: EitherVmmExecutor<FlatJailRenamer>,
+        executor: EitherVmmExecutor<FlatLocalPathResolver>,
         resource_system: TestResourceSystem,
         pre_start_hook: Option<PreStartHook>,
         function: F,
@@ -693,7 +693,7 @@ impl VmBuilder {
             EitherVmmExecutor::Unrestricted(_) => false,
         };
 
-        let mut vm: Vm<EitherVmmExecutor<FlatJailRenamer>, DirectProcessSpawner, TokioRuntime> = TestVm::prepare(
+        let mut vm: Vm<EitherVmmExecutor<FlatLocalPathResolver>, DirectProcessSpawner, TokioRuntime> = TestVm::prepare(
             executor,
             resource_system,
             get_real_firecracker_installation(),

@@ -5,7 +5,7 @@ use std::{fmt::Debug, path::PathBuf};
 /// [VmmArguments] and [JailerArguments] take into consideration, such as prepending, appending or
 /// replacing parts of the command [String]. Multiple [CommandModifier] should be chained together and
 /// executed in the exact order they were configured.
-pub trait CommandModifier: Debug + Send + Sync {
+pub trait CommandModifier: Debug + Send + Sync + 'static {
     /// Apply the modification to the given arguments and binary path.
     fn apply(&self, binary_path: &mut PathBuf, arguments: &mut Vec<String>);
 }

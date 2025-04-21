@@ -314,11 +314,11 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
             .map_err(VmmProcessError::ResourceSystemError)
     }
 
-    /// Transforms a given local resource path into an effective resource path using the executor. This should be used
-    /// with care and only in cases when the resource system is insufficient.
-    pub fn get_effective_path_from_local<P: Into<PathBuf>>(&self, local_path: P) -> PathBuf {
+    /// Transforms a given local resource path into an effective resource path using the underlying [VmmExecutor].
+    /// This should be used with care and only in cases when the facilities of the [ResourceSystem] prove to be insufficient.
+    pub fn resolve_effective_path<P: Into<PathBuf>>(&self, local_path: P) -> PathBuf {
         self.executor
-            .get_effective_path_from_local(&self.installation, local_path.into())
+            .resolve_effective_path(&self.installation, local_path.into())
     }
 
     /// Get a shared reference to the [ResourceSystem] used by this [VmmProcess].

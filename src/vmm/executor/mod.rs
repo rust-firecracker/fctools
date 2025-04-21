@@ -1,7 +1,7 @@
-use std::{future::Future, num::ParseIntError, path::PathBuf, process::ExitStatus};
+use std::{future::Future, path::PathBuf, process::ExitStatus};
 
 #[cfg(feature = "jailed-vmm-executor")]
-use jailed::JailRenamerError;
+use jailed::LocalPathResolverError;
 use process_handle::ProcessHandle;
 
 use crate::{process_spawner::ProcessSpawner, runtime::Runtime};
@@ -24,22 +24,32 @@ pub mod unrestricted;
 
 pub mod process_handle;
 
-/// An error emitted by a [VmmExecutor].
+/// An error that can be emitted by a [VmmExecutor] implementation.
 #[derive(Debug)]
 pub enum VmmExecutorError {
+    /// An I/O error occurred while allocating a Linux pidfd for a process.
     PidfdAllocationError(std::io::Error),
-    ProcessWaitError(std::io::Error),
-    FilesystemError(std::io::Error),
-    ChangeOwnerError(ChangeOwnerError),
-    ResourceSystemError(ResourceSystemError),
-    ExpectedDirectoryParentMissing(PathBuf),
-    TaskJoinFailed,
+    /// An I/O error occurred while spawning a process via a [ProcessSpawner].
     ProcessSpawnFailed(std::io::Error),
+    /// An I/O error occurred while waiting for the exit of a child process spawned by a [ProcessSpawner].
+    ProcessWaitError(std::io::Error),
+    /// A process exited with an unsuccessful non-zero [ExitStatus].
+    ProcessExitedWithNonZeroStatus(ExitStatus),
+    /// An I/O error occurred while interacting with the filesystem.
+    FilesystemError(std::io::Error),
+    /// A [ChangeOwnerError] occurred while performing necessary ownership changes.
+    ChangeOwnerError(ChangeOwnerError),
+    /// A [ResourceSystemError] occurred while scheduling [Resource] initialization and/or disposal.
+    ResourceSystemError(ResourceSystemError),
+    /// The given owned [PathBuf] was expected to have a directory parent, yet it was located at the root
+    /// of the filesystem.
+    ExpectedDirectoryParentMissing(PathBuf),
+    /// A [LocalPathResolverError] occurred.
     #[cfg(feature = "jailed-vmm-executor")]
     #[cfg_attr(docsrs, doc(cfg(feature = "jailed-vmm-executor")))]
-    JailRenamerFailed(JailRenamerError),
-    ProcessExitedWithIncorrectStatus(ExitStatus),
-    ParseIntError(ParseIntError),
+    LocalPathResolverError(LocalPathResolverError),
+    /// Another type of error occurred within the [VmmExecutor] implementation's code. This error variant is
+    /// reserved for custom [VmmExecutor] implementations and isn't used by the built-in ones.
     Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -64,29 +74,27 @@ impl std::fmt::Display for VmmExecutorError {
             VmmExecutorError::ExpectedDirectoryParentMissing(path) => {
                 write!(f, "A parent of a directory is missing: {}", path.display())
             }
-            VmmExecutorError::TaskJoinFailed => write!(f, "Joining on an async task via the runtime failed"),
             VmmExecutorError::ProcessSpawnFailed(err) => write!(f, "Spawning a process failed: {err}"),
             #[cfg(feature = "jailed-vmm-executor")]
-            VmmExecutorError::JailRenamerFailed(err) => {
+            VmmExecutorError::LocalPathResolverError(err) => {
                 write!(f, "Invoking the jail renamer to produce an inner path failed: {err}")
             }
-            VmmExecutorError::ProcessExitedWithIncorrectStatus(exit_status) => {
+            VmmExecutorError::ProcessExitedWithNonZeroStatus(exit_status) => {
                 write!(f, "A watched process exited with a non-zero exit status: {exit_status}")
             }
-            VmmExecutorError::ParseIntError(err) => write!(f, "Parsing an integer from a string failed: {err}"),
             VmmExecutorError::Other(err) => write!(f, "Another error occurred: {err}"),
         }
     }
 }
 
-/// A [VmmExecutor] manages the environment of a VMM, correctly invoking its process, while
+/// A [VmmExecutor] manages the environment of a VMM, correctly invoking its process, as well as
 /// setting up and subsequently cleaning its environment. This allows modularity between different modes of VMM execution.
 pub trait VmmExecutor: Send + Sync {
     /// Get the host location of the VMM socket, if one exists.
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf>;
 
-    /// Transform a given local resource path to an effective resource path.
-    fn get_effective_path_from_local(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf;
+    /// Resolve an effective path of a resource from its local path.
+    fn resolve_effective_path(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf;
 
     /// Prepare all transient resources for the VMM invocation. It is assumed that an implementation of this function
     /// appropriately schedules the initialization of all [Resource]s inside the given [VmmExecutorContext] to effective
@@ -99,7 +107,7 @@ pub trait VmmExecutor: Send + Sync {
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 
     /// Invoke the VMM on the given [VmmInstallation] and return the [ProcessHandle] that performs a connection to
-    /// the created process, regardless of it possibly being not a child and rather having been unshare()-d into
+    /// the created process, regardless of it possibly not being a child and rather having been unshare()-d into
     /// a separate PID namespace.
     fn invoke<S: ProcessSpawner, R: Runtime>(
         &self,

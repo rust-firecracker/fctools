@@ -288,10 +288,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         send_api_request(self, "/snapshot/create", "PUT", Some(&create_snapshot)).await?;
         let snapshot_effective_path = self
             .vmm_process
-            .get_effective_path_from_local(create_snapshot.snapshot.get_source_path());
+            .resolve_effective_path(create_snapshot.snapshot.get_source_path());
         let mem_file_effective_path = self
             .vmm_process
-            .get_effective_path_from_local(create_snapshot.mem_file.get_source_path());
+            .resolve_effective_path(create_snapshot.mem_file.get_source_path());
 
         futures_util::try_join!(
             upgrade_owner(

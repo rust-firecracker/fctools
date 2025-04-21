@@ -202,9 +202,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
             ref data,
         } = self.configuration
         {
-            let config_effective_path = self
-                .vmm_process
-                .get_effective_path_from_local(config_local_path.clone());
+            let config_effective_path = self.vmm_process.resolve_effective_path(config_local_path.clone());
             config_path = Some(config_local_path.clone());
             upgrade_owner(
                 &config_effective_path,
@@ -296,9 +294,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         &self.configuration
     }
 
-    /// Translates the given local resource path to an effective resource path.
-    pub fn get_effective_path_from_local<P: Into<PathBuf>>(&self, local_path: P) -> PathBuf {
-        self.vmm_process.get_effective_path_from_local(local_path)
+    /// Transforms a given local resource path into an effective resource path using the underlying [VmmProcess].
+    /// This should be used with care and only in cases when the facilities of the [ResourceSystem] prove to be insufficient.
+    pub fn resolve_effective_path<P: Into<PathBuf>>(&self, local_path: P) -> PathBuf {
+        self.vmm_process.resolve_effective_path(local_path)
     }
 
     /// Get a shared reference to the [ResourceSystem] used by this [Vm].

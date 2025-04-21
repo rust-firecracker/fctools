@@ -14,7 +14,7 @@ use fctools::{
         arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
         executor::{
             either::EitherVmmExecutor,
-            jailed::{FlatJailRenamer, JailedVmmExecutor},
+            jailed::{FlatLocalPathResolver, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
         },
         ownership::VmmOwnershipModel,
@@ -174,7 +174,7 @@ fn vm_processes_vsock() {
 fn vm_translates_local_to_effective_paths() {
     VmBuilder::new().run(|mut vm| async move {
         let local_path = get_tmp_path();
-        let effective_path = vm.get_effective_path_from_local(&local_path);
+        let effective_path = vm.resolve_effective_path(&local_path);
         assert!(
             local_path == effective_path || effective_path.to_str().unwrap().ends_with(local_path.to_str().unwrap())
         );
@@ -285,7 +285,7 @@ async fn prepare_snapshot_vm(old_vm: &mut TestVm, snapshot: VmSnapshot, is_jaile
         true => EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
             JailerArguments::new(rand::rng().next_u32().to_string().try_into().unwrap()),
-            FlatJailRenamer::default(),
+            FlatLocalPathResolver::default(),
         )),
         false => EitherVmmExecutor::Unrestricted(UnrestrictedVmmExecutor::new(VmmArguments::new(
             VmmApiSocket::Enabled(get_tmp_path()),

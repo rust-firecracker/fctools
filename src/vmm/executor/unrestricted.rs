@@ -35,7 +35,7 @@ impl UnrestrictedVmmExecutor {
         }
     }
 
-    pub fn command_modifier<C: CommandModifier + 'static>(mut self, command_modifier: C) -> Self {
+    pub fn command_modifier<C: CommandModifier>(mut self, command_modifier: C) -> Self {
         self.command_modifier_chain.push(Box::new(command_modifier));
         self
     }
@@ -64,7 +64,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
     }
 
-    fn get_effective_path_from_local(&self, _installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
+    fn resolve_effective_path(&self, _installation: &VmmInstallation, local_path: PathBuf) -> PathBuf {
         local_path
     }
 
