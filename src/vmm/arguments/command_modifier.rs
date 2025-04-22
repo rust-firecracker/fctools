@@ -1,10 +1,10 @@
 use std::{fmt::Debug, path::PathBuf};
 
-/// A [CommandModifier] is a simple transformation that can be applied to a [Vec<String>] of arguments
+/// A [CommandModifier] is a simple transformation that can be applied to a [Vec] of [String] arguments
 /// and a [PathBuf] binary path. This allows customizing argument behavior beyond the scope of what the
-/// [VmmArguments] and [JailerArguments] take into consideration, such as prepending, appending or
-/// replacing parts of the command [String]. Multiple [CommandModifier] should be chained together and
-/// executed in the exact order they were configured.
+/// [VmmArguments](super::VmmArguments) and [JailerArguments](super::jailer::JailerArguments) take into
+/// consideration, such as prepending, appending or replacing parts of the command [String]. Multiple
+/// [CommandModifier] should be chained together and executed in the exact order they were configured.
 pub trait CommandModifier: Debug + Send + Sync + 'static {
     /// Apply the modification to the given arguments and binary path.
     fn apply(&self, binary_path: &mut PathBuf, arguments: &mut Vec<String>);

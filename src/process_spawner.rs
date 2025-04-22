@@ -22,8 +22,8 @@ use crate::runtime::Runtime;
 /// the respective processes, or an elevated "chown"/"mkdir" invocation from the VMM executors.
 ///
 /// Implementations of a [ProcessSpawner] are cloned highly frequently by fctools, so the [Clone] implementation must be fast
-/// and cheap. If some inner state is stored, storing an [Arc](std::sync::Arc) of it internally is recommended to avoid
-/// expensive copying operations.
+/// and cheap. If some inner state is stored, storing an [Arc] of it internally is recommended to avoid expensive copying
+/// operations.
 pub trait ProcessSpawner: Clone + Send + Sync + 'static {
     /// Spawn the process with the given binary path and arguments, optionally nulling as many of its pipes as feasible.
     fn spawn<R: Runtime>(

@@ -9,9 +9,10 @@ use std::{
 
 use crate::runtime::{Runtime, RuntimeAsyncFd, RuntimeChild};
 
-/// A process handle is a thin abstraction over either an "attached" child process that is a [RuntimeProcess],
-/// or a "detached" certain process that (in most cases, as it would make sense to use an "attached" process otherwise)
-/// isn't a child and is controlled via a [RuntimeAsyncFd] wrapping a Linux pidfd.
+/// A process handle is a thin abstraction over either an "attached" child process that is a [RuntimeChild]
+/// implementation, or a "detached" certain process that (in most cases, as it would make sense to use an
+/// "attached" process otherwise) isn't a child and is controlled via a [RuntimeAsyncFd] implementation
+/// wrapping a Linux pidfd.
 #[derive(Debug)]
 pub struct ProcessHandle<R: Runtime>(ProcessHandleInner<R>);
 
