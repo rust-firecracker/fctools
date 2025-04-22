@@ -3,7 +3,12 @@ use std::{future::Future, marker::PhantomData, path::PathBuf, pin::Pin, sync::Ar
 use http::Uri;
 use tonic::transport::{Channel, Endpoint};
 
-use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vm::Vm, vmm::executor::VmmExecutor};
+use crate::{
+    process_spawner::ProcessSpawner,
+    runtime::{util::RuntimeHyperExecutor, Runtime},
+    vm::Vm,
+    vmm::executor::VmmExecutor,
+};
 
 /// An error emitted by the gRPC-over-vsock extension.
 #[derive(Debug)]
@@ -98,9 +103,11 @@ fn create_endpoint_and_service<E: VmmExecutor, S: ProcessSpawner, R: Runtime, C:
         .get_effective_path()
         .ok_or(VmVsockGrpcError::VsockResourceUninitialized)?;
 
-    let mut endpoint =
-        Endpoint::try_from(format!("http://[::1]:{guest_port}")).map_err(VmVsockGrpcError::ProvidedAddressRejected)?;
-    endpoint = configure_endpoint(endpoint);
+    let endpoint = configure_endpoint(
+        Endpoint::try_from(format!("http://[::1]:{guest_port}"))
+            .map_err(VmVsockGrpcError::ProvidedAddressRejected)?
+            .executor(RuntimeHyperExecutor(vm.vmm_process.resource_system.runtime.clone())),
+    );
 
     let service = FirecrackerTowerService {
         guest_port,
