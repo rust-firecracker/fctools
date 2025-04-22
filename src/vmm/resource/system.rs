@@ -19,7 +19,7 @@ use super::{
         resource_system_main_task, OwnedResource, OwnedResourceState, ResourceData, ResourceSystemPull,
         ResourceSystemPush,
     },
-    Resource, ResourceIterator, ResourceShared, ResourceState, ResourceType,
+    Resource, ResourceInner, ResourceIterator, ResourceState, ResourceType,
 };
 
 /// A [ResourceSystem] represents a non-cloneable object connected to a background task running on a [Runtime]. This task
@@ -135,15 +135,13 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             .unbounded_send(ResourceSystemPush::AddResource(owned_resource))
             .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
-        let resource = Resource {
+        let resource = Resource(Arc::new(ResourceInner {
             pull_rx,
-            shared: Arc::new(ResourceShared {
-                push_tx,
-                data,
-                init_data: OnceLock::new(),
-                disposed: AtomicBool::new(false),
-            }),
-        };
+            push_tx,
+            data,
+            init_data: OnceLock::new(),
+            disposed: AtomicBool::new(false),
+        }));
 
         self.resources.push(resource.clone());
         Ok(resource)
