@@ -63,10 +63,15 @@ impl VmmOwnershipModel {
 /// than the shared model.
 #[derive(Debug)]
 pub enum ChangeOwnerError {
+    /// An I/O error occurred while spawning a process via a [ProcessSpawner].
     ProcessSpawnFailed(std::io::Error),
+    /// An I/O error occurred while waiting on the exit of a process spawned via a [ProcessSpawner].
     ProcessWaitFailed(std::io::Error),
-    ProcessExitedWithWrongStatus(ExitStatus),
+    /// A process exited with a non-zero (unsuccessful) [ExitStatus].
+    ProcessExitedWithNonZeroStatus(ExitStatus),
+    /// An I/O error occurred while performing a recursive (applied to a directory tree) chown.
     RecursiveChownError(std::io::Error),
+    /// An I/O error occurred while performing a flat (applied to a singular file) chown.
     FlatChownError(std::io::Error),
 }
 
@@ -79,13 +84,13 @@ impl std::fmt::Display for ChangeOwnerError {
             ChangeOwnerError::ProcessWaitFailed(err) => {
                 write!(f, "Waiting on the completion of a chown process failed: {err}")
             }
-            ChangeOwnerError::ProcessExitedWithWrongStatus(exit_status) => {
+            ChangeOwnerError::ProcessExitedWithNonZeroStatus(exit_status) => {
                 write!(f, "The chown process exited with a non-zero exit status: {exit_status}")
             }
             ChangeOwnerError::RecursiveChownError(err) => {
-                write!(f, "An recursive in-process chown failed: {err}")
+                write!(f, "An recursive chown failed due to an I/O error: {err}")
             }
-            ChangeOwnerError::FlatChownError(err) => write!(f, "A flat in-process chown failed: {err}"),
+            ChangeOwnerError::FlatChownError(err) => write!(f, "A flat chown failed due to an I/O error: {err}"),
         }
     }
 }
@@ -119,7 +124,7 @@ pub async fn upgrade_owner<R: Runtime, S: ProcessSpawner>(
         // code 256 means that a concurrent chown is being called and the chown will still be applied, so this error can
         // "safely" be ignored, which is better than inducing the overhead of global locking on chown paths.
         if !exit_status.success() && exit_status.into_raw() != 256 {
-            return Err(ChangeOwnerError::ProcessExitedWithWrongStatus(exit_status));
+            return Err(ChangeOwnerError::ProcessExitedWithNonZeroStatus(exit_status));
         }
     }
 

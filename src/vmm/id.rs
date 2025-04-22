@@ -9,8 +9,12 @@ pub struct VmmId(String);
 /// An error produced when constructing a [VmmId] from an unchecked [String].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum VmmIdError {
+    /// The ID is too long (longer than 60 characters).
     TooShort,
+    /// The ID is too short (shorter than 5 characters).
     TooLong,
+    /// The ID contains an invalid character. Only ASCII alphanumeric characters and the "-" character are
+    /// permitted.
     ContainsInvalidCharacter,
 }
 

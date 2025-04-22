@@ -173,13 +173,18 @@ impl<S: ProcessSpawner, R: Runtime> Drop for ResourceSystem<S, R> {
 /// An error that can be emitted by a [ResourceSystem] or a standalone [Resource].
 #[derive(Debug, Clone)]
 pub enum ResourceSystemError {
+    /// A [Resource]'s [ResourceState] did not permit the requested operation.
     IncorrectState(ResourceState),
+    /// An internal channel connection was severed from the other side.
     ChannelDisconnected,
+    /// A malformed response was transmitted over an internal channel connection.
     MalformedResponse,
+    /// A [ChangeOwnerError] occurred when executing a scheduled action.
     ChangeOwnerError(Arc<ChangeOwnerError>),
+    /// An I/O error occurred while interacting with the filesystem for a scheduled action.
     FilesystemError(Arc<std::io::Error>),
+    /// A [Resource]'s source path was missing at the time of the execution of a scheduled action.
     SourcePathMissing,
-    TaskJoinFailed,
 }
 
 impl std::fmt::Display for ResourceSystemError {
@@ -188,15 +193,16 @@ impl std::fmt::Display for ResourceSystemError {
             ResourceSystemError::IncorrectState(state) => {
                 write!(f, "Had incorrect {state} of resource, not permitted by operation")
             }
-            ResourceSystemError::ChannelDisconnected => write!(f, "An internal channel connection broke"),
+            ResourceSystemError::ChannelDisconnected => {
+                write!(f, "An internal channel connection was severed from the other side")
+            }
             ResourceSystemError::MalformedResponse => write!(
                 f,
                 "A malformed response was transmitted over an internal channel connection"
             ),
             ResourceSystemError::ChangeOwnerError(err) => write!(f, "An error occurred when changing ownership: {err}"),
             ResourceSystemError::FilesystemError(err) => write!(f, "A filesystem error occurred: {err}"),
-            ResourceSystemError::SourcePathMissing => write!(f, "A moved resource's source path was missing"),
-            ResourceSystemError::TaskJoinFailed => write!(f, "Joining on a set of runtime tasks failed"),
+            ResourceSystemError::SourcePathMissing => write!(f, "A resource's source path is missing"),
         }
     }
 }

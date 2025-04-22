@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use fctools::{
     process_spawner::{DirectProcessSpawner, ProcessSpawner, SuProcessSpawner, SudoProcessSpawner},
     runtime::{tokio::TokioRuntime, RuntimeChild},
-    vmm::installation::{VmmInstallation, VmmInstallationError},
+    vmm::installation::{VmmInstallation, VmmInstallationVerificationError},
 };
 use futures_util::AsyncReadExt;
 use test_framework::{get_test_path, TestOptions};
@@ -23,7 +23,7 @@ async fn installation_does_not_verify_for_missing_files() {
         installation
             .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)
             .await,
-        Err(VmmInstallationError::BinaryMissing)
+        Err(VmmInstallationVerificationError::BinaryMissing)
     );
 }
 
@@ -45,7 +45,7 @@ async fn installation_does_not_verify_for_non_executable_files() {
         installation
             .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)
             .await,
-        Err(VmmInstallationError::BinaryNotExecutable)
+        Err(VmmInstallationVerificationError::BinaryNotExecutable)
     );
 }
 
@@ -61,7 +61,7 @@ async fn installation_does_not_verify_for_incorrect_binary_type() {
         installation
             .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)
             .await,
-        Err(VmmInstallationError::BinaryIsOfIncorrectType)
+        Err(VmmInstallationVerificationError::BinaryIsOfIncorrectType)
     );
 }
 
@@ -77,7 +77,7 @@ async fn installation_does_not_verify_for_incorrect_binary_version() {
         installation
             .verify(&TestOptions::get().await.toolchain.version, &TokioRuntime)
             .await,
-        Err(VmmInstallationError::BinaryDoesNotMatchExpectedVersion)
+        Err(VmmInstallationVerificationError::BinaryDoesNotMatchExpectedVersion)
     );
 }
 

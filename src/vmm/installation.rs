@@ -9,43 +9,52 @@ use crate::runtime::Runtime;
 /// A [VmmInstallation] encapsulates release binaries of the most important automatable VMM components:
 /// "firecracker", "jailer" and "snapshot-editor". The [VmmInstallation] holds an [Arc] of an inner struct
 /// that owns the paths in order to avoid excessive path copying in memory. As such, cloning a [VmmInstallation]
-/// is cheap and creating an [Arc<VmmInstallation>] is entirely redundant.
+/// is cheap and creating an [Arc] of [VmmInstallation] is entirely redundant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VmmInstallation(Arc<VmmInstallationInner>);
 
 #[derive(Debug, PartialEq, Eq)]
 struct VmmInstallationInner {
-    pub firecracker_path: PathBuf,
-    pub jailer_path: PathBuf,
-    pub snapshot_editor_path: PathBuf,
+    firecracker_path: PathBuf,
+    jailer_path: PathBuf,
+    snapshot_editor_path: PathBuf,
 }
 
 /// Error caused during [VmmInstallation] verification.
 #[derive(Debug)]
-pub enum VmmInstallationError {
+pub enum VmmInstallationVerificationError {
+    /// An I/O error occurred while interacting with the filesystem.
     FilesystemError(std::io::Error),
+    /// An installation binary was missing on the filesystem.
     BinaryMissing,
+    /// An installation binary did not have the executable permission.
     BinaryNotExecutable,
+    /// An installation binary didn't report the expected type, meaning it either doesn't
+    /// belong to a Firecracker toolchain, or the paths for the installation were passed
+    /// in an incorrect order (meaning they are mismatched with the actual binaries).
     BinaryIsOfIncorrectType,
+    /// An installation binary didn't match the expected version.
     BinaryDoesNotMatchExpectedVersion,
 }
 
-impl std::error::Error for VmmInstallationError {}
+impl std::error::Error for VmmInstallationVerificationError {}
 
-impl std::fmt::Display for VmmInstallationError {
+impl std::fmt::Display for VmmInstallationVerificationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VmmInstallationError::FilesystemError(err) => {
+            VmmInstallationVerificationError::FilesystemError(err) => {
                 write!(f, "A filesystem operation backed by the runtime failed: {err}")
             }
-            VmmInstallationError::BinaryMissing => write!(f, "A binary inside the installation doesn't exist"),
-            VmmInstallationError::BinaryNotExecutable => {
+            VmmInstallationVerificationError::BinaryMissing => {
+                write!(f, "A binary inside the installation doesn't exist")
+            }
+            VmmInstallationVerificationError::BinaryNotExecutable => {
                 write!(f, "A binary inside the installation doesn't have execution permissions")
             }
-            VmmInstallationError::BinaryIsOfIncorrectType => {
+            VmmInstallationVerificationError::BinaryIsOfIncorrectType => {
                 write!(f, "A binary inside the installation is incorrectly labeled")
             }
-            VmmInstallationError::BinaryDoesNotMatchExpectedVersion => {
+            VmmInstallationVerificationError::BinaryDoesNotMatchExpectedVersion => {
                 write!(f, "A binary inside the installation does not match the given version")
             }
         }
@@ -79,12 +88,12 @@ impl VmmInstallation {
     }
 
     /// Verify the [VmmInstallation] using the given [Runtime] by ensuring all binaries exist,
-    /// are executable and yield the correct type and version when spawned and awaited with "--version".
+    /// are executable and yield the correct type and version when spawned and waited on with "--version".
     pub async fn verify<R: Runtime, V: AsRef<str>>(
         &self,
         expected_version: V,
         runtime: &R,
-    ) -> Result<(), VmmInstallationError> {
+    ) -> Result<(), VmmInstallationVerificationError> {
         futures_util::try_join!(
             verify_imp::<R>(
                 runtime,
@@ -109,27 +118,27 @@ async fn verify_imp<R: Runtime>(
     path: &Path,
     expected_version: &str,
     expected_name: &str,
-) -> Result<(), VmmInstallationError> {
+) -> Result<(), VmmInstallationVerificationError> {
     if !runtime
         .fs_exists(path)
         .await
-        .map_err(VmmInstallationError::FilesystemError)?
+        .map_err(VmmInstallationVerificationError::FilesystemError)?
     {
-        return Err(VmmInstallationError::BinaryMissing);
+        return Err(VmmInstallationVerificationError::BinaryMissing);
     }
 
     let output = runtime
         .run_process(path.as_os_str(), vec![OsString::from("--version")], true, false)
         .await
-        .map_err(|_| VmmInstallationError::BinaryNotExecutable)?;
+        .map_err(|_| VmmInstallationVerificationError::BinaryNotExecutable)?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
 
     if !stdout.starts_with(expected_name) {
-        return Err(VmmInstallationError::BinaryIsOfIncorrectType);
+        return Err(VmmInstallationVerificationError::BinaryIsOfIncorrectType);
     }
 
     if !stdout.contains(expected_version) {
-        return Err(VmmInstallationError::BinaryDoesNotMatchExpectedVersion);
+        return Err(VmmInstallationVerificationError::BinaryDoesNotMatchExpectedVersion);
     }
 
     Ok(())
