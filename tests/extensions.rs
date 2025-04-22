@@ -223,6 +223,7 @@ async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
         .as_ref()
         .unwrap()
         .metrics
+        .clone()
         .get_effective_path()
         .unwrap();
 
@@ -253,6 +254,7 @@ fn metrics_task_can_be_cancelled_via_join_handle() {
                     .as_ref()
                     .unwrap()
                     .metrics
+                    .clone()
                     .get_effective_path()
                     .unwrap(),
                 100,

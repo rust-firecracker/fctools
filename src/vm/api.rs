@@ -282,7 +282,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         send_api_request_with_response(self, "/machine-config", "GET", None::<i32>).await
     }
 
-    async fn create_snapshot(&mut self, create_snapshot: CreateSnapshot) -> Result<VmSnapshot, VmApiError> {
+    async fn create_snapshot(&mut self, mut create_snapshot: CreateSnapshot) -> Result<VmSnapshot, VmApiError> {
         self.ensure_state(VmState::Paused)
             .map_err(VmApiError::StateCheckError)?;
         send_api_request(self, "/snapshot/create", "PUT", Some(&create_snapshot)).await?;

@@ -3,7 +3,7 @@ use std::{
     pin::pin,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex, OnceLock,
+        Arc, OnceLock,
     },
 };
 
@@ -104,48 +104,41 @@ impl std::fmt::Display for ResourceState {
 /// When the VM layer is enabled, a [Resource] implements serde's Serialize trait by serializing either its local path
 /// for moved resources or its source path, and panics if either is inaccessible, so it is not safe to serialize an
 /// uninitialized [Resource].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Resource {
+    pull_rx: async_broadcast::Receiver<ResourcePull>,
+    shared: Arc<ResourceShared>,
+}
+
+#[derive(Debug)]
+struct ResourceShared {
     push_tx: mpsc::UnboundedSender<ResourcePush>,
-    pull_rx: Mutex<async_broadcast::Receiver<ResourcePull>>,
     data: Arc<ResourceData>,
     init_data: OnceLock<Arc<ResourceInitData>>,
-    disposed: Arc<AtomicBool>,
+    disposed: AtomicBool,
 }
 
 impl PartialEq for Resource {
     fn eq(&self, other: &Self) -> bool {
-        self.push_tx.same_receiver(&other.push_tx)
+        Arc::ptr_eq(&self.shared, &other.shared)
     }
 }
 
 impl Eq for Resource {}
 
-impl Clone for Resource {
-    fn clone(&self) -> Self {
-        Self {
-            push_tx: self.push_tx.clone(),
-            pull_rx: Mutex::new(self.pull_rx.lock().expect("pull_rx mutex was poisoned").clone()),
-            data: self.data.clone(),
-            init_data: self.init_data.clone(),
-            disposed: self.disposed.clone(),
-        }
-    }
-}
-
 impl Resource {
     /// Gets the current [ResourceState] of this [Resource]. This function may poll.
     #[inline]
-    pub fn get_state(&self) -> ResourceState {
-        if self.disposed.load(Ordering::Acquire) {
+    pub fn get_state(&mut self) -> ResourceState {
+        if self.shared.disposed.load(Ordering::Acquire) {
             return ResourceState::Disposed;
         }
 
-        match self.init_data.get() {
+        match self.shared.init_data.get() {
             Some(_) => ResourceState::Initialized,
             None => {
                 self.poll();
-                match self.init_data.get() {
+                match self.shared.init_data.get() {
                     Some(_) => ResourceState::Initialized,
                     None => ResourceState::Uninitialized,
                 }
@@ -155,39 +148,40 @@ impl Resource {
 
     /// Get the [ResourceType] of this [Resource]. This function never polls.
     pub fn get_type(&self) -> ResourceType {
-        self.data.r#type
+        self.shared.data.r#type
     }
 
     /// Get the source path as an owned [PathBuf] from this [Resource]. This function never polls.
     pub fn get_source_path(&self) -> PathBuf {
-        self.data.source_path.clone()
+        self.shared.data.source_path.clone()
     }
 
     /// Get the effective path as an owned [PathBuf] from this [Resource], or [None] if the [Resource]
     /// is not yet initialized. This function always polls.
-    pub fn get_effective_path(&self) -> Option<PathBuf> {
+    pub fn get_effective_path(&mut self) -> Option<PathBuf> {
         self.poll();
-        self.init_data.get().map(|data| data.effective_path.clone())
+        self.shared.init_data.get().map(|data| data.effective_path.clone())
     }
 
     /// Get the local path as an owned [PathBuf] from this [Resource], or [None] if the [Resource] is not
     /// yet initialized or hasn't been assigned a local path during its initialization. This function always
     /// polls.
-    pub fn get_local_path(&self) -> Option<PathBuf> {
+    pub fn get_local_path(&mut self) -> Option<PathBuf> {
         self.poll();
-        self.init_data.get().and_then(|data| data.local_path.clone())
+        self.shared.init_data.get().and_then(|data| data.local_path.clone())
     }
 
     /// Schedule this [Resource] to be initialized by its system to the given effective and local paths.
     /// This operation doesn't actually wait for the initialization to occur. This function may poll.
     pub fn start_initialization(
-        &self,
+        &mut self,
         effective_path: PathBuf,
         local_path: Option<PathBuf>,
     ) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Uninitialized)?;
 
-        self.push_tx
+        self.shared
+            .push_tx
             .unbounded_send(ResourcePush::Initialize(ResourceInitData {
                 effective_path,
                 local_path,
@@ -198,7 +192,7 @@ impl Resource {
     /// Schedule this [Resource] to be initialized by its system to the same effective (and local, if the
     /// resource is moved) path as its source path. This operation doesn't actually wait for the initialization
     /// to occur. This function may poll.
-    pub fn start_initialization_with_same_path(&self) -> Result<(), ResourceSystemError> {
+    pub fn start_initialization_with_same_path(&mut self) -> Result<(), ResourceSystemError> {
         let local_path = match self.get_type() {
             ResourceType::Moved(_) => Some(self.get_source_path()),
             _ => None,
@@ -208,24 +202,24 @@ impl Resource {
     }
 
     /// Schedule this [Resource] to be disposed by its system. This function may poll.
-    pub fn start_disposal(&self) -> Result<(), ResourceSystemError> {
+    pub fn start_disposal(&mut self) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Initialized)?;
-        let _ = self.push_tx.unbounded_send(ResourcePush::Dispose);
+        let _ = self.shared.push_tx.unbounded_send(ResourcePush::Dispose);
         Ok(())
     }
 
     /// Schedule and await the initialization of this [Resource] to the given effective and local paths. This
     /// function may poll.
     pub async fn initialize(
-        &self,
+        &mut self,
         effective_path: PathBuf,
         local_path: Option<PathBuf>,
     ) -> Result<(), ResourceSystemError> {
         self.start_initialization(effective_path, local_path)?;
 
-        match pin!(self.pull_rx.lock().expect("pull_rx mutex was poisoned").recv_direct()).await {
+        match pin!(self.pull_rx.recv_direct()).await {
             Ok(ResourcePull::Initialized(Ok(init_data))) => {
-                let _ = self.init_data.set(init_data);
+                let _ = self.shared.init_data.set(init_data);
                 Ok(())
             }
             Ok(ResourcePull::Initialized(Err(err))) => Err(err),
@@ -236,7 +230,7 @@ impl Resource {
 
     /// Schedule and await the initialization of this [Resource] to the same effective (and local, if the
     /// resource is moved) path as its source path. This function may poll.
-    pub async fn initialize_with_same_path(&self) -> Result<(), ResourceSystemError> {
+    pub async fn initialize_with_same_path(&mut self) -> Result<(), ResourceSystemError> {
         let local_path = match self.get_type() {
             ResourceType::Moved(_) => Some(self.get_source_path()),
             _ => None,
@@ -246,12 +240,12 @@ impl Resource {
     }
 
     /// Schedule and await the disposal of this [Resource]. This function may poll.
-    pub async fn dispose(&self) -> Result<(), ResourceSystemError> {
+    pub async fn dispose(&mut self) -> Result<(), ResourceSystemError> {
         self.start_disposal()?;
 
-        match pin!(self.pull_rx.lock().expect("pull_rx mutex was poisoned").recv_direct()).await {
+        match pin!(self.pull_rx.recv_direct()).await {
             Ok(ResourcePull::Disposed(Ok(_))) => {
-                self.disposed.store(true, Ordering::Release);
+                self.shared.disposed.store(true, Ordering::Release);
                 Ok(())
             }
             Ok(ResourcePull::Disposed(Err(err))) => Err(err),
@@ -261,23 +255,23 @@ impl Resource {
     }
 
     #[inline(always)]
-    fn poll(&self) {
-        match self.pull_rx.lock().expect("pull_rx mutex was poisoned").try_recv() {
+    fn poll(&mut self) {
+        match self.pull_rx.try_recv() {
             Ok(ResourcePull::Disposed(Ok(_))) => {
-                self.disposed.store(true, Ordering::Release);
+                self.shared.disposed.store(true, Ordering::Release);
             }
             Err(TryRecvError::Closed) => {
-                self.disposed.store(true, Ordering::Release);
+                self.shared.disposed.store(true, Ordering::Release);
             }
             Ok(ResourcePull::Initialized(Ok(init_data))) => {
-                let _ = self.init_data.set(init_data);
+                let _ = self.shared.init_data.set(init_data);
             }
             _ => {}
         }
     }
 
     #[inline(always)]
-    fn assert_state(&self, expected: ResourceState) -> Result<(), ResourceSystemError> {
+    fn assert_state(&mut self, expected: ResourceState) -> Result<(), ResourceSystemError> {
         let actual = self.get_state();
 
         if actual != expected {
@@ -295,10 +289,11 @@ impl serde::Serialize for Resource {
     where
         S: serde::Serializer,
     {
-        match self.data.r#type {
+        match self.shared.data.r#type {
             ResourceType::Moved(_) => {
-                self.poll();
-                self.init_data
+                self.clone().poll();
+                self.shared
+                    .init_data
                     .get()
                     .expect("called serialize on uninitialized resource")
                     .local_path
@@ -306,7 +301,31 @@ impl serde::Serialize for Resource {
                     .expect("no local_path for moved resource")
                     .serialize(serializer)
             }
-            _ => self.data.source_path.serialize(serializer),
+            _ => self.shared.data.source_path.serialize(serializer),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct ResourceIterator(std::vec::IntoIter<Resource>);
+
+impl ResourceIterator {
+    #[inline]
+    pub fn new(source: &[Resource]) -> Self {
+        Self(source.to_vec().into_iter())
+    }
+}
+
+impl From<&[Resource]> for ResourceIterator {
+    fn from(value: &[Resource]) -> Self {
+        Self::new(value)
+    }
+}
+
+impl Iterator for ResourceIterator {
+    type Item = Resource;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
     }
 }

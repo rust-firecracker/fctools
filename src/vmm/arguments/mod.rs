@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::resource::Resource;
+use super::resource::{Resource, ResourceIterator};
 
 pub mod command_modifier;
 pub mod jailer;
@@ -23,7 +23,7 @@ pub struct VmmArguments {
     metadata_resource_index: Option<usize>,
     metrics_resource_index: Option<usize>,
     seccomp_filter_resource_index: Option<usize>,
-    resource_buffer: Vec<Resource>,
+    resources: Vec<Resource>,
 }
 
 impl VmmArguments {
@@ -43,7 +43,7 @@ impl VmmArguments {
             metadata_resource_index: None,
             metrics_resource_index: None,
             seccomp_filter_resource_index: None,
-            resource_buffer: Vec::new(),
+            resources: Vec::new(),
         }
     }
 
@@ -97,35 +97,35 @@ impl VmmArguments {
 
     /// Specify the [Resource] pointing to the log file for the VMM.
     pub fn logs(mut self, logs: Resource) -> Self {
-        self.resource_buffer.push(logs);
-        self.log_resource_index = Some(self.resource_buffer.len() - 1);
+        self.resources.push(logs);
+        self.log_resource_index = Some(self.resources.len() - 1);
         self
     }
 
     /// Specify the [Resource] pointing to the metadata file for the VMM.
     pub fn metadata(mut self, metadata: Resource) -> Self {
-        self.resource_buffer.push(metadata);
-        self.metadata_resource_index = Some(self.resource_buffer.len() - 1);
+        self.resources.push(metadata);
+        self.metadata_resource_index = Some(self.resources.len() - 1);
         self
     }
 
     /// Specify the [Resource] pointing to the metrics file for the VMM.
     pub fn metrics(mut self, metrics: Resource) -> Self {
-        self.resource_buffer.push(metrics);
-        self.metrics_resource_index = Some(self.resource_buffer.len() - 1);
+        self.resources.push(metrics);
+        self.metrics_resource_index = Some(self.resources.len() - 1);
         self
     }
 
     /// Specify the [Resource] pointing to a custom seccomp filter file for the VMM.
     pub fn seccomp_filter(mut self, seccomp_filter: Resource) -> Self {
-        self.resource_buffer.push(seccomp_filter);
-        self.seccomp_filter_resource_index = Some(self.resource_buffer.len() - 1);
+        self.resources.push(seccomp_filter);
+        self.seccomp_filter_resource_index = Some(self.resources.len() - 1);
         self
     }
 
     /// Get a shared slice into an internal buffer holding all [Resource]s tied to these [VmmArguments].
-    pub fn get_resources(&self) -> &[Resource] {
-        &self.resource_buffer
+    pub fn get_resources(&self) -> ResourceIterator {
+        ResourceIterator::new(&self.resources)
     }
 
     /// Join these [VmmArguments] into a [Vec] of process arguments, using the given optional config path.
@@ -210,9 +210,10 @@ impl VmmArguments {
 
     #[inline(always)]
     fn get_resource_path_string(&self, index: usize) -> String {
-        self.resource_buffer
+        self.resources
             .get(index)
             .expect("Resource buffer doesn't contain index")
+            .clone()
             .get_local_path()
             .expect("Resource is uninitialized at the time of argument join")
             .to_string_lossy()
@@ -334,7 +335,7 @@ mod tests {
     #[tokio::test]
     async fn metadata_path_can_be_set() {
         let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
-        let resource = resource_system
+        let mut resource = resource_system
             .create_resource("/tmp/metadata.txt", ResourceType::Moved(MovedResourceType::Renamed))
             .unwrap();
         resource.start_initialization_with_same_path().unwrap();

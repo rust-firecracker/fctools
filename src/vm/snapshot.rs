@@ -90,7 +90,7 @@ impl VmSnapshot {
             .create_resource(self.snapshot_path, ResourceType::Moved(options.moved_resource_type))
             .map_err(VmError::ResourceSystemError)?;
 
-        for resource in old_vm.get_resource_system().get_resources() {
+        for mut resource in old_vm.get_resource_system().get_resources() {
             if let ResourceType::Moved(_) = resource.get_type() {
                 let resource_path = resource.get_effective_path().ok_or_else(|| {
                     VmError::ResourceSystemError(ResourceSystemError::IncorrectState(ResourceState::Uninitialized))

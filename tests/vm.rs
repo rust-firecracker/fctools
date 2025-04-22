@@ -102,7 +102,7 @@ fn vm_logger_test(resource_type: CreatedResourceType) {
                 .as_ref()
                 .unwrap()
                 .logs
-                .as_ref()
+                .clone()
                 .unwrap()
                 .get_effective_path()
                 .unwrap();
@@ -140,6 +140,7 @@ fn vm_metrics_test(resource_type: CreatedResourceType) {
                 .as_ref()
                 .unwrap()
                 .metrics
+                .clone()
                 .get_effective_path()
                 .unwrap();
 
@@ -162,6 +163,7 @@ fn vm_processes_vsock() {
             .as_ref()
             .unwrap()
             .uds
+            .clone()
             .get_effective_path()
             .unwrap();
         assert!(metadata(&uds_path).await.unwrap().file_type().is_socket());

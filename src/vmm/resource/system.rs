@@ -2,7 +2,7 @@
 use std::marker::PhantomData;
 use std::{
     path::PathBuf,
-    sync::{atomic::AtomicBool, Arc, Mutex, OnceLock},
+    sync::{atomic::AtomicBool, Arc, OnceLock},
 };
 
 use futures_channel::mpsc;
@@ -19,7 +19,7 @@ use super::{
         resource_system_main_task, OwnedResource, OwnedResourceState, ResourceData, ResourceSystemPull,
         ResourceSystemPush,
     },
-    Resource, ResourceState, ResourceType,
+    Resource, ResourceIterator, ResourceShared, ResourceState, ResourceType,
 };
 
 /// A [ResourceSystem] represents a non-cloneable object connected to a background task running on a [Runtime]. This task
@@ -103,8 +103,8 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
     /// Get a shared slice into an internal buffer that contains all [Resource]s within this [ResourceSystem], not
     /// including any clones of given out [Resource]s. This slice can be cloned to produce a [Vec] if owned [Resource]
     /// instances are needed, but, by default, no cloning occurs when calling this function.
-    pub fn get_resources(&self) -> &[Resource] {
-        &self.resources
+    pub fn get_resources(&self) -> ResourceIterator {
+        ResourceIterator::new(&self.resources)
     }
 
     /// Create a [Resource] in this [ResourceSystem] from a given source path and a [ResourceType]. The data will
@@ -136,11 +136,13 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
         let resource = Resource {
-            push_tx,
-            pull_rx: Mutex::new(pull_rx),
-            data,
-            init_data: OnceLock::new(),
-            disposed: Arc::new(AtomicBool::new(false)),
+            pull_rx,
+            shared: Arc::new(ResourceShared {
+                push_tx,
+                data,
+                init_data: OnceLock::new(),
+                disposed: AtomicBool::new(false),
+            }),
         };
 
         self.resources.push(resource.clone());

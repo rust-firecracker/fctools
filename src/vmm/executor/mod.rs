@@ -9,7 +9,7 @@ use crate::{process_spawner::ProcessSpawner, runtime::Runtime};
 use super::{
     installation::VmmInstallation,
     ownership::{ChangeOwnerError, VmmOwnershipModel},
-    resource::{system::ResourceSystemError, Resource},
+    resource::{system::ResourceSystemError, ResourceIterator},
 };
 
 #[cfg(feature = "either-vmm-executor")]
@@ -103,7 +103,7 @@ pub trait VmmExecutor: Send + Sync {
     /// This synchronization is automatically performed by VMM processes and VMs.
     fn prepare<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 
     /// Invoke the VMM on the given [VmmInstallation] and return the [ProcessHandle] that performs a connection to
@@ -111,7 +111,7 @@ pub trait VmmExecutor: Send + Sync {
     /// a separate PID namespace.
     fn invoke<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
     ) -> impl Future<Output = Result<ProcessHandle<R>, VmmExecutorError>> + Send;
 
@@ -122,15 +122,15 @@ pub trait VmmExecutor: Send + Sync {
     /// automatically performed by VMM processes and VMs.
     fn cleanup<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
     ) -> impl Future<Output = Result<(), VmmExecutorError>> + Send;
 }
 
 /// A [VmmExecutorContext] encapsulates the data that a [VmmExecutor] prepare/invoke/cleanup invocation needs in
 /// order to function. It is tied to a lifetime representing that of all [Resource]s being operated with and to
 /// a generic [ProcessSpawner] as well as [Runtime].
-#[derive(Debug, Clone)]
-pub struct VmmExecutorContext<'c, S: ProcessSpawner, R: Runtime> {
+#[derive(Debug)]
+pub struct VmmExecutorContext<S: ProcessSpawner, R: Runtime> {
     /// The [VmmInstallation] the invocation is tied to.
     pub installation: VmmInstallation,
     /// A [ProcessSpawner] that the [VmmExecutorContext] is generic over.
@@ -139,6 +139,6 @@ pub struct VmmExecutorContext<'c, S: ProcessSpawner, R: Runtime> {
     pub runtime: R,
     /// A [VmmOwnershipModel] to use for ownership operations within the executor.
     pub ownership_model: VmmOwnershipModel,
-    /// A shared slice of all [Resource]s to consider for initialization and disposal.
-    pub resources: &'c [Resource],
+    /// A buffer of all [Resource]s to consider for initialization and disposal.
+    pub resources: ResourceIterator,
 }

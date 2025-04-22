@@ -100,6 +100,7 @@ fn create_endpoint_and_service<E: VmmExecutor, S: ProcessSpawner, R: Runtime, C:
         .as_ref()
         .ok_or(VmVsockGrpcError::VsockNotConfigured)?
         .uds
+        .clone()
         .get_effective_path()
         .ok_or(VmVsockGrpcError::VsockResourceUninitialized)?;
 

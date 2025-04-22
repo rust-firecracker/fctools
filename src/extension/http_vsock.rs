@@ -167,6 +167,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmVsockHttp for Vm<E, S, R> 
             .as_ref()
             .ok_or(VmVsockHttpError::VsockNotConfigured)?
             .uds
+            .clone()
             .get_effective_path()
             .ok_or(VmVsockHttpError::VsockResourceUninitialized)?;
         let stream = <R::SocketBackend as hyper_client_sockets::Backend>::connect_to_firecracker_socket(
@@ -201,6 +202,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmVsockHttp for Vm<E, S, R> 
             .as_ref()
             .ok_or(VmVsockHttpError::VsockNotConfigured)?
             .uds
+            .clone()
             .get_effective_path()
             .ok_or(VmVsockHttpError::VsockResourceUninitialized)?;
 

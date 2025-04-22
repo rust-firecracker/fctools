@@ -77,7 +77,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
     async fn prepare<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
             let process_spawner = context.process_spawner.clone();
@@ -100,7 +100,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             }
         }
 
-        for resource in context.resources.iter().chain(self.vmm_arguments.get_resources()) {
+        for mut resource in context.resources.chain(self.vmm_arguments.get_resources()) {
             resource
                 .start_initialization_with_same_path()
                 .map_err(VmmExecutorError::ResourceSystemError)?;
@@ -111,7 +111,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
     async fn invoke<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
     ) -> Result<ProcessHandle<R>, VmmExecutorError> {
         let mut arguments = self.vmm_arguments.join(config_path);
@@ -136,7 +136,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
     async fn cleanup<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         if let VmmApiSocket::Enabled(socket_path) = self.vmm_arguments.api_socket.clone() {
             let process_spawner = context.process_spawner.clone();
@@ -159,7 +159,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
             }
         }
 
-        for resource in context.resources.iter().chain(self.vmm_arguments.get_resources()) {
+        for mut resource in context.resources.chain(self.vmm_arguments.get_resources()) {
             if !matches!(resource.get_type(), ResourceType::Moved(_)) {
                 resource
                     .start_disposal()

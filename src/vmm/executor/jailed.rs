@@ -64,7 +64,7 @@ impl<P: LocalPathResolver> VmmExecutor for JailedVmmExecutor<P> {
 
     async fn prepare<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         // Create the jail and delete the previous one if necessary
         let (chroot_base_dir, jail_path) = self.get_paths(&context.installation);
@@ -107,7 +107,7 @@ impl<P: LocalPathResolver> VmmExecutor for JailedVmmExecutor<P> {
             }
         }
 
-        for resource in context.resources.iter().chain(self.vmm_arguments.get_resources()) {
+        for mut resource in context.resources.chain(self.vmm_arguments.get_resources()) {
             match resource.get_type() {
                 ResourceType::Created(_) | ResourceType::Produced => {
                     resource.start_initialization(jail_path.jail_join(&resource.get_source_path()), None)
@@ -129,7 +129,7 @@ impl<P: LocalPathResolver> VmmExecutor for JailedVmmExecutor<P> {
 
     async fn invoke<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
         config_path: Option<PathBuf>,
     ) -> Result<ProcessHandle<R>, VmmExecutorError> {
         downgrade_owner_recursively(
@@ -205,7 +205,7 @@ impl<P: LocalPathResolver> VmmExecutor for JailedVmmExecutor<P> {
 
     async fn cleanup<S: ProcessSpawner, R: Runtime>(
         &self,
-        context: VmmExecutorContext<'_, S, R>,
+        context: VmmExecutorContext<S, R>,
     ) -> Result<(), VmmExecutorError> {
         let (_, jail_path) = self.get_paths(&context.installation);
 
