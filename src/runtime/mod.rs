@@ -11,7 +11,7 @@ use std::{
     future::Future,
     os::fd::OwnedFd,
     path::Path,
-    process::ExitStatus,
+    process::{ExitStatus, Output},
     task::{Context, Poll},
     time::Duration,
 };
@@ -143,7 +143,7 @@ pub trait Runtime: Clone + Send + Sync + 'static {
         args: Vec<OsString>,
         stdout: bool,
         stderr: bool,
-    ) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send;
+    ) -> impl Future<Output = Result<Output, std::io::Error>> + Send;
 }
 
 /// An async task that is detached on drop, can be cancelled and joined on.

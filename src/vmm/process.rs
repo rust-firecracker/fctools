@@ -4,7 +4,7 @@ use async_once_cell::OnceCell;
 use bytes::{Bytes, BytesMut};
 use http::{Request, Response, StatusCode, Uri};
 use http_body_util::{BodyExt, Full};
-use hyper::body::Incoming;
+use hyper::body::{Body, Incoming};
 use hyper_client_sockets::{connector::UnixConnector, uri::UnixUri};
 use hyper_util::client::legacy::Client;
 
@@ -38,19 +38,18 @@ pub struct VmmProcess<E: VmmExecutor, S: ProcessSpawner, R: Runtime> {
     hyper_client: OnceCell<Client<UnixConnector<R::SocketBackend>, Full<Bytes>>>,
 }
 
-/// The state of a [VmmProcess].
-/// Keep in mind: the [VmmProcess] lifecycle is not that of the VM! If the process has
-/// started without a config file, API requests will need to be issued first in order
-/// to start it.
+/// The state of a [VmmProcess]. Keep in mind that the [VmmProcess] lifecycle is not that of the VM!
+/// If the process has been started without a config file, API requests will need to be issued first
+/// in order to start the VM.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmmProcessState {
     /// The process hasn't started, and calling "prepare" is needed.
     AwaitingPrepare,
     /// The process hasn't started, a request to start it must be issued.
     AwaitingStart,
-    /// The process is running without any faults.
+    /// The process is currently running. This doesn't guarantee that the VM itself has booted.
     Started,
-    /// The process has exited gracefully after a host-issued exit request.
+    /// The process has exited gracefully after an exit request that was issued through the [VmmProcess].
     Exited,
     /// The process has crashed with the given non-zero exit status code.
     Crashed(ExitStatus),
@@ -380,29 +379,31 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmmProcess<E, S, R> {
     }
 }
 
-/// An extension to a hyper [Response<Incoming>] (returned by the Firecracker API socket) that allows
+/// An extension to a hyper [Response] of [Incoming] (returned by the Firecracker API socket) that allows
 /// easy streaming of the response body into a [String] or [BytesMut].
 pub trait HyperResponseExt: Send {
-    /// Stream the entire response body into a byte buffer (BytesMut).
+    /// Stream the entire response body into a [BytesMut] byte buffer.
     fn read_body_to_buffer(&mut self) -> impl Future<Output = Result<BytesMut, hyper::Error>> + Send;
 
-    /// Stream the entire response body into an owned string.
+    /// Stream the entire response body into an owned [String].
     fn read_body_to_string(&mut self) -> impl Future<Output = Result<String, hyper::Error>> + Send {
         async {
-            let buf = self.read_body_to_buffer().await?;
-            Ok(String::from_utf8_lossy(&buf).into_owned())
+            let buffer = self.read_body_to_buffer().await?;
+            Ok(String::from_utf8_lossy(&buffer).into_owned())
         }
     }
 }
 
 impl HyperResponseExt for Response<Incoming> {
     async fn read_body_to_buffer(&mut self) -> Result<BytesMut, hyper::Error> {
-        let mut buf = BytesMut::new();
+        let mut buffer = BytesMut::with_capacity(self.size_hint().lower() as usize);
+
         while let Some(frame) = self.frame().await {
             if let Ok(bytes) = frame?.into_data() {
-                buf.extend(bytes);
+                buffer.extend(bytes);
             }
         }
-        Ok(buf)
+
+        Ok(buffer)
     }
 }

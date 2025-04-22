@@ -75,13 +75,15 @@ struct SuProcessSpawnerInner {
 #[cfg(feature = "elevation-process-spawners")]
 #[cfg_attr(docsrs, doc(cfg(feature = "elevation-process-spawners")))]
 impl SuProcessSpawner {
+    /// Create a new [SuProcessSpawner] from a [String] password to use for authentication
+    /// and, optionally, a [PathBuf] pointing to the "su" binary to invoke.
     pub fn new(password: String, su_path: Option<PathBuf>) -> Self {
         Self(Arc::new(SuProcessSpawnerInner { su_path, password }))
     }
 }
 
 #[cfg(feature = "elevation-process-spawners")]
-static SU_OS_STRING: LazyLock<OsString> = LazyLock::new(|| OsString::from("su"));
+static DEFAULT_SU_PROGRAM: LazyLock<OsString> = LazyLock::new(|| OsString::from("su"));
 
 #[cfg(feature = "elevation-process-spawners")]
 #[cfg_attr(docsrs, doc(cfg(feature = "elevation-process-spawners")))]
@@ -95,7 +97,7 @@ impl ProcessSpawner for SuProcessSpawner {
     ) -> Result<R::Child, std::io::Error> {
         let program = match self.0.su_path {
             Some(ref path) => path.as_os_str(),
-            None => SU_OS_STRING.as_os_str(),
+            None => DEFAULT_SU_PROGRAM.as_os_str(),
         };
 
         let mut process = runtime.spawn_process(program, Vec::new(), !pipes_to_null, !pipes_to_null, true)?;
@@ -133,13 +135,15 @@ struct SudoProcessSpawnerInner {
 #[cfg(feature = "elevation-process-spawners")]
 #[cfg_attr(docsrs, doc(cfg(feature = "elevation-process-spawners")))]
 impl SudoProcessSpawner {
+    /// Create a new [SudoProcessSpawner] from, optionally, a [String] password to use for
+    /// authentication and, optionally, a [PathBuf] pointing to the "sudo" binary to invoke.
     pub fn new(password: Option<String>, sudo_path: Option<PathBuf>) -> Self {
         Self(Arc::new(SudoProcessSpawnerInner { sudo_path, password }))
     }
 }
 
 #[cfg(feature = "elevation-process-spawners")]
-static SUDO_OS_STRING: LazyLock<OsString> = LazyLock::new(|| OsString::from("sudo"));
+static DEFAULT_SUDO_PROGRAM: LazyLock<OsString> = LazyLock::new(|| OsString::from("sudo"));
 
 #[cfg(feature = "elevation-process-spawners")]
 #[cfg_attr(docsrs, doc(cfg(feature = "elevation-process-spawners")))]
@@ -153,7 +157,7 @@ impl ProcessSpawner for SudoProcessSpawner {
     ) -> Result<R::Child, std::io::Error> {
         let program = match self.0.sudo_path {
             Some(ref path) => path.as_os_str(),
-            None => SUDO_OS_STRING.as_os_str(),
+            None => DEFAULT_SUDO_PROGRAM.as_os_str(),
         };
 
         let mut args = vec![OsString::from("-S"), OsString::from("-s"), OsString::from(path)];
