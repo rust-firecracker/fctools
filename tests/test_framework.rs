@@ -177,11 +177,11 @@ where
         process.take_pipes().unwrap_err();
         process.cleanup().await.unwrap_err();
 
-        assert_eq!(process.state(), VmmProcessState::AwaitingPrepare);
+        assert_eq!(process.get_state(), VmmProcessState::AwaitingPrepare);
         process.prepare().await.unwrap();
-        assert_eq!(process.state(), VmmProcessState::AwaitingStart);
+        assert_eq!(process.get_state(), VmmProcessState::AwaitingStart);
         process.invoke(Some(config_path.into())).await.unwrap();
-        assert_eq!(process.state(), VmmProcessState::Started);
+        assert_eq!(process.get_state(), VmmProcessState::Started);
     }
 
     let (mut unrestricted_process, mut jailed_process) = get_vmm_processes(no_new_pid_ns).await;

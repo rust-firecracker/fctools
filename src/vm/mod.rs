@@ -175,8 +175,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     }
 
     /// Retrieve the [VmState] of the [Vm], based on internal tracking and that being done by the [VmmProcess].
-    pub fn state(&mut self) -> VmState {
-        match self.vmm_process.state() {
+    pub fn get_state(&mut self) -> VmState {
+        match self.vmm_process.get_state() {
             VmmProcessState::Started => match self.is_paused {
                 true => VmState::Paused,
                 false => VmState::Running,
@@ -311,7 +311,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     }
 
     fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmStateCheckError> {
-        let current_state = self.state();
+        let current_state = self.get_state();
         if current_state != expected_state {
             Err(VmStateCheckError::Other {
                 expected: expected_state,
@@ -323,7 +323,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     }
 
     fn ensure_paused_or_running(&mut self) -> Result<(), VmStateCheckError> {
-        let current_state = self.state();
+        let current_state = self.get_state();
         if current_state != VmState::Running && current_state != VmState::Paused {
             Err(VmStateCheckError::PausedOrRunning { actual: current_state })
         } else {
@@ -332,7 +332,7 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
     }
 
     fn ensure_exited_or_crashed(&mut self) -> Result<(), VmStateCheckError> {
-        let current_state = self.state();
+        let current_state = self.get_state();
         if let VmState::Crashed(_) = current_state {
             return Ok(());
         }

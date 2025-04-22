@@ -23,7 +23,7 @@ async fn vmm_can_recv_sigkill() {
     run_vmm_process_test(true, |mut process| async move {
         process.send_sigkill().unwrap();
         process.wait_for_exit().await.unwrap();
-        if let VmmProcessState::Crashed(exit_status) = process.state() {
+        if let VmmProcessState::Crashed(exit_status) = process.get_state() {
             assert!(!exit_status.success());
         } else {
             panic!("State was not reported as crashed!");

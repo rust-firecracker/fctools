@@ -36,7 +36,7 @@ impl std::fmt::Display for VmVsockHttpError {
             VmVsockHttpError::VsockNotConfigured => write!(f, "A vsock device was not configured for this VM"),
             VmVsockHttpError::ConnectionError(err) => write!(f, "Could not connect to the vsock socket: {err}"),
             VmVsockHttpError::HandshakeError(err) => {
-                write!(f, "Could not perform an HTTP handshake with the vsock socket: {err}")
+                write!(f, "Could not perform an HTTP handshake over a vsock connection: {err}")
             }
             VmVsockHttpError::VsockResourceUninitialized => write!(f, "The vsock resource was uninitialized"),
         }
@@ -48,9 +48,9 @@ impl std::fmt::Display for VmVsockHttpError {
 pub enum VmVsockHttpClientError {
     /// The provided HTTP URI was invalid in accordance with a provided [http::uri::InvalidUri] error.
     InvalidUri { uri: String, error: http::uri::InvalidUri },
-    /// An I/O error occurred while making the request or establishing a connection on the connection
+    /// An I/O error occurred while making an HTTP request or establishing a connection on the connection
     /// pool. This is internally either a [hyper::Error] or an [hyper_util::client::legacy::Error],
-    /// but more variants may be added as the internal implementation changes, thus the boxing.
+    /// but more variants may be added as the internal implementation changes, thus the boxed opaque type.
     RequestError(Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -74,7 +74,9 @@ impl std::fmt::Display for VmVsockHttpClientError {
 /// HTTP connection pool or a singular [hyper] HTTP connection. This client is cloneable cheaply
 /// when using a connection pool, but, when using a single connection, cloning will introduce
 /// locking contention, as only one clone will be able to make a request at time, while others
-/// wait for the internal [Mutex] holding the connection to unlock.
+/// wait for the internal [Mutex] holding the connection to unlock. To avoid this issue, using
+/// a connection pool-backed [VmVsockHttpClient] is recommended if multiple simultaneous HTTP
+/// requests are expected to be sent over the [VmVsockHttpClient].
 #[derive(Debug, Clone)]
 pub struct VmVsockHttpClient<B: hyper_client_sockets::Backend + Send + Sync + 'static>(VmVsockHttpClientInner<B>);
 

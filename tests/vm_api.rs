@@ -61,11 +61,11 @@ fn vm_api_custom_requests_perform_pause_changes() {
         vm.send_custom_api_request("/", request.clone(), Some(true))
             .await
             .unwrap();
-        assert_eq!(vm.state(), VmState::Paused);
+        assert_eq!(vm.get_state(), VmState::Paused);
         vm.send_custom_api_request("/", request.clone(), Some(false))
             .await
             .unwrap();
-        assert_eq!(vm.state(), VmState::Running);
+        assert_eq!(vm.get_state(), VmState::Running);
         shutdown_test_vm(&mut vm).await;
     });
 }
@@ -158,9 +158,9 @@ fn vm_api_can_get_firecracker_version() {
 fn vm_api_can_pause_and_resume() {
     VmBuilder::new().run(|mut vm| async move {
         vm.pause().await.unwrap();
-        assert_eq!(vm.state(), VmState::Paused);
+        assert_eq!(vm.get_state(), VmState::Paused);
         vm.resume().await.unwrap();
-        assert_eq!(vm.state(), VmState::Running);
+        assert_eq!(vm.get_state(), VmState::Running);
         shutdown_test_vm(&mut vm).await;
     });
 }

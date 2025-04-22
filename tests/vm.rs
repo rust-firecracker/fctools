@@ -211,20 +211,20 @@ fn vm_tracks_state_with_graceful_exit() {
     VmBuilder::new()
         .pre_start_hook(|vm| {
             Box::pin(async {
-                assert_eq!(vm.state(), VmState::NotStarted);
+                assert_eq!(vm.get_state(), VmState::NotStarted);
             })
         })
         .run(|mut vm| async move {
-            assert_eq!(vm.state(), VmState::Running);
+            assert_eq!(vm.get_state(), VmState::Running);
             shutdown_test_vm(&mut vm).await;
-            assert_eq!(vm.state(), VmState::Exited);
+            assert_eq!(vm.get_state(), VmState::Exited);
         });
 }
 
 #[test]
 fn vm_tracks_state_with_crash() {
     VmBuilder::new().run(|mut vm| async move {
-        assert_eq!(vm.state(), VmState::Running);
+        assert_eq!(vm.get_state(), VmState::Running);
         shutdown_test_vm(&mut vm).await;
     });
 }
