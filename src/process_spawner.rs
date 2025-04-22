@@ -1,11 +1,13 @@
 use std::{future::Future, path::Path};
 
+#[cfg(any(feature = "direct-process-spawner", feature = "elevation-process-spawners"))]
+use std::ffi::OsString;
+
 #[cfg(feature = "elevation-process-spawners")]
 use futures_util::AsyncWriteExt;
 
 #[cfg(feature = "elevation-process-spawners")]
 use std::{
-    ffi::OsString,
     path::PathBuf,
     sync::{Arc, LazyLock},
 };
