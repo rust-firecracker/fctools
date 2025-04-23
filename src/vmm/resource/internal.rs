@@ -21,8 +21,8 @@ pub enum OwnedResourceState<R: Runtime> {
 
 pub struct OwnedResource<R: Runtime> {
     pub state: OwnedResourceState<R>,
-    pub push_rx: mpsc::UnboundedReceiver<ResourcePush>,
-    pub pull_tx: async_broadcast::Sender<ResourcePull>,
+    pub request_rx: mpsc::UnboundedReceiver<ResourceRequest>,
+    pub response_tx: async_broadcast::Sender<ResourceResponse>,
     pub data: Arc<ResourceData>,
     pub init_data: Option<Arc<ResourceInitData>>,
 }
@@ -39,38 +39,38 @@ pub struct ResourceInitData {
     pub local_path: Option<PathBuf>,
 }
 
-pub enum ResourcePush {
+pub enum ResourceRequest {
     Initialize(ResourceInitData),
     Dispose,
 }
 
 #[derive(Debug, Clone)]
-pub enum ResourcePull {
+pub enum ResourceResponse {
     Initialized(Result<Arc<ResourceInitData>, ResourceSystemError>),
     Disposed(Result<(), ResourceSystemError>),
 }
 
-pub enum ResourceSystemPush<R: Runtime> {
+pub enum ResourceSystemRequest<R: Runtime> {
     AddResource(OwnedResource<R>),
     Synchronize,
     Shutdown,
 }
 
-pub enum ResourceSystemPull {
+pub enum ResourceSystemResponse {
     SynchronizationComplete,
 }
 
 pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
-    mut push_rx: mpsc::UnboundedReceiver<ResourceSystemPush<R>>,
-    pull_tx: mpsc::UnboundedSender<ResourceSystemPull>,
+    mut request_rx: mpsc::UnboundedReceiver<ResourceSystemRequest<R>>,
+    response_tx: mpsc::UnboundedSender<ResourceSystemResponse>,
     mut owned_resources: Vec<OwnedResource<R>>,
     process_spawner: S,
     runtime: R,
     ownership_model: VmmOwnershipModel,
 ) {
     enum Incoming<R: Runtime> {
-        SystemPush(ResourceSystemPush<R>),
-        ResourcePush(usize, ResourcePush),
+        SystemRequest(ResourceSystemRequest<R>),
+        ResourceRequest(usize, ResourceRequest),
         FinishedInitTask(usize, Result<ResourceInitData, ResourceSystemError>),
         FinishedDisposeTask(usize, Result<(), ResourceSystemError>),
         FinishedBroadcastTask(usize),
@@ -82,8 +82,8 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
     loop {
         let incoming = poll_fn(|cx| {
             for (resource_index, resource) in owned_resources.iter_mut().enumerate() {
-                if let Poll::Ready(Some(push)) = resource.push_rx.poll_next_unpin(cx) {
-                    return Poll::Ready(Incoming::ResourcePush(resource_index, push));
+                if let Poll::Ready(Some(request)) = resource.request_rx.poll_next_unpin(cx) {
+                    return Poll::Ready(Incoming::ResourceRequest(resource_index, request));
                 }
 
                 if let OwnedResourceState::Initializing(ref mut task) = resource.state {
@@ -97,8 +97,8 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                 }
             }
 
-            if let Poll::Ready(Some(push)) = push_rx.poll_next_unpin(cx) {
-                return Poll::Ready(Incoming::SystemPush(push));
+            if let Poll::Ready(Some(request)) = request_rx.poll_next_unpin(cx) {
+                return Poll::Ready(Incoming::SystemRequest(request));
             }
 
             for (index, task) in broadcast_tasks.iter_mut().enumerate() {
@@ -112,24 +112,24 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
         .await;
 
         match incoming {
-            Incoming::SystemPush(push) => match push {
-                ResourceSystemPush::AddResource(owned_resource) => {
+            Incoming::SystemRequest(request) => match request {
+                ResourceSystemRequest::AddResource(owned_resource) => {
                     owned_resources.push(owned_resource);
                 }
-                ResourceSystemPush::Shutdown => {
+                ResourceSystemRequest::Shutdown => {
                     return;
                 }
-                ResourceSystemPush::Synchronize => {
+                ResourceSystemRequest::Synchronize => {
                     synchronization_in_progress = true;
                 }
             },
-            Incoming::ResourcePush(resource_index, push) => {
+            Incoming::ResourceRequest(resource_index, request) => {
                 let Some(resource) = owned_resources.get_mut(resource_index) else {
                     continue;
                 };
 
-                match push {
-                    ResourcePush::Initialize(init_data) => {
+                match request {
+                    ResourceRequest::Initialize(init_data) => {
                         let init_task = runtime.spawn_task(resource_system_init_task(
                             resource.data.clone(),
                             init_data,
@@ -140,7 +140,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
 
                         resource.state = OwnedResourceState::Initializing(init_task);
                     }
-                    ResourcePush::Dispose => {
+                    ResourceRequest::Dispose => {
                         let dispose_task = runtime.spawn_task(resource_system_dispose_task(
                             resource.init_data.clone().unwrap(),
                             runtime.clone(),
@@ -165,7 +165,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                         broadcast_tasks.push(defer_resource_pull(
                             resource,
                             &runtime,
-                            ResourcePull::Initialized(Ok(init_data)),
+                            ResourceResponse::Initialized(Ok(init_data)),
                         ));
                     }
                     Err(err) => {
@@ -173,7 +173,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                         broadcast_tasks.push(defer_resource_pull(
                             resource,
                             &runtime,
-                            ResourcePull::Initialized(Err(err)),
+                            ResourceResponse::Initialized(Err(err)),
                         ));
                     }
                 }
@@ -186,14 +186,18 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                 match result {
                     Ok(_) => {
                         resource.state = OwnedResourceState::Disposed;
-                        broadcast_tasks.push(defer_resource_pull(resource, &runtime, ResourcePull::Disposed(Ok(()))));
+                        broadcast_tasks.push(defer_resource_pull(
+                            resource,
+                            &runtime,
+                            ResourceResponse::Disposed(Ok(())),
+                        ));
                     }
                     Err(err) => {
                         resource.state = OwnedResourceState::Initialized;
                         broadcast_tasks.push(defer_resource_pull(
                             resource,
                             &runtime,
-                            ResourcePull::Disposed(Err(err)),
+                            ResourceResponse::Disposed(Err(err)),
                         ));
                     }
                 }
@@ -217,15 +221,19 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
 
             if pending_tasks == 0 {
                 synchronization_in_progress = false;
-                let _ = pull_tx.unbounded_send(ResourceSystemPull::SynchronizationComplete);
+                let _ = response_tx.unbounded_send(ResourceSystemResponse::SynchronizationComplete);
             }
         }
     }
 }
 
 #[inline]
-fn defer_resource_pull<R: Runtime>(resource: &mut OwnedResource<R>, runtime: &R, pull: ResourcePull) -> R::Task<()> {
-    let tx = resource.pull_tx.clone();
+fn defer_resource_pull<R: Runtime>(
+    resource: &mut OwnedResource<R>,
+    runtime: &R,
+    pull: ResourceResponse,
+) -> R::Task<()> {
+    let tx = resource.response_tx.clone();
     runtime.spawn_task(async move {
         let _ = pin!(tx.broadcast_direct(pull)).await;
     })

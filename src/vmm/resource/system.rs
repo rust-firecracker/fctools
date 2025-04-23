@@ -16,8 +16,8 @@ use crate::{
 
 use super::{
     internal::{
-        resource_system_main_task, OwnedResource, OwnedResourceState, ResourceData, ResourceSystemPull,
-        ResourceSystemPush,
+        resource_system_main_task, OwnedResource, OwnedResourceState, ResourceData, ResourceSystemRequest,
+        ResourceSystemResponse,
     },
     Resource, ResourceState, ResourceType,
 };
@@ -32,8 +32,8 @@ use super::{
 /// objects will be used by VMs and VMM processes that internally embed a [ResourceSystem].
 #[derive(Debug)]
 pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
-    push_tx: mpsc::UnboundedSender<ResourceSystemPush<R>>,
-    pull_rx: mpsc::UnboundedReceiver<ResourceSystemPull>,
+    request_tx: mpsc::UnboundedSender<ResourceSystemRequest<R>>,
+    response_rx: mpsc::UnboundedReceiver<ResourceSystemResponse>,
     #[cfg(not(feature = "vmm-process"))]
     marker: PhantomData<S>,
     resources: Vec<Resource>,
@@ -73,12 +73,12 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         runtime: R,
         ownership_model: VmmOwnershipModel,
     ) -> Self {
-        let (push_tx, push_rx) = mpsc::unbounded();
-        let (pull_tx, pull_rx) = mpsc::unbounded();
+        let (request_tx, request_rx) = mpsc::unbounded();
+        let (response_tx, response_rx) = mpsc::unbounded();
 
         runtime.clone().spawn_task(resource_system_main_task::<S, R>(
-            push_rx,
-            pull_tx,
+            request_rx,
+            response_tx,
             owned_resources,
             process_spawner.clone(),
             runtime.clone(),
@@ -86,8 +86,8 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         ));
 
         Self {
-            push_tx,
-            pull_rx,
+            request_tx,
+            response_rx,
             #[cfg(not(feature = "vmm-process"))]
             marker: PhantomData,
             resources,
@@ -115,13 +115,13 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         source_path: P,
         r#type: ResourceType,
     ) -> Result<Resource, ResourceSystemError> {
-        let (push_tx, push_rx) = mpsc::unbounded();
-        let (pull_tx, pull_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
+        let (request_tx, request_rx) = mpsc::unbounded();
+        let (response_tx, response_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
 
         let owned_resource = OwnedResource {
             state: OwnedResourceState::Uninitialized,
-            push_rx,
-            pull_tx,
+            request_rx,
+            response_tx,
             data: Arc::new(ResourceData {
                 source_path: source_path.into(),
                 r#type,
@@ -131,13 +131,13 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
 
         let data = owned_resource.data.clone();
 
-        self.push_tx
-            .unbounded_send(ResourceSystemPush::AddResource(owned_resource))
+        self.request_tx
+            .unbounded_send(ResourceSystemRequest::AddResource(owned_resource))
             .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
         let resource = Resource {
-            push_tx,
-            pull_rx: Mutex::new(pull_rx),
+            request_tx,
+            response_rx: Mutex::new(response_rx),
             data,
             init_data: OnceLock::new(),
             disposed: Arc::new(AtomicBool::new(false)),
@@ -153,12 +153,12 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
     /// [Resource::initialize], [Resource::initialize_with_same_path] or [Resource::dispose] instead, as they will return
     /// an error if an operation fails, unlike this function.
     pub async fn synchronize(&mut self) -> Result<(), ResourceSystemError> {
-        self.push_tx
-            .unbounded_send(ResourceSystemPush::Synchronize)
+        self.request_tx
+            .unbounded_send(ResourceSystemRequest::Synchronize)
             .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
-        match self.pull_rx.next().await {
-            Some(ResourceSystemPull::SynchronizationComplete) => Ok(()),
+        match self.response_rx.next().await {
+            Some(ResourceSystemResponse::SynchronizationComplete) => Ok(()),
             None => Err(ResourceSystemError::ChannelDisconnected),
         }
     }
@@ -166,7 +166,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
 
 impl<S: ProcessSpawner, R: Runtime> Drop for ResourceSystem<S, R> {
     fn drop(&mut self) {
-        let _ = self.push_tx.unbounded_send(ResourceSystemPush::Shutdown);
+        let _ = self.request_tx.unbounded_send(ResourceSystemRequest::Shutdown);
     }
 }
 

@@ -9,7 +9,7 @@ use std::{
 
 use async_broadcast::TryRecvError;
 use futures_channel::mpsc;
-use internal::{ResourceData, ResourceInitData, ResourcePull, ResourcePush};
+use internal::{ResourceData, ResourceInitData, ResourceRequest, ResourceResponse};
 use system::ResourceSystemError;
 
 mod internal;
@@ -106,8 +106,8 @@ impl std::fmt::Display for ResourceState {
 /// uninitialized [Resource].
 #[derive(Debug)]
 pub struct Resource {
-    push_tx: mpsc::UnboundedSender<ResourcePush>,
-    pull_rx: Mutex<async_broadcast::Receiver<ResourcePull>>,
+    request_tx: mpsc::UnboundedSender<ResourceRequest>,
+    response_rx: Mutex<async_broadcast::Receiver<ResourceResponse>>,
     data: Arc<ResourceData>,
     init_data: OnceLock<Arc<ResourceInitData>>,
     disposed: Arc<AtomicBool>,
@@ -115,7 +115,7 @@ pub struct Resource {
 
 impl PartialEq for Resource {
     fn eq(&self, other: &Self) -> bool {
-        self.push_tx.same_receiver(&other.push_tx)
+        self.request_tx.same_receiver(&other.request_tx)
     }
 }
 
@@ -124,8 +124,8 @@ impl Eq for Resource {}
 impl Clone for Resource {
     fn clone(&self) -> Self {
         Self {
-            push_tx: self.push_tx.clone(),
-            pull_rx: Mutex::new(self.pull_rx.lock().expect("pull_rx mutex was poisoned").clone()),
+            request_tx: self.request_tx.clone(),
+            response_rx: Mutex::new(self.response_rx.lock().expect("pull_rx mutex was poisoned").clone()),
             data: self.data.clone(),
             init_data: self.init_data.clone(),
             disposed: self.disposed.clone(),
@@ -187,8 +187,8 @@ impl Resource {
     ) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Uninitialized)?;
 
-        self.push_tx
-            .unbounded_send(ResourcePush::Initialize(ResourceInitData {
+        self.request_tx
+            .unbounded_send(ResourceRequest::Initialize(ResourceInitData {
                 effective_path,
                 local_path,
             }))
@@ -210,7 +210,7 @@ impl Resource {
     /// Schedule this [Resource] to be disposed by its system. This function may poll.
     pub fn start_disposal(&self) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Initialized)?;
-        let _ = self.push_tx.unbounded_send(ResourcePush::Dispose);
+        let _ = self.request_tx.unbounded_send(ResourceRequest::Dispose);
         Ok(())
     }
 
@@ -223,12 +223,18 @@ impl Resource {
     ) -> Result<(), ResourceSystemError> {
         self.start_initialization(effective_path, local_path)?;
 
-        match pin!(self.pull_rx.lock().expect("pull_rx mutex was poisoned").recv_direct()).await {
-            Ok(ResourcePull::Initialized(Ok(init_data))) => {
+        match pin!(self
+            .response_rx
+            .lock()
+            .expect("pull_rx mutex was poisoned")
+            .recv_direct())
+        .await
+        {
+            Ok(ResourceResponse::Initialized(Ok(init_data))) => {
                 let _ = self.init_data.set(init_data);
                 Ok(())
             }
-            Ok(ResourcePull::Initialized(Err(err))) => Err(err),
+            Ok(ResourceResponse::Initialized(Err(err))) => Err(err),
             Ok(_) => Err(ResourceSystemError::MalformedResponse),
             Err(_) => Err(ResourceSystemError::ChannelDisconnected),
         }
@@ -249,12 +255,18 @@ impl Resource {
     pub async fn dispose(&self) -> Result<(), ResourceSystemError> {
         self.start_disposal()?;
 
-        match pin!(self.pull_rx.lock().expect("pull_rx mutex was poisoned").recv_direct()).await {
-            Ok(ResourcePull::Disposed(Ok(_))) => {
+        match pin!(self
+            .response_rx
+            .lock()
+            .expect("pull_rx mutex was poisoned")
+            .recv_direct())
+        .await
+        {
+            Ok(ResourceResponse::Disposed(Ok(_))) => {
                 self.disposed.store(true, Ordering::Release);
                 Ok(())
             }
-            Ok(ResourcePull::Disposed(Err(err))) => Err(err),
+            Ok(ResourceResponse::Disposed(Err(err))) => Err(err),
             Ok(_) => Err(ResourceSystemError::MalformedResponse),
             Err(_) => Err(ResourceSystemError::ChannelDisconnected),
         }
@@ -262,14 +274,14 @@ impl Resource {
 
     #[inline(always)]
     fn poll(&self) {
-        match self.pull_rx.lock().expect("pull_rx mutex was poisoned").try_recv() {
-            Ok(ResourcePull::Disposed(Ok(_))) => {
+        match self.response_rx.lock().expect("pull_rx mutex was poisoned").try_recv() {
+            Ok(ResourceResponse::Disposed(Ok(_))) => {
                 self.disposed.store(true, Ordering::Release);
             }
             Err(TryRecvError::Closed) => {
                 self.disposed.store(true, Ordering::Release);
             }
-            Ok(ResourcePull::Initialized(Ok(init_data))) => {
+            Ok(ResourceResponse::Initialized(Ok(init_data))) => {
                 let _ = self.init_data.set(init_data);
             }
             _ => {}
