@@ -1,15 +1,9 @@
 use std::{
     path::PathBuf,
-    pin::pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex, OnceLock,
-    },
+    sync::{atomic::Ordering, Arc},
 };
 
-use async_broadcast::TryRecvError;
-use futures_channel::mpsc;
-use internal::{ResourceData, ResourceInitData, ResourceRequest, ResourceResponse};
+use internal::{ResourceInfo, ResourceInitInfo, ResourceRequest};
 use system::ResourceSystemError;
 
 mod internal;
@@ -104,78 +98,52 @@ impl std::fmt::Display for ResourceState {
 /// When the VM layer is enabled, a [Resource] implements serde's Serialize trait by serializing either its local path
 /// for moved resources or its source path, and panics if either is inaccessible, so it is not safe to serialize an
 /// uninitialized [Resource].
-#[derive(Debug)]
-pub struct Resource {
-    request_tx: mpsc::UnboundedSender<ResourceRequest>,
-    response_rx: Mutex<async_broadcast::Receiver<ResourceResponse>>,
-    data: Arc<ResourceData>,
-    init_data: OnceLock<Arc<ResourceInitData>>,
-    disposed: Arc<AtomicBool>,
-}
+#[derive(Debug, Clone)]
+pub struct Resource(Arc<ResourceInfo>);
 
 impl PartialEq for Resource {
     fn eq(&self, other: &Self) -> bool {
-        self.request_tx.same_receiver(&other.request_tx)
+        Arc::ptr_eq(&self.0, &other.0)
     }
 }
 
 impl Eq for Resource {}
 
-impl Clone for Resource {
-    fn clone(&self) -> Self {
-        Self {
-            request_tx: self.request_tx.clone(),
-            response_rx: Mutex::new(self.response_rx.lock().expect("pull_rx mutex was poisoned").clone()),
-            data: self.data.clone(),
-            init_data: self.init_data.clone(),
-            disposed: self.disposed.clone(),
-        }
-    }
-}
-
 impl Resource {
     /// Gets the current [ResourceState] of this [Resource]. This function may poll.
     #[inline]
     pub fn get_state(&self) -> ResourceState {
-        if self.disposed.load(Ordering::Acquire) {
+        if self.0.disposed.load(Ordering::Acquire) {
             return ResourceState::Disposed;
         }
 
-        match self.init_data.get() {
+        match self.0.init_info.get() {
             Some(_) => ResourceState::Initialized,
-            None => {
-                self.poll();
-                match self.init_data.get() {
-                    Some(_) => ResourceState::Initialized,
-                    None => ResourceState::Uninitialized,
-                }
-            }
+            None => ResourceState::Uninitialized,
         }
     }
 
     /// Get the [ResourceType] of this [Resource]. This function never polls.
     pub fn get_type(&self) -> ResourceType {
-        self.data.r#type
+        self.0.r#type
     }
 
     /// Get the source path as an owned [PathBuf] from this [Resource]. This function never polls.
     pub fn get_source_path(&self) -> PathBuf {
-        self.data.source_path.clone()
+        self.0.source_path.clone()
     }
 
     /// Get the effective path as an owned [PathBuf] from this [Resource], or [None] if the [Resource]
     /// is not yet initialized. This function always polls.
     pub fn get_effective_path(&self) -> Option<PathBuf> {
-        self.poll();
-        self.init_data.get().map(|data| data.effective_path.clone())
+        self.0.init_info.get().map(|data| data.effective_path.clone())
     }
 
     /// Get the local path as an owned [PathBuf] from this [Resource], or [None] if the [Resource] is not
     /// yet initialized or hasn't been assigned a local path during its initialization. This function always
     /// polls.
     pub fn get_local_path(&self) -> Option<PathBuf> {
-        self.poll();
-        self.init_data.get().and_then(|data| data.local_path.clone())
+        self.0.init_info.get().and_then(|data| data.local_path.clone())
     }
 
     /// Schedule this [Resource] to be initialized by its system to the given effective and local paths.
@@ -187,8 +155,9 @@ impl Resource {
     ) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Uninitialized)?;
 
-        self.request_tx
-            .unbounded_send(ResourceRequest::Initialize(ResourceInitData {
+        self.0
+            .request_tx
+            .unbounded_send(ResourceRequest::Initialize(ResourceInitInfo {
                 effective_path,
                 local_path,
             }))
@@ -210,82 +179,8 @@ impl Resource {
     /// Schedule this [Resource] to be disposed by its system. This function may poll.
     pub fn start_disposal(&self) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Initialized)?;
-        let _ = self.request_tx.unbounded_send(ResourceRequest::Dispose);
+        let _ = self.0.request_tx.unbounded_send(ResourceRequest::Dispose);
         Ok(())
-    }
-
-    /// Schedule and await the initialization of this [Resource] to the given effective and local paths. This
-    /// function may poll.
-    pub async fn initialize(
-        &self,
-        effective_path: PathBuf,
-        local_path: Option<PathBuf>,
-    ) -> Result<(), ResourceSystemError> {
-        self.start_initialization(effective_path, local_path)?;
-
-        match pin!(self
-            .response_rx
-            .lock()
-            .expect("pull_rx mutex was poisoned")
-            .recv_direct())
-        .await
-        {
-            Ok(ResourceResponse::Initialized(Ok(init_data))) => {
-                let _ = self.init_data.set(init_data);
-                Ok(())
-            }
-            Ok(ResourceResponse::Initialized(Err(err))) => Err(err),
-            Ok(_) => Err(ResourceSystemError::MalformedResponse),
-            Err(_) => Err(ResourceSystemError::ChannelDisconnected),
-        }
-    }
-
-    /// Schedule and await the initialization of this [Resource] to the same effective (and local, if the
-    /// resource is moved) path as its source path. This function may poll.
-    pub async fn initialize_with_same_path(&self) -> Result<(), ResourceSystemError> {
-        let local_path = match self.get_type() {
-            ResourceType::Moved(_) => Some(self.get_source_path()),
-            _ => None,
-        };
-
-        self.initialize(self.get_source_path(), local_path).await
-    }
-
-    /// Schedule and await the disposal of this [Resource]. This function may poll.
-    pub async fn dispose(&self) -> Result<(), ResourceSystemError> {
-        self.start_disposal()?;
-
-        match pin!(self
-            .response_rx
-            .lock()
-            .expect("pull_rx mutex was poisoned")
-            .recv_direct())
-        .await
-        {
-            Ok(ResourceResponse::Disposed(Ok(_))) => {
-                self.disposed.store(true, Ordering::Release);
-                Ok(())
-            }
-            Ok(ResourceResponse::Disposed(Err(err))) => Err(err),
-            Ok(_) => Err(ResourceSystemError::MalformedResponse),
-            Err(_) => Err(ResourceSystemError::ChannelDisconnected),
-        }
-    }
-
-    #[inline(always)]
-    fn poll(&self) {
-        match self.response_rx.lock().expect("pull_rx mutex was poisoned").try_recv() {
-            Ok(ResourceResponse::Disposed(Ok(_))) => {
-                self.disposed.store(true, Ordering::Release);
-            }
-            Err(TryRecvError::Closed) => {
-                self.disposed.store(true, Ordering::Release);
-            }
-            Ok(ResourceResponse::Initialized(Ok(init_data))) => {
-                let _ = self.init_data.set(init_data);
-            }
-            _ => {}
-        }
     }
 
     #[inline(always)]
@@ -307,18 +202,17 @@ impl serde::Serialize for Resource {
     where
         S: serde::Serializer,
     {
-        match self.data.r#type {
-            ResourceType::Moved(_) => {
-                self.poll();
-                self.init_data
-                    .get()
-                    .expect("called serialize on uninitialized resource")
-                    .local_path
-                    .as_ref()
-                    .expect("no local_path for moved resource")
-                    .serialize(serializer)
-            }
-            _ => self.data.source_path.serialize(serializer),
+        match self.0.r#type {
+            ResourceType::Moved(_) => self
+                .0
+                .init_info
+                .get()
+                .expect("called serialize on uninitialized resource")
+                .local_path
+                .as_ref()
+                .expect("no local_path for moved resource")
+                .serialize(serializer),
+            _ => self.0.source_path.serialize(serializer),
         }
     }
 }

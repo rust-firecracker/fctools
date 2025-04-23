@@ -2,7 +2,7 @@
 use std::marker::PhantomData;
 use std::{
     path::PathBuf,
-    sync::{atomic::AtomicBool, Arc, Mutex, OnceLock},
+    sync::{atomic::AtomicBool, Arc, OnceLock},
 };
 
 use futures_channel::mpsc;
@@ -15,10 +15,7 @@ use crate::{
 };
 
 use super::{
-    internal::{
-        resource_system_main_task, OwnedResource, OwnedResourceState, ResourceData, ResourceSystemRequest,
-        ResourceSystemResponse,
-    },
+    internal::{resource_system_main_task, OwnedResource, ResourceInfo, ResourceSystemRequest, ResourceSystemResponse},
     Resource, ResourceState, ResourceType,
 };
 
@@ -44,8 +41,6 @@ pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
     #[cfg(feature = "vmm-process")]
     pub(crate) ownership_model: VmmOwnershipModel,
 }
-
-const RESOURCE_BROADCAST_CAPACITY: usize = 10;
 
 impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
     /// Create a new [ResourceSystem] with empty buffers for storing resource objects, using the given
@@ -116,34 +111,27 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         r#type: ResourceType,
     ) -> Result<Resource, ResourceSystemError> {
         let (request_tx, request_rx) = mpsc::unbounded();
-        let (response_tx, response_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
 
         let owned_resource = OwnedResource {
-            state: OwnedResourceState::Uninitialized,
+            init_task: None,
+            dispose_task: None,
             request_rx,
-            response_tx,
-            data: Arc::new(ResourceData {
+            info: Arc::new(ResourceInfo {
+                request_tx,
                 source_path: source_path.into(),
                 r#type,
+                init_info: OnceLock::new(),
+                disposed: AtomicBool::new(false),
             }),
-            init_data: None,
         };
 
-        let data = owned_resource.data.clone();
+        let resource = Resource(owned_resource.info.clone());
+        self.resources.push(resource.clone());
 
         self.request_tx
             .unbounded_send(ResourceSystemRequest::AddResource(owned_resource))
             .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
-        let resource = Resource {
-            request_tx,
-            response_rx: Mutex::new(response_rx),
-            data,
-            init_data: OnceLock::new(),
-            disposed: Arc::new(AtomicBool::new(false)),
-        };
-
-        self.resources.push(resource.clone());
         Ok(resource)
     }
 

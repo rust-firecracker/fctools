@@ -1,6 +1,6 @@
 [package]
 name = "fctools"
-version = "0.6.0-rc.2"
+version = "0.6.0-rc.3"
 edition = "2021"
 description = "An exhaustive, highly modular and extensible host SDK for the Firecracker microVM manager."
 license = "MIT"
@@ -61,8 +61,6 @@ async-fs = { version = "2.1.2", optional = true }
 blocking = { version = "1.6.1", optional = true }
 pin-project-lite = { version = "0.2.15", optional = true }
 # vmm core
-async-broadcast = { version = "0.7.2", optional = true }
-# vmm executor
 futures-util = { version = "0.3.31", features = [
     "sink",
     "io",
@@ -155,13 +153,7 @@ process-spawner = []
 direct-process-spawner = ["process-spawner"]
 elevation-process-spawners = ["process-spawner", "dep:futures-util"]
 # L2: VMM core
-vmm-core = [
-    "process-spawner",
-    "dep:futures-util",
-    "dep:futures-channel",
-    "dep:async-broadcast",
-    "runtime-util",
-]
+vmm-core = ["process-spawner", "dep:futures-util", "dep:futures-channel"]
 # L3: VMM executor
 vmm-executor = ["vmm-core", "process-spawner", "dep:futures-channel"]
 jailed-vmm-executor = ["vmm-executor"]
