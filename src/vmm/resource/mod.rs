@@ -168,12 +168,7 @@ impl Resource {
     /// resource is moved) path as its source path. This operation doesn't actually wait for the initialization
     /// to occur. This function may poll.
     pub fn start_initialization_with_same_path(&self) -> Result<(), ResourceSystemError> {
-        let local_path = match self.get_type() {
-            ResourceType::Moved(_) => Some(self.get_source_path()),
-            _ => None,
-        };
-
-        self.start_initialization(self.get_source_path(), local_path)
+        self.start_initialization(self.get_source_path(), Some(self.get_source_path()))
     }
 
     /// Schedule this [Resource] to be disposed by its system. This function may poll.

@@ -264,12 +264,14 @@ impl std::fmt::Display for VmmLogLevel {
 mod tests {
     use std::path::PathBuf;
 
+    use uuid::Uuid;
+
     use crate::{
         process_spawner::DirectProcessSpawner,
         runtime::tokio::TokioRuntime,
         vmm::{
             ownership::VmmOwnershipModel,
-            resource::{system::ResourceSystem, CreatedResourceType, MovedResourceType, ResourceType},
+            resource::{system::ResourceSystem, CreatedResourceType, Resource, ResourceType},
         },
     };
 
@@ -292,15 +294,6 @@ mod tests {
     #[test]
     fn log_level_can_be_set() {
         check_without_config(new().log_level(VmmLogLevel::Error), ["--level", "Error"]);
-    }
-
-    #[tokio::test]
-    async fn log_path_can_be_set() {
-        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
-        let resource = resource_system
-            .create_resource("/tmp/some_logs.txt", ResourceType::Created(CreatedResourceType::File))
-            .unwrap();
-        check_without_config(new().logs(resource), ["--log-path", "/tmp/some_logs.txt"]);
     }
 
     #[test]
@@ -332,23 +325,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn log_path_can_be_set() {
+        test_with_resource(|path, resource| {
+            check_without_config(new().logs(resource), ["--log-path", path]);
+        })
+        .await;
+    }
+
+    #[tokio::test]
     async fn metadata_path_can_be_set() {
-        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
-        let resource = resource_system
-            .create_resource("/tmp/metadata.txt", ResourceType::Moved(MovedResourceType::Renamed))
-            .unwrap();
-        resource.start_initialization_with_same_path().unwrap();
-        resource_system.synchronize().await.unwrap();
-        check_without_config(new().metadata(resource), ["--metadata", "/tmp/metadata.txt"]);
+        test_with_resource(|path, resource| {
+            check_without_config(new().metadata(resource), ["--metadata", path]);
+        })
+        .await;
     }
 
     #[tokio::test]
     async fn metrics_path_can_be_set() {
-        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
-        let resource = resource_system
-            .create_resource("/tmp/metrics.txt", ResourceType::Created(CreatedResourceType::File))
-            .unwrap();
-        check_without_config(new().metrics(resource), ["--metrics-path", "/tmp/metrics.txt"]);
+        test_with_resource(|path, resource| {
+            check_without_config(new().metrics(resource), ["--metrics-path", path]);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn seccomp_filter_path_can_be_set() {
+        test_with_resource(|path, resource| {
+            check_without_config(new().seccomp_filter(resource), ["--seccomp-filter", path]);
+        })
+        .await;
     }
 
     #[test]
@@ -359,15 +364,6 @@ mod tests {
     #[test]
     fn seccomp_can_be_disabled() {
         check_without_config(new().disable_seccomp(), ["--no-seccomp"]);
-    }
-
-    #[test]
-    fn seccomp_path_can_be_set() {
-        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
-        let resource = resource_system
-            .create_resource("/tmp/seccomp", ResourceType::Created(CreatedResourceType::File))
-            .unwrap();
-        check_without_config(new().seccomp_filter(resource), ["--seccomp-filter", "/tmp/seccomp"]);
     }
 
     #[test]
@@ -404,5 +400,20 @@ mod tests {
                 assert!(joined_args.contains(&matcher.to_string()));
             }
         }
+    }
+
+    async fn test_with_resource<F: FnOnce(&str, Resource) -> ()>(function: F) {
+        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
+        let path = format!("/tmp/{}", Uuid::new_v4());
+        let resource = resource_system
+            .create_resource(path.clone(), ResourceType::Created(CreatedResourceType::File))
+            .unwrap();
+        resource.start_initialization_with_same_path().unwrap();
+        resource_system.synchronize().await.unwrap();
+
+        function(&path, resource.clone());
+
+        resource.start_disposal().unwrap();
+        resource_system.synchronize().await.unwrap();
     }
 }
