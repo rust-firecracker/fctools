@@ -75,9 +75,9 @@ impl std::fmt::Display for ResourceState {
 }
 
 /// A [Resource] is resource pointer that communicates with an actual resource object owned by a resource system.
-/// This pointer can be cloned moderately cheaply, and efficient synchronization primitives are internally employed
-/// to make all operations accessible with only a shared reference. Two [Resource]s are always equal if they point
-/// to the same object in the same resource system.
+/// This pointer can be cloned cheaply with the same performance overhead as that of cloning a single [Arc], meaning
+/// that cloning a [Resource] is essentially instant. Two [Resource]s are always equal if they point to the same object
+/// in the same resource system.
 ///
 /// The [Resource]'s state includes its [ResourceType], [ResourceState] and three paths that characterize the file:
 /// the source path, available in all [ResourceState]s, an effective path available after initialization and,
@@ -86,10 +86,6 @@ impl std::fmt::Display for ResourceState {
 /// path of the file that it ends up in after initialization, and the local path (when filled out) is the relative path
 /// of the file after initialization, as which it is seen by Firecracker in a jailed environment, or the same absolute
 /// path if no jailing takes place.
-///
-/// Some operations on a [Resource] are instant, while others may need to "poll" the [Resource] in order to ensure the
-/// internally cached values are up-to-date. The performance cost of polling is as low as feasible: a mutex lock and
-/// unlock that always doesn't need to wait and an atomic store if an update is needed.
 ///
 /// The scheduling of resource initialization and disposal is the explicit responsibility of a VMM executor. The
 /// appropriate [Resource] functions that perform scheduling manually should only be used if the VMM executor layer is
@@ -110,7 +106,7 @@ impl PartialEq for Resource {
 impl Eq for Resource {}
 
 impl Resource {
-    /// Gets the current [ResourceState] of this [Resource]. This function may poll.
+    /// Gets the current [ResourceState] of this [Resource].
     #[inline]
     pub fn get_state(&self) -> ResourceState {
         if self.0.disposed.load(Ordering::Acquire) {
@@ -123,31 +119,30 @@ impl Resource {
         }
     }
 
-    /// Get the [ResourceType] of this [Resource]. This function never polls.
+    /// Get the [ResourceType] of this [Resource].
     pub fn get_type(&self) -> ResourceType {
         self.0.r#type
     }
 
-    /// Get the source path as an owned [PathBuf] from this [Resource]. This function never polls.
+    /// Get the source path as an owned [PathBuf] from this [Resource].
     pub fn get_source_path(&self) -> PathBuf {
         self.0.source_path.clone()
     }
 
     /// Get the effective path as an owned [PathBuf] from this [Resource], or [None] if the [Resource]
-    /// is not yet initialized. This function always polls.
+    /// is not yet initialized.
     pub fn get_effective_path(&self) -> Option<PathBuf> {
         self.0.init_info.get().map(|data| data.effective_path.clone())
     }
 
     /// Get the local path as an owned [PathBuf] from this [Resource], or [None] if the [Resource] is not
-    /// yet initialized or hasn't been assigned a local path during its initialization. This function always
-    /// polls.
+    /// yet initialized or hasn't been assigned a local path during its initialization.
     pub fn get_local_path(&self) -> Option<PathBuf> {
         self.0.init_info.get().and_then(|data| data.local_path.clone())
     }
 
     /// Schedule this [Resource] to be initialized by its system to the given effective and local paths.
-    /// This operation doesn't actually wait for the initialization to occur. This function may poll.
+    /// This operation doesn't actually wait for the initialization to occur.
     pub fn start_initialization(
         &self,
         effective_path: PathBuf,
@@ -166,12 +161,12 @@ impl Resource {
 
     /// Schedule this [Resource] to be initialized by its system to the same effective (and local, if the
     /// resource is moved) path as its source path. This operation doesn't actually wait for the initialization
-    /// to occur. This function may poll.
+    /// to occur.
     pub fn start_initialization_with_same_path(&self) -> Result<(), ResourceSystemError> {
         self.start_initialization(self.get_source_path(), Some(self.get_source_path()))
     }
 
-    /// Schedule this [Resource] to be disposed by its system. This function may poll.
+    /// Schedule this [Resource] to be disposed by its system.
     pub fn start_disposal(&self) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Initialized)?;
         let _ = self.0.request_tx.unbounded_send(ResourceRequest::Dispose);
