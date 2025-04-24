@@ -146,7 +146,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
         match self.response_rx.next().await {
-            Some(ResourceSystemResponse::SynchronizationComplete) => Ok(()),
+            Some(ResourceSystemResponse::SynchronizationComplete(result)) => result,
             None => Err(ResourceSystemError::ChannelDisconnected),
         }
     }
@@ -159,7 +159,7 @@ impl<S: ProcessSpawner, R: Runtime> Drop for ResourceSystem<S, R> {
 }
 
 /// An error that can be emitted by a [ResourceSystem] or a standalone [Resource].
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ResourceSystemError {
     /// A [Resource]'s [ResourceState] did not permit the requested operation.
     IncorrectState(ResourceState),
@@ -168,11 +168,14 @@ pub enum ResourceSystemError {
     /// A malformed response was transmitted over an internal channel connection.
     MalformedResponse,
     /// A [ChangeOwnerError] occurred when executing a scheduled action.
-    ChangeOwnerError(Arc<ChangeOwnerError>),
+    ChangeOwnerError(ChangeOwnerError),
     /// An I/O error occurred while interacting with the filesystem for a scheduled action.
-    FilesystemError(Arc<std::io::Error>),
+    FilesystemError(std::io::Error),
     /// A [Resource]'s source path was missing at the time of the execution of a scheduled action.
     SourcePathMissing,
+    /// A chain of multiple [ResourceSystemError]s occurred, represented in the inner [Vec] according to
+    /// their chronological order.
+    ErrorChain(Vec<ResourceSystemError>),
 }
 
 impl std::fmt::Display for ResourceSystemError {
@@ -191,6 +194,11 @@ impl std::fmt::Display for ResourceSystemError {
             ResourceSystemError::ChangeOwnerError(err) => write!(f, "An error occurred when changing ownership: {err}"),
             ResourceSystemError::FilesystemError(err) => write!(f, "A filesystem error occurred: {err}"),
             ResourceSystemError::SourcePathMissing => write!(f, "A resource's source path is missing"),
+            ResourceSystemError::ErrorChain(errors) => write!(
+                f,
+                "A chain of {} errors occurred, meaning that amount of operations failed",
+                errors.len()
+            ),
         }
     }
 }

@@ -53,7 +53,7 @@ pub enum ResourceSystemRequest<R: Runtime> {
 }
 
 pub enum ResourceSystemResponse {
-    SynchronizationComplete,
+    SynchronizationComplete(Result<(), ResourceSystemError>),
 }
 
 pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
@@ -72,6 +72,7 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
     }
 
     let mut synchronization_in_progress = false;
+    let mut synchronization_errors = Vec::new();
 
     loop {
         let incoming = poll_fn(|cx| {
@@ -152,8 +153,9 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                         let _ = resource.info.init_info.set(Arc::new(init_info));
                     }
                     Err(err) => {
-                        // TODO handle error
-                        drop(err);
+                        if synchronization_in_progress {
+                            synchronization_errors.push(err);
+                        }
                     }
                 }
             }
@@ -167,8 +169,9 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
                         resource.info.disposed.store(true, Ordering::Release);
                     }
                     Err(err) => {
-                        // TODO handle error
-                        drop(err);
+                        if synchronization_in_progress {
+                            synchronization_errors.push(err);
+                        }
                     }
                 }
             }
@@ -182,7 +185,18 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
 
             if pending_tasks == 0 {
                 synchronization_in_progress = false;
-                let _ = response_tx.unbounded_send(ResourceSystemResponse::SynchronizationComplete);
+
+                let result = match synchronization_errors.len() {
+                    0 => Ok(()),
+                    1 => Err(synchronization_errors
+                        .pop()
+                        .expect("synchronization_errors had length 1, but could not pop")),
+                    _ => Err(ResourceSystemError::ErrorChain(
+                        synchronization_errors.drain(..).collect(),
+                    )),
+                };
+
+                let _ = response_tx.unbounded_send(ResourceSystemResponse::SynchronizationComplete(result));
             }
         }
     }
@@ -203,12 +217,12 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
 
             upgrade_owner(&info.source_path, ownership_model, &process_spawner, &runtime)
                 .await
-                .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
+                .map_err(ResourceSystemError::ChangeOwnerError)?;
 
             if !runtime
                 .fs_exists(&info.source_path)
                 .await
-                .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?
+                .map_err(ResourceSystemError::FilesystemError)?
             {
                 return Err(ResourceSystemError::SourcePathMissing);
             }
@@ -217,7 +231,7 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
                 runtime
                     .fs_create_dir_all(parent_path)
                     .await
-                    .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                    .map_err(ResourceSystemError::FilesystemError)?;
             }
 
             match moved_resource_type {
@@ -225,13 +239,13 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
                     runtime
                         .fs_copy(&info.source_path, &init_info.effective_path)
                         .await
-                        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                        .map_err(ResourceSystemError::FilesystemError)?;
                 }
                 MovedResourceType::HardLinked => {
                     runtime
                         .fs_hard_link(&info.source_path, &init_info.effective_path)
                         .await
-                        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                        .map_err(ResourceSystemError::FilesystemError)?;
                 }
                 MovedResourceType::CopiedOrHardLinked => {
                     if runtime
@@ -242,7 +256,7 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
                         runtime
                             .fs_hard_link(&info.source_path, &init_info.effective_path)
                             .await
-                            .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                            .map_err(ResourceSystemError::FilesystemError)?;
                     }
                 }
                 MovedResourceType::HardLinkedOrCopied => {
@@ -254,14 +268,14 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
                         runtime
                             .fs_copy(&info.source_path, &init_info.effective_path)
                             .await
-                            .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                            .map_err(ResourceSystemError::FilesystemError)?;
                     }
                 }
                 MovedResourceType::Renamed => {
                     runtime
                         .fs_rename(&info.source_path, &init_info.effective_path)
                         .await
-                        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                        .map_err(ResourceSystemError::FilesystemError)?;
                 }
             }
         }
@@ -270,7 +284,7 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
                 runtime
                     .fs_create_dir_all(&parent_path)
                     .await
-                    .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                    .map_err(ResourceSystemError::FilesystemError)?;
             }
 
             match created_resource_type {
@@ -278,26 +292,24 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
                     runtime
                         .fs_create_file(&init_info.effective_path)
                         .await
-                        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                        .map_err(ResourceSystemError::FilesystemError)?;
                 }
                 CreatedResourceType::Fifo => {
-                    crate::syscall::mkfifo(&init_info.effective_path)
-                        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                    crate::syscall::mkfifo(&init_info.effective_path).map_err(ResourceSystemError::FilesystemError)?;
                 }
             }
 
             downgrade_owner(&init_info.effective_path, ownership_model)
-                .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
+                .map_err(ResourceSystemError::ChangeOwnerError)?;
         }
         ResourceType::Produced => {
             if let Some(parent_path) = init_info.effective_path.parent() {
                 runtime
                     .fs_create_dir_all(&parent_path)
                     .await
-                    .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                    .map_err(ResourceSystemError::FilesystemError)?;
 
-                downgrade_owner(&parent_path, ownership_model)
-                    .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
+                downgrade_owner(&parent_path, ownership_model).map_err(ResourceSystemError::ChangeOwnerError)?;
             }
         }
     };
@@ -313,10 +325,10 @@ async fn resource_system_dispose_task<R: Runtime, S: ProcessSpawner>(
 ) -> Result<(), ResourceSystemError> {
     upgrade_owner(&init_info.effective_path, ownership_model, &process_spawner, &runtime)
         .await
-        .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
+        .map_err(ResourceSystemError::ChangeOwnerError)?;
 
     runtime
         .fs_remove_file(&init_info.effective_path)
         .await
-        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))
+        .map_err(ResourceSystemError::FilesystemError)
 }
