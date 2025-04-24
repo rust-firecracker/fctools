@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -65,7 +65,7 @@ impl VmSnapshot {
             runtime.fs_copy(&self.snapshot_path, &new_snapshot_path),
             runtime.fs_copy(&self.mem_file_path, &new_mem_file_path)
         )
-        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+        .map_err(ResourceSystemError::FilesystemError)?;
 
         self.snapshot_path = new_snapshot_path;
         self.mem_file_path = new_mem_file_path;

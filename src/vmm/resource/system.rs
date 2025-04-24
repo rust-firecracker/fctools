@@ -2,7 +2,7 @@
 use std::marker::PhantomData;
 use std::{
     path::PathBuf,
-    sync::{atomic::AtomicBool, Arc, Mutex, OnceLock},
+    sync::{atomic::AtomicBool, Arc, OnceLock},
 };
 
 use futures_channel::mpsc;
@@ -15,10 +15,7 @@ use crate::{
 };
 
 use super::{
-    internal::{
-        resource_system_main_task, OwnedResource, OwnedResourceState, ResourceData, ResourceSystemPull,
-        ResourceSystemPush,
-    },
+    internal::{resource_system_main_task, OwnedResource, ResourceInfo, ResourceSystemRequest, ResourceSystemResponse},
     Resource, ResourceState, ResourceType,
 };
 
@@ -32,8 +29,8 @@ use super::{
 /// objects will be used by VMs and VMM processes that internally embed a [ResourceSystem].
 #[derive(Debug)]
 pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
-    push_tx: mpsc::UnboundedSender<ResourceSystemPush<R>>,
-    pull_rx: mpsc::UnboundedReceiver<ResourceSystemPull>,
+    request_tx: mpsc::UnboundedSender<ResourceSystemRequest<R>>,
+    response_rx: mpsc::UnboundedReceiver<ResourceSystemResponse>,
     #[cfg(not(feature = "vmm-process"))]
     marker: PhantomData<S>,
     resources: Vec<Resource>,
@@ -44,8 +41,6 @@ pub struct ResourceSystem<S: ProcessSpawner, R: Runtime> {
     #[cfg(feature = "vmm-process")]
     pub(crate) ownership_model: VmmOwnershipModel,
 }
-
-const RESOURCE_BROADCAST_CAPACITY: usize = 10;
 
 impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
     /// Create a new [ResourceSystem] with empty buffers for storing resource objects, using the given
@@ -73,12 +68,12 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         runtime: R,
         ownership_model: VmmOwnershipModel,
     ) -> Self {
-        let (push_tx, push_rx) = mpsc::unbounded();
-        let (pull_tx, pull_rx) = mpsc::unbounded();
+        let (request_tx, request_rx) = mpsc::unbounded();
+        let (response_tx, response_rx) = mpsc::unbounded();
 
         runtime.clone().spawn_task(resource_system_main_task::<S, R>(
-            push_rx,
-            pull_tx,
+            request_rx,
+            response_tx,
             owned_resources,
             process_spawner.clone(),
             runtime.clone(),
@@ -86,8 +81,8 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         ));
 
         Self {
-            push_tx,
-            pull_rx,
+            request_tx,
+            response_rx,
             #[cfg(not(feature = "vmm-process"))]
             marker: PhantomData,
             resources,
@@ -115,35 +110,28 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         source_path: P,
         r#type: ResourceType,
     ) -> Result<Resource, ResourceSystemError> {
-        let (push_tx, push_rx) = mpsc::unbounded();
-        let (pull_tx, pull_rx) = async_broadcast::broadcast(RESOURCE_BROADCAST_CAPACITY);
+        let (request_tx, request_rx) = mpsc::unbounded();
 
         let owned_resource = OwnedResource {
-            state: OwnedResourceState::Uninitialized,
-            push_rx,
-            pull_tx,
-            data: Arc::new(ResourceData {
+            init_task: None,
+            dispose_task: None,
+            request_rx,
+            info: Arc::new(ResourceInfo {
+                request_tx,
                 source_path: source_path.into(),
                 r#type,
+                init_info: OnceLock::new(),
+                disposed: AtomicBool::new(false),
             }),
-            init_data: None,
         };
 
-        let data = owned_resource.data.clone();
+        let resource = Resource(owned_resource.info.clone());
+        self.resources.push(resource.clone());
 
-        self.push_tx
-            .unbounded_send(ResourceSystemPush::AddResource(owned_resource))
+        self.request_tx
+            .unbounded_send(ResourceSystemRequest::AddResource(owned_resource))
             .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
-        let resource = Resource {
-            push_tx,
-            pull_rx: Mutex::new(pull_rx),
-            data,
-            init_data: OnceLock::new(),
-            disposed: Arc::new(AtomicBool::new(false)),
-        };
-
-        self.resources.push(resource.clone());
         Ok(resource)
     }
 
@@ -153,12 +141,12 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
     /// [Resource::initialize], [Resource::initialize_with_same_path] or [Resource::dispose] instead, as they will return
     /// an error if an operation fails, unlike this function.
     pub async fn synchronize(&mut self) -> Result<(), ResourceSystemError> {
-        self.push_tx
-            .unbounded_send(ResourceSystemPush::Synchronize)
+        self.request_tx
+            .unbounded_send(ResourceSystemRequest::Synchronize)
             .map_err(|_| ResourceSystemError::ChannelDisconnected)?;
 
-        match self.pull_rx.next().await {
-            Some(ResourceSystemPull::SynchronizationComplete) => Ok(()),
+        match self.response_rx.next().await {
+            Some(ResourceSystemResponse::SynchronizationComplete(result)) => result,
             None => Err(ResourceSystemError::ChannelDisconnected),
         }
     }
@@ -166,12 +154,12 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
 
 impl<S: ProcessSpawner, R: Runtime> Drop for ResourceSystem<S, R> {
     fn drop(&mut self) {
-        let _ = self.push_tx.unbounded_send(ResourceSystemPush::Shutdown);
+        let _ = self.request_tx.unbounded_send(ResourceSystemRequest::Shutdown);
     }
 }
 
 /// An error that can be emitted by a [ResourceSystem] or a standalone [Resource].
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ResourceSystemError {
     /// A [Resource]'s [ResourceState] did not permit the requested operation.
     IncorrectState(ResourceState),
@@ -180,11 +168,14 @@ pub enum ResourceSystemError {
     /// A malformed response was transmitted over an internal channel connection.
     MalformedResponse,
     /// A [ChangeOwnerError] occurred when executing a scheduled action.
-    ChangeOwnerError(Arc<ChangeOwnerError>),
+    ChangeOwnerError(ChangeOwnerError),
     /// An I/O error occurred while interacting with the filesystem for a scheduled action.
-    FilesystemError(Arc<std::io::Error>),
+    FilesystemError(std::io::Error),
     /// A [Resource]'s source path was missing at the time of the execution of a scheduled action.
     SourcePathMissing,
+    /// A chain of multiple [ResourceSystemError]s occurred, represented in the inner [Vec] according to
+    /// their chronological order.
+    ErrorChain(Vec<ResourceSystemError>),
 }
 
 impl std::fmt::Display for ResourceSystemError {
@@ -203,6 +194,11 @@ impl std::fmt::Display for ResourceSystemError {
             ResourceSystemError::ChangeOwnerError(err) => write!(f, "An error occurred when changing ownership: {err}"),
             ResourceSystemError::FilesystemError(err) => write!(f, "A filesystem error occurred: {err}"),
             ResourceSystemError::SourcePathMissing => write!(f, "A resource's source path is missing"),
+            ResourceSystemError::ErrorChain(errors) => write!(
+                f,
+                "A chain of {} errors occurred, meaning that amount of operations failed",
+                errors.len()
+            ),
         }
     }
 }

@@ -1,4 +1,12 @@
-use std::{future::poll_fn, path::PathBuf, pin::pin, sync::Arc, task::Poll};
+use std::{
+    future::poll_fn,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, OnceLock,
+    },
+    task::Poll,
+};
 
 use futures_channel::mpsc;
 use futures_util::StreamExt;
@@ -11,100 +19,83 @@ use crate::{
 
 use super::{system::ResourceSystemError, CreatedResourceType, MovedResourceType, ResourceType};
 
-pub enum OwnedResourceState<R: Runtime> {
-    Uninitialized,
-    Initializing(R::Task<Result<ResourceInitData, ResourceSystemError>>),
-    Initialized,
-    Disposing(R::Task<Result<(), ResourceSystemError>>),
-    Disposed,
-}
-
-pub struct OwnedResource<R: Runtime> {
-    pub state: OwnedResourceState<R>,
-    pub push_rx: mpsc::UnboundedReceiver<ResourcePush>,
-    pub pull_tx: async_broadcast::Sender<ResourcePull>,
-    pub data: Arc<ResourceData>,
-    pub init_data: Option<Arc<ResourceInitData>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ResourceData {
+#[derive(Debug)]
+pub struct ResourceInfo {
+    pub request_tx: mpsc::UnboundedSender<ResourceRequest>,
     pub source_path: PathBuf,
     pub r#type: ResourceType,
+    pub init_info: OnceLock<Arc<ResourceInitInfo>>,
+    pub disposed: AtomicBool,
 }
 
 #[derive(Debug, Clone)]
-pub struct ResourceInitData {
+pub struct ResourceInitInfo {
     pub effective_path: PathBuf,
     pub local_path: Option<PathBuf>,
 }
 
-pub enum ResourcePush {
-    Initialize(ResourceInitData),
+pub struct OwnedResource<R: Runtime> {
+    pub init_task: Option<R::Task<Result<ResourceInitInfo, ResourceSystemError>>>,
+    pub dispose_task: Option<R::Task<Result<(), ResourceSystemError>>>,
+    pub request_rx: mpsc::UnboundedReceiver<ResourceRequest>,
+    pub info: Arc<ResourceInfo>,
+}
+
+pub enum ResourceRequest {
+    Initialize(ResourceInitInfo),
     Dispose,
 }
 
-#[derive(Debug, Clone)]
-pub enum ResourcePull {
-    Initialized(Result<Arc<ResourceInitData>, ResourceSystemError>),
-    Disposed(Result<(), ResourceSystemError>),
-}
-
-pub enum ResourceSystemPush<R: Runtime> {
+pub enum ResourceSystemRequest<R: Runtime> {
     AddResource(OwnedResource<R>),
     Synchronize,
     Shutdown,
 }
 
-pub enum ResourceSystemPull {
-    SynchronizationComplete,
+pub enum ResourceSystemResponse {
+    SynchronizationComplete(Result<(), ResourceSystemError>),
 }
 
 pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
-    mut push_rx: mpsc::UnboundedReceiver<ResourceSystemPush<R>>,
-    pull_tx: mpsc::UnboundedSender<ResourceSystemPull>,
+    mut request_rx: mpsc::UnboundedReceiver<ResourceSystemRequest<R>>,
+    response_tx: mpsc::UnboundedSender<ResourceSystemResponse>,
     mut owned_resources: Vec<OwnedResource<R>>,
     process_spawner: S,
     runtime: R,
     ownership_model: VmmOwnershipModel,
 ) {
     enum Incoming<R: Runtime> {
-        SystemPush(ResourceSystemPush<R>),
-        ResourcePush(usize, ResourcePush),
-        FinishedInitTask(usize, Result<ResourceInitData, ResourceSystemError>),
-        FinishedDisposeTask(usize, Result<(), ResourceSystemError>),
-        FinishedBroadcastTask(usize),
+        SystemRequest(ResourceSystemRequest<R>),
+        ResourceRequest(usize, ResourceRequest),
+        InitTaskCompletion(usize, Result<ResourceInitInfo, ResourceSystemError>),
+        DisposeTaskCompletion(usize, Result<(), ResourceSystemError>),
     }
 
     let mut synchronization_in_progress = false;
-    let mut broadcast_tasks = Vec::<R::Task<()>>::new();
+    let mut synchronization_errors = Vec::new();
 
     loop {
         let incoming = poll_fn(|cx| {
             for (resource_index, resource) in owned_resources.iter_mut().enumerate() {
-                if let Poll::Ready(Some(push)) = resource.push_rx.poll_next_unpin(cx) {
-                    return Poll::Ready(Incoming::ResourcePush(resource_index, push));
+                if let Poll::Ready(Some(request)) = resource.request_rx.poll_next_unpin(cx) {
+                    return Poll::Ready(Incoming::ResourceRequest(resource_index, request));
                 }
 
-                if let OwnedResourceState::Initializing(ref mut task) = resource.state {
+                if let Some(ref mut task) = resource.init_task {
                     if let Poll::Ready(Some(result)) = task.poll_join(cx) {
-                        return Poll::Ready(Incoming::FinishedInitTask(resource_index, result));
+                        resource.init_task = None;
+                        return Poll::Ready(Incoming::InitTaskCompletion(resource_index, result));
                     }
-                } else if let OwnedResourceState::Disposing(ref mut task) = resource.state {
+                } else if let Some(ref mut task) = resource.dispose_task {
                     if let Poll::Ready(Some(result)) = task.poll_join(cx) {
-                        return Poll::Ready(Incoming::FinishedDisposeTask(resource_index, result));
+                        resource.dispose_task = None;
+                        return Poll::Ready(Incoming::DisposeTaskCompletion(resource_index, result));
                     }
                 }
             }
 
-            if let Poll::Ready(Some(push)) = push_rx.poll_next_unpin(cx) {
-                return Poll::Ready(Incoming::SystemPush(push));
-            }
-
-            for (index, task) in broadcast_tasks.iter_mut().enumerate() {
-                if let Poll::Ready(Some(_)) = task.poll_join(cx) {
-                    return Poll::Ready(Incoming::FinishedBroadcastTask(index));
-                }
+            if let Poll::Ready(Some(request)) = request_rx.poll_next_unpin(cx) {
+                return Poll::Ready(Incoming::SystemRequest(request));
             }
 
             Poll::Pending
@@ -112,254 +103,232 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
         .await;
 
         match incoming {
-            Incoming::SystemPush(push) => match push {
-                ResourceSystemPush::AddResource(owned_resource) => {
+            Incoming::SystemRequest(request) => match request {
+                ResourceSystemRequest::AddResource(owned_resource) => {
                     owned_resources.push(owned_resource);
                 }
-                ResourceSystemPush::Shutdown => {
+                ResourceSystemRequest::Shutdown => {
                     return;
                 }
-                ResourceSystemPush::Synchronize => {
+                ResourceSystemRequest::Synchronize => {
                     synchronization_in_progress = true;
                 }
             },
-            Incoming::ResourcePush(resource_index, push) => {
+            Incoming::ResourceRequest(resource_index, request) => {
                 let Some(resource) = owned_resources.get_mut(resource_index) else {
                     continue;
                 };
 
-                match push {
-                    ResourcePush::Initialize(init_data) => {
+                match request {
+                    ResourceRequest::Initialize(init_info) => {
                         let init_task = runtime.spawn_task(resource_system_init_task(
-                            resource.data.clone(),
-                            init_data,
+                            resource.info.clone(),
+                            init_info,
                             runtime.clone(),
                             process_spawner.clone(),
                             ownership_model,
                         ));
 
-                        resource.state = OwnedResourceState::Initializing(init_task);
+                        resource.init_task = Some(init_task);
                     }
-                    ResourcePush::Dispose => {
+                    ResourceRequest::Dispose => {
                         let dispose_task = runtime.spawn_task(resource_system_dispose_task(
-                            resource.init_data.clone().unwrap(),
+                            resource.info.init_info.get().unwrap().clone(),
                             runtime.clone(),
                             process_spawner.clone(),
                             ownership_model,
                         ));
 
-                        resource.state = OwnedResourceState::Disposing(dispose_task);
+                        resource.dispose_task = Some(dispose_task);
                     }
                 }
             }
-            Incoming::FinishedInitTask(resource_index, result) => {
+            Incoming::InitTaskCompletion(resource_index, result) => {
                 let Some(resource) = owned_resources.get_mut(resource_index) else {
                     continue;
                 };
 
                 match result {
-                    Ok(init_data) => {
-                        let init_data = Arc::new(init_data);
-                        resource.init_data = Some(init_data.clone());
-                        resource.state = OwnedResourceState::Initialized;
-                        broadcast_tasks.push(defer_resource_pull(
-                            resource,
-                            &runtime,
-                            ResourcePull::Initialized(Ok(init_data)),
-                        ));
+                    Ok(init_info) => {
+                        let _ = resource.info.init_info.set(Arc::new(init_info));
                     }
                     Err(err) => {
-                        resource.state = OwnedResourceState::Uninitialized;
-                        broadcast_tasks.push(defer_resource_pull(
-                            resource,
-                            &runtime,
-                            ResourcePull::Initialized(Err(err)),
-                        ));
+                        if synchronization_in_progress {
+                            synchronization_errors.push(err);
+                        }
                     }
                 }
             }
-            Incoming::FinishedDisposeTask(resource_index, result) => {
+            Incoming::DisposeTaskCompletion(resource_index, result) => {
                 let Some(resource) = owned_resources.get_mut(resource_index) else {
                     continue;
                 };
 
                 match result {
                     Ok(_) => {
-                        resource.state = OwnedResourceState::Disposed;
-                        broadcast_tasks.push(defer_resource_pull(resource, &runtime, ResourcePull::Disposed(Ok(()))));
+                        resource.info.disposed.store(true, Ordering::Release);
                     }
                     Err(err) => {
-                        resource.state = OwnedResourceState::Initialized;
-                        broadcast_tasks.push(defer_resource_pull(
-                            resource,
-                            &runtime,
-                            ResourcePull::Disposed(Err(err)),
-                        ));
+                        if synchronization_in_progress {
+                            synchronization_errors.push(err);
+                        }
                     }
                 }
-            }
-            Incoming::FinishedBroadcastTask(index) => {
-                broadcast_tasks.remove(index);
             }
         };
 
         if synchronization_in_progress {
             let pending_tasks = owned_resources
                 .iter()
-                .filter(|resource| {
-                    matches!(
-                        resource.state,
-                        OwnedResourceState::Initializing(_) | OwnedResourceState::Disposing(_)
-                    )
-                })
-                .count()
-                + broadcast_tasks.len();
+                .filter(|resource| resource.init_task.is_some() || resource.dispose_task.is_some())
+                .count();
 
             if pending_tasks == 0 {
                 synchronization_in_progress = false;
-                let _ = pull_tx.unbounded_send(ResourceSystemPull::SynchronizationComplete);
+
+                let result = match synchronization_errors.len() {
+                    0 => Ok(()),
+                    1 => Err(synchronization_errors
+                        .pop()
+                        .expect("synchronization_errors had length 1, but could not pop")),
+                    _ => Err(ResourceSystemError::ErrorChain(
+                        synchronization_errors.drain(..).collect(),
+                    )),
+                };
+
+                let _ = response_tx.unbounded_send(ResourceSystemResponse::SynchronizationComplete(result));
             }
         }
     }
 }
 
-#[inline]
-fn defer_resource_pull<R: Runtime>(resource: &mut OwnedResource<R>, runtime: &R, pull: ResourcePull) -> R::Task<()> {
-    let tx = resource.pull_tx.clone();
-    runtime.spawn_task(async move {
-        let _ = pin!(tx.broadcast_direct(pull)).await;
-    })
-}
-
 async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
-    data: Arc<ResourceData>,
-    init_data: ResourceInitData,
+    info: Arc<ResourceInfo>,
+    init_info: ResourceInitInfo,
     runtime: R,
     process_spawner: S,
     ownership_model: VmmOwnershipModel,
-) -> Result<ResourceInitData, ResourceSystemError> {
-    match data.r#type {
+) -> Result<ResourceInitInfo, ResourceSystemError> {
+    match info.r#type {
         ResourceType::Moved(moved_resource_type) => {
-            if data.source_path == init_data.effective_path {
-                return Ok(init_data);
+            if info.source_path == init_info.effective_path {
+                return Ok(init_info);
             }
 
-            upgrade_owner(&data.source_path, ownership_model, &process_spawner, &runtime)
+            upgrade_owner(&info.source_path, ownership_model, &process_spawner, &runtime)
                 .await
-                .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
+                .map_err(ResourceSystemError::ChangeOwnerError)?;
 
             if !runtime
-                .fs_exists(&data.source_path)
+                .fs_exists(&info.source_path)
                 .await
-                .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?
+                .map_err(ResourceSystemError::FilesystemError)?
             {
                 return Err(ResourceSystemError::SourcePathMissing);
             }
 
-            if let Some(parent_path) = init_data.effective_path.parent() {
+            if let Some(parent_path) = init_info.effective_path.parent() {
                 runtime
                     .fs_create_dir_all(parent_path)
                     .await
-                    .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                    .map_err(ResourceSystemError::FilesystemError)?;
             }
 
             match moved_resource_type {
                 MovedResourceType::Copied => {
                     runtime
-                        .fs_copy(&data.source_path, &init_data.effective_path)
+                        .fs_copy(&info.source_path, &init_info.effective_path)
                         .await
-                        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                        .map_err(ResourceSystemError::FilesystemError)?;
                 }
                 MovedResourceType::HardLinked => {
                     runtime
-                        .fs_hard_link(&data.source_path, &init_data.effective_path)
+                        .fs_hard_link(&info.source_path, &init_info.effective_path)
                         .await
-                        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                        .map_err(ResourceSystemError::FilesystemError)?;
                 }
                 MovedResourceType::CopiedOrHardLinked => {
                     if runtime
-                        .fs_copy(&data.source_path, &init_data.effective_path)
+                        .fs_copy(&info.source_path, &init_info.effective_path)
                         .await
                         .is_err()
                     {
                         runtime
-                            .fs_hard_link(&data.source_path, &init_data.effective_path)
+                            .fs_hard_link(&info.source_path, &init_info.effective_path)
                             .await
-                            .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                            .map_err(ResourceSystemError::FilesystemError)?;
                     }
                 }
                 MovedResourceType::HardLinkedOrCopied => {
                     if runtime
-                        .fs_hard_link(&data.source_path, &init_data.effective_path)
+                        .fs_hard_link(&info.source_path, &init_info.effective_path)
                         .await
                         .is_err()
                     {
                         runtime
-                            .fs_copy(&data.source_path, &init_data.effective_path)
+                            .fs_copy(&info.source_path, &init_info.effective_path)
                             .await
-                            .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                            .map_err(ResourceSystemError::FilesystemError)?;
                     }
                 }
                 MovedResourceType::Renamed => {
                     runtime
-                        .fs_rename(&data.source_path, &init_data.effective_path)
+                        .fs_rename(&info.source_path, &init_info.effective_path)
                         .await
-                        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                        .map_err(ResourceSystemError::FilesystemError)?;
                 }
             }
         }
         ResourceType::Created(created_resource_type) => {
-            if let Some(parent_path) = init_data.effective_path.parent() {
+            if let Some(parent_path) = init_info.effective_path.parent() {
                 runtime
                     .fs_create_dir_all(&parent_path)
                     .await
-                    .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                    .map_err(ResourceSystemError::FilesystemError)?;
             }
 
             match created_resource_type {
                 CreatedResourceType::File => {
                     runtime
-                        .fs_create_file(&init_data.effective_path)
+                        .fs_create_file(&init_info.effective_path)
                         .await
-                        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                        .map_err(ResourceSystemError::FilesystemError)?;
                 }
                 CreatedResourceType::Fifo => {
-                    crate::syscall::mkfifo(&init_data.effective_path)
-                        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                    crate::syscall::mkfifo(&init_info.effective_path).map_err(ResourceSystemError::FilesystemError)?;
                 }
             }
 
-            downgrade_owner(&init_data.effective_path, ownership_model)
-                .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
+            downgrade_owner(&init_info.effective_path, ownership_model)
+                .map_err(ResourceSystemError::ChangeOwnerError)?;
         }
         ResourceType::Produced => {
-            if let Some(parent_path) = init_data.effective_path.parent() {
+            if let Some(parent_path) = init_info.effective_path.parent() {
                 runtime
                     .fs_create_dir_all(&parent_path)
                     .await
-                    .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))?;
+                    .map_err(ResourceSystemError::FilesystemError)?;
 
-                downgrade_owner(&parent_path, ownership_model)
-                    .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
+                downgrade_owner(&parent_path, ownership_model).map_err(ResourceSystemError::ChangeOwnerError)?;
             }
         }
     };
 
-    Ok(init_data)
+    Ok(init_info)
 }
 
 async fn resource_system_dispose_task<R: Runtime, S: ProcessSpawner>(
-    init_data: Arc<ResourceInitData>,
+    init_info: Arc<ResourceInitInfo>,
     runtime: R,
     process_spawner: S,
     ownership_model: VmmOwnershipModel,
 ) -> Result<(), ResourceSystemError> {
-    upgrade_owner(&init_data.effective_path, ownership_model, &process_spawner, &runtime)
+    upgrade_owner(&init_info.effective_path, ownership_model, &process_spawner, &runtime)
         .await
-        .map_err(|err| ResourceSystemError::ChangeOwnerError(Arc::new(err)))?;
+        .map_err(ResourceSystemError::ChangeOwnerError)?;
 
     runtime
-        .fs_remove_file(&init_data.effective_path)
+        .fs_remove_file(&init_info.effective_path)
         .await
-        .map_err(|err| ResourceSystemError::FilesystemError(Arc::new(err)))
+        .map_err(ResourceSystemError::FilesystemError)
 }

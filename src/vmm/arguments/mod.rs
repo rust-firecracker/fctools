@@ -23,7 +23,7 @@ pub struct VmmArguments {
     metadata_resource_index: Option<usize>,
     metrics_resource_index: Option<usize>,
     seccomp_filter_resource_index: Option<usize>,
-    resource_buffer: Vec<Resource>,
+    resources: Vec<Resource>,
 }
 
 impl VmmArguments {
@@ -43,7 +43,7 @@ impl VmmArguments {
             metadata_resource_index: None,
             metrics_resource_index: None,
             seccomp_filter_resource_index: None,
-            resource_buffer: Vec::new(),
+            resources: Vec::new(),
         }
     }
 
@@ -97,35 +97,35 @@ impl VmmArguments {
 
     /// Specify the [Resource] pointing to the log file for the VMM.
     pub fn logs(mut self, logs: Resource) -> Self {
-        self.resource_buffer.push(logs);
-        self.log_resource_index = Some(self.resource_buffer.len() - 1);
+        self.resources.push(logs);
+        self.log_resource_index = Some(self.resources.len() - 1);
         self
     }
 
     /// Specify the [Resource] pointing to the metadata file for the VMM.
     pub fn metadata(mut self, metadata: Resource) -> Self {
-        self.resource_buffer.push(metadata);
-        self.metadata_resource_index = Some(self.resource_buffer.len() - 1);
+        self.resources.push(metadata);
+        self.metadata_resource_index = Some(self.resources.len() - 1);
         self
     }
 
     /// Specify the [Resource] pointing to the metrics file for the VMM.
     pub fn metrics(mut self, metrics: Resource) -> Self {
-        self.resource_buffer.push(metrics);
-        self.metrics_resource_index = Some(self.resource_buffer.len() - 1);
+        self.resources.push(metrics);
+        self.metrics_resource_index = Some(self.resources.len() - 1);
         self
     }
 
     /// Specify the [Resource] pointing to a custom seccomp filter file for the VMM.
     pub fn seccomp_filter(mut self, seccomp_filter: Resource) -> Self {
-        self.resource_buffer.push(seccomp_filter);
-        self.seccomp_filter_resource_index = Some(self.resource_buffer.len() - 1);
+        self.resources.push(seccomp_filter);
+        self.seccomp_filter_resource_index = Some(self.resources.len() - 1);
         self
     }
 
     /// Get a shared slice into an internal buffer holding all [Resource]s tied to these [VmmArguments].
     pub fn get_resources(&self) -> &[Resource] {
-        &self.resource_buffer
+        &self.resources
     }
 
     /// Join these [VmmArguments] into a [Vec] of process arguments, using the given optional config path.
@@ -210,7 +210,7 @@ impl VmmArguments {
 
     #[inline(always)]
     fn get_resource_path_string(&self, index: usize) -> String {
-        self.resource_buffer
+        self.resources
             .get(index)
             .expect("Resource buffer doesn't contain index")
             .get_local_path()
@@ -264,12 +264,14 @@ impl std::fmt::Display for VmmLogLevel {
 mod tests {
     use std::path::PathBuf;
 
+    use uuid::Uuid;
+
     use crate::{
         process_spawner::DirectProcessSpawner,
         runtime::tokio::TokioRuntime,
         vmm::{
             ownership::VmmOwnershipModel,
-            resource::{system::ResourceSystem, CreatedResourceType, MovedResourceType, ResourceType},
+            resource::{system::ResourceSystem, CreatedResourceType, Resource, ResourceType},
         },
     };
 
@@ -292,15 +294,6 @@ mod tests {
     #[test]
     fn log_level_can_be_set() {
         check_without_config(new().log_level(VmmLogLevel::Error), ["--level", "Error"]);
-    }
-
-    #[tokio::test]
-    async fn log_path_can_be_set() {
-        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
-        let resource = resource_system
-            .create_resource("/tmp/some_logs.txt", ResourceType::Created(CreatedResourceType::File))
-            .unwrap();
-        check_without_config(new().logs(resource), ["--log-path", "/tmp/some_logs.txt"]);
     }
 
     #[test]
@@ -332,23 +325,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn log_path_can_be_set() {
+        test_with_resource(|path, resource| {
+            check_without_config(new().logs(resource), ["--log-path", path]);
+        })
+        .await;
+    }
+
+    #[tokio::test]
     async fn metadata_path_can_be_set() {
-        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
-        let resource = resource_system
-            .create_resource("/tmp/metadata.txt", ResourceType::Moved(MovedResourceType::Renamed))
-            .unwrap();
-        resource.start_initialization_with_same_path().unwrap();
-        resource_system.synchronize().await.unwrap();
-        check_without_config(new().metadata(resource), ["--metadata", "/tmp/metadata.txt"]);
+        test_with_resource(|path, resource| {
+            check_without_config(new().metadata(resource), ["--metadata", path]);
+        })
+        .await;
     }
 
     #[tokio::test]
     async fn metrics_path_can_be_set() {
-        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
-        let resource = resource_system
-            .create_resource("/tmp/metrics.txt", ResourceType::Created(CreatedResourceType::File))
-            .unwrap();
-        check_without_config(new().metrics(resource), ["--metrics-path", "/tmp/metrics.txt"]);
+        test_with_resource(|path, resource| {
+            check_without_config(new().metrics(resource), ["--metrics-path", path]);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn seccomp_filter_path_can_be_set() {
+        test_with_resource(|path, resource| {
+            check_without_config(new().seccomp_filter(resource), ["--seccomp-filter", path]);
+        })
+        .await;
     }
 
     #[test]
@@ -359,15 +364,6 @@ mod tests {
     #[test]
     fn seccomp_can_be_disabled() {
         check_without_config(new().disable_seccomp(), ["--no-seccomp"]);
-    }
-
-    #[test]
-    fn seccomp_path_can_be_set() {
-        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
-        let resource = resource_system
-            .create_resource("/tmp/seccomp", ResourceType::Created(CreatedResourceType::File))
-            .unwrap();
-        check_without_config(new().seccomp_filter(resource), ["--seccomp-filter", "/tmp/seccomp"]);
     }
 
     #[test]
@@ -404,5 +400,20 @@ mod tests {
                 assert!(joined_args.contains(&matcher.to_string()));
             }
         }
+    }
+
+    async fn test_with_resource<F: FnOnce(&str, Resource) -> ()>(function: F) {
+        let mut resource_system = ResourceSystem::new(DirectProcessSpawner, TokioRuntime, VmmOwnershipModel::Shared);
+        let path = format!("/tmp/{}", Uuid::new_v4());
+        let resource = resource_system
+            .create_resource(path.clone(), ResourceType::Created(CreatedResourceType::File))
+            .unwrap();
+        resource.start_initialization_with_same_path().unwrap();
+        resource_system.synchronize().await.unwrap();
+
+        function(&path, resource.clone());
+
+        resource.start_disposal().unwrap();
+        resource_system.synchronize().await.unwrap();
     }
 }
