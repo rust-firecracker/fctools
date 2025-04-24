@@ -136,10 +136,10 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
     }
 
     /// Performs manual synchronization with the underlying central task. This operation waits until all initialization,
-    /// disposal or other scheduled tasks complete (regardless of whether they complete successfully or not). If you
-    /// intend only to wait on a single operation such as a single resource's initialization, prefer using
-    /// [Resource::initialize], [Resource::initialize_with_same_path] or [Resource::dispose] instead, as they will return
-    /// an error if an operation fails, unlike this function.
+    /// disposal or other scheduled tasks complete. If all such tasks complete successfully, [Ok] is returned. If only one
+    /// such task fails and all others succeed, a standard [ResourceSystemError] is returned. If multiple such tasks fail,
+    /// a [ResourceSystemError::ErrorChain] variant is returned, encompassing multiple inner [ResourceSystemError]s for each
+    /// failed task.
     pub async fn synchronize(&mut self) -> Result<(), ResourceSystemError> {
         self.request_tx
             .unbounded_send(ResourceSystemRequest::Synchronize)
