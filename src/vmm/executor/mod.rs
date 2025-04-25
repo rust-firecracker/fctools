@@ -44,10 +44,10 @@ pub enum VmmExecutorError {
     /// The given owned [PathBuf] was expected to have a directory parent, yet it was located at the root
     /// of the filesystem.
     ExpectedDirectoryParentMissing(PathBuf),
-    /// A [LocalPathResolverError] occurred.
+    /// A [VirtualPathResolverError] occurred.
     #[cfg(feature = "jailed-vmm-executor")]
     #[cfg_attr(docsrs, doc(cfg(feature = "jailed-vmm-executor")))]
-    LocalPathResolverError(VirtualPathResolverError),
+    VirtualPathResolverError(VirtualPathResolverError),
     /// Another type of error occurred within the [VmmExecutor] implementation's code. This error variant is
     /// reserved for custom [VmmExecutor] implementations and isn't used by the built-in ones.
     Other(Box<dyn std::error::Error + Send + Sync>),
@@ -76,8 +76,8 @@ impl std::fmt::Display for VmmExecutorError {
             }
             VmmExecutorError::ProcessSpawnFailed(err) => write!(f, "Spawning a process failed: {err}"),
             #[cfg(feature = "jailed-vmm-executor")]
-            VmmExecutorError::LocalPathResolverError(err) => {
-                write!(f, "Invoking the jail renamer to produce an inner path failed: {err}")
+            VmmExecutorError::VirtualPathResolverError(err) => {
+                write!(f, "Invoking the virtual path resolver failed: {err}")
             }
             VmmExecutorError::ProcessExitedWithNonZeroStatus(exit_status) => {
                 write!(f, "A watched process exited with a non-zero exit status: {exit_status}")

@@ -138,11 +138,10 @@ impl Resource {
     /// Get the virtual path as a borrowed [Path] from this [Resource], or [None] if the [Resource] has not
     /// yet been initialized.
     pub fn get_virtual_path(&self) -> Option<&Path> {
-        self.0.init_info.get().map(|data| {
-            data.virtual_path
-                .as_deref()
-                .unwrap_or_else(|| data.effective_path.as_path())
-        })
+        self.0
+            .init_info
+            .get()
+            .map(|data| data.virtual_path.as_deref().unwrap_or_else(|| self.get_initial_path()))
     }
 
     /// Schedule this [Resource] to be initialized by its system to the given effective and virtual paths.
@@ -202,7 +201,7 @@ impl serde::Serialize for Resource {
                 .get_virtual_path()
                 .expect("called serialize on uninitialized resource")
                 .serialize(serializer),
-            _ => self.0.initial_path.serialize(serializer),
+            _ => self.get_initial_path().serialize(serializer),
         }
     }
 }

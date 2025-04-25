@@ -7,6 +7,7 @@ use crate::{
         arguments::{command_modifier::CommandModifier, jailer::JailerArguments, VmmApiSocket, VmmArguments},
         installation::VmmInstallation,
         ownership::{downgrade_owner_recursively, upgrade_owner, PROCESS_GID, PROCESS_UID},
+        resource::ResourceType,
     },
 };
 
@@ -15,23 +16,23 @@ use super::{process_handle::ProcessHandle, VmmExecutor, VmmExecutorContext, VmmE
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". The "jailer", by design, can only run as "root", even though the "firecracker" process itself
 /// won't do so unless explicitly configured to run as UID 0 and GID 0, which corresponds to "root".
-/// A [JailedVmmExecutor] is tied to a [LocalPathResolver] it uses in order to function.
+/// A [JailedVmmExecutor] is tied to a [VirtualPathResolver] it uses in order to function.
 #[derive(Debug)]
-pub struct JailedVmmExecutor<P: VirtualPathResolver> {
+pub struct JailedVmmExecutor<V: VirtualPathResolver> {
     vmm_arguments: VmmArguments,
     jailer_arguments: JailerArguments,
-    virtual_path_resolver: P,
+    virtual_path_resolver: V,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
 }
 
-impl<P: VirtualPathResolver> JailedVmmExecutor<P> {
-    /// Create a new [JailedVmmExecutor] from [VmmArguments], [JailerArguments] and the specified [LocalPathResolver]
+impl<V: VirtualPathResolver> JailedVmmExecutor<V> {
+    /// Create a new [JailedVmmExecutor] from [VmmArguments], [JailerArguments] and the specified [VirtualPathResolver]
     /// implementation's instance.
-    pub fn new(vmm_arguments: VmmArguments, jailer_arguments: JailerArguments, local_path_resolver: P) -> Self {
+    pub fn new(vmm_arguments: VmmArguments, jailer_arguments: JailerArguments, virtual_path_resolver: V) -> Self {
         Self {
             vmm_arguments,
             jailer_arguments,
-            virtual_path_resolver: local_path_resolver,
+            virtual_path_resolver,
             command_modifier_chain: Vec::new(),
         }
     }
@@ -49,7 +50,7 @@ impl<P: VirtualPathResolver> JailedVmmExecutor<P> {
     }
 }
 
-impl<P: VirtualPathResolver> VmmExecutor for JailedVmmExecutor<P> {
+impl<V: VirtualPathResolver> VmmExecutor for JailedVmmExecutor<V> {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
         match &self.vmm_arguments.api_socket {
             VmmApiSocket::Disabled => None,
@@ -107,15 +108,18 @@ impl<P: VirtualPathResolver> VmmExecutor for JailedVmmExecutor<P> {
         }
 
         for resource in context.resources.iter().chain(self.vmm_arguments.get_resources()) {
-            let virtual_path = self
-                .virtual_path_resolver
-                .resolve_virtual_path(&resource.get_initial_path())
-                .map_err(VmmExecutorError::LocalPathResolverError)?;
-            let effective_path = jail_path.jail_join(&virtual_path);
-
-            resource
-                .start_initialization(effective_path, Some(virtual_path))
-                .map_err(VmmExecutorError::ResourceSystemError)?;
+            match resource.get_type() {
+                ResourceType::Moved(_) => {
+                    let virtual_path = self
+                        .virtual_path_resolver
+                        .resolve_virtual_path(resource.get_initial_path())
+                        .map_err(VmmExecutorError::VirtualPathResolverError)?;
+                    let effective_path = jail_path.jail_join(&virtual_path);
+                    resource.start_initialization(effective_path, Some(virtual_path))
+                }
+                _ => resource.start_initialization(jail_path.jail_join(resource.get_initial_path()), None),
+            }
+            .map_err(VmmExecutorError::ResourceSystemError)?
         }
 
         Ok(())
@@ -224,7 +228,7 @@ impl<P: VirtualPathResolver> VmmExecutor for JailedVmmExecutor<P> {
     }
 }
 
-impl<P: VirtualPathResolver> JailedVmmExecutor<P> {
+impl<V: VirtualPathResolver> JailedVmmExecutor<V> {
     fn get_paths(&self, installation: &VmmInstallation) -> (PathBuf, PathBuf) {
         let chroot_base_dir = self
             .jailer_arguments
@@ -252,7 +256,7 @@ impl<P: VirtualPathResolver> JailedVmmExecutor<P> {
 #[derive(Debug)]
 pub enum VirtualPathResolverError {
     /// The provided initial path had no filename.
-    SourcePathHasNoFilename,
+    InitialPathHasNoFilename,
     /// A generic I/O error occurred.
     IoError(std::io::Error),
     /// Another type of error occurred. This error variant is reserved for custom [VirtualPathResolver] implementations
@@ -265,7 +269,9 @@ impl std::error::Error for VirtualPathResolverError {}
 impl std::fmt::Display for VirtualPathResolverError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VirtualPathResolverError::SourcePathHasNoFilename => write!(f, "The provided initial path had no filename"),
+            VirtualPathResolverError::InitialPathHasNoFilename => {
+                write!(f, "The provided initial path had no filename")
+            }
             VirtualPathResolverError::IoError(err) => write!(f, "A generic I/O error occurred: {err}"),
             VirtualPathResolverError::Other(err) => write!(f, "Another error occurred: {err}"),
         }
@@ -274,7 +280,7 @@ impl std::fmt::Display for VirtualPathResolverError {
 
 /// A trait defining a method of resolving a resource's virtual path from its initial path. This conversion
 /// should always produce the same virtual path (or error) for the same given initial path.
-pub trait VirtualPathResolver: Send + Sync + Clone {
+pub trait VirtualPathResolver: Send + Sync {
     /// Convert the provided initial path to a virtual path within the jail.
     fn resolve_virtual_path(&self, initial_path: &Path) -> Result<PathBuf, VirtualPathResolverError>;
 }
@@ -290,7 +296,7 @@ impl VirtualPathResolver for FlatVirtualPathResolver {
             "/".to_owned()
                 + &outside_path
                     .file_name()
-                    .ok_or(VirtualPathResolverError::SourcePathHasNoFilename)?
+                    .ok_or(VirtualPathResolverError::InitialPathHasNoFilename)?
                     .to_string_lossy(),
         ))
     }
@@ -325,14 +331,14 @@ mod tests {
     }
 
     #[test]
-    fn flat_local_path_resolver_moves_correctly() {
+    fn flat_virtual_path_resolver_moves_correctly() {
         let renamer = FlatVirtualPathResolver::default();
-        assert_local_path_resolver(&renamer, "/opt/file", "/file");
-        assert_local_path_resolver(&renamer, "/tmp/some_path.txt", "/some_path.txt");
-        assert_local_path_resolver(&renamer, "/some/complex/outside/path/filename.ext4", "/filename.ext4");
+        assert_virtual_path_resolver(&renamer, "/opt/file", "/file");
+        assert_virtual_path_resolver(&renamer, "/tmp/some_path.txt", "/some_path.txt");
+        assert_virtual_path_resolver(&renamer, "/some/complex/outside/path/filename.ext4", "/filename.ext4");
     }
 
-    fn assert_local_path_resolver<P: VirtualPathResolver>(renamer: &P, path: &str, expectation: &str) {
+    fn assert_virtual_path_resolver<V: VirtualPathResolver>(renamer: &V, path: &str, expectation: &str) {
         assert_eq!(
             renamer
                 .resolve_virtual_path(&PathBuf::from(path))

@@ -10,27 +10,27 @@ use super::{
 };
 
 /// [EitherVmmExecutor] encapsulates either an [UnrestrictedVmmExecutor] or a [JailedVmmExecutor]
-/// with the given [LocalPathResolver] behind an enum with [VmmExecutor] implemented on it. fctools was
+/// with the given [VirtualPathResolver] behind an enum with [VmmExecutor] implemented on it. fctools was
 /// specifically designed with the minimization of heap allocation and dynamic dispatch, so this is a
 /// statically dispatched workaround provided out-of-the-box.
-pub enum EitherVmmExecutor<P: VirtualPathResolver + 'static> {
+pub enum EitherVmmExecutor<V: VirtualPathResolver> {
     Unrestricted(UnrestrictedVmmExecutor),
-    Jailed(JailedVmmExecutor<P>),
+    Jailed(JailedVmmExecutor<V>),
 }
 
-impl<J: VirtualPathResolver + 'static> From<UnrestrictedVmmExecutor> for EitherVmmExecutor<J> {
+impl<V: VirtualPathResolver> From<UnrestrictedVmmExecutor> for EitherVmmExecutor<V> {
     fn from(value: UnrestrictedVmmExecutor) -> Self {
         EitherVmmExecutor::Unrestricted(value)
     }
 }
 
-impl<J: VirtualPathResolver + 'static> From<JailedVmmExecutor<J>> for EitherVmmExecutor<J> {
-    fn from(value: JailedVmmExecutor<J>) -> Self {
+impl<V: VirtualPathResolver> From<JailedVmmExecutor<V>> for EitherVmmExecutor<V> {
+    fn from(value: JailedVmmExecutor<V>) -> Self {
         EitherVmmExecutor::Jailed(value)
     }
 }
 
-impl<J: VirtualPathResolver + 'static> VmmExecutor for EitherVmmExecutor<J> {
+impl<V: VirtualPathResolver> VmmExecutor for EitherVmmExecutor<V> {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => executor.get_socket_path(installation),
