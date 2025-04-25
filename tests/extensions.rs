@@ -224,7 +224,8 @@ async fn test_metrics_recv(is_fifo: bool, mut vm: TestVm) {
         .unwrap()
         .metrics
         .get_effective_path()
-        .unwrap();
+        .unwrap()
+        .to_owned();
 
     let file_type = metadata(&metrics_path).await.unwrap().file_type();
 
@@ -254,7 +255,8 @@ fn metrics_task_can_be_cancelled_via_join_handle() {
                     .unwrap()
                     .metrics
                     .get_effective_path()
-                    .unwrap(),
+                    .unwrap()
+                    .to_owned(),
                 100,
                 TokioRuntime,
             );

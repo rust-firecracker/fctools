@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::PathBuf;
 
 use futures_channel::mpsc;
 use futures_util::{io::BufReader, AsyncBufReadExt, SinkExt, StreamExt};
@@ -321,17 +321,14 @@ pub struct MetricsTask<R: Runtime> {
 
 /// Spawn a dedicated async task that gathers Firecracker's metrics from the given metrics path with an
 /// asynchronous [mpsc] channel limited by the provided upper bound (buffer), using the provided [Runtime].
-pub fn spawn_metrics_task<R: Runtime, P: AsRef<Path> + Send + 'static>(
-    metrics_path: P,
-    buffer: usize,
-    runtime: R,
-) -> MetricsTask<R> {
+pub fn spawn_metrics_task<R: Runtime, P: Into<PathBuf>>(metrics_path: P, buffer: usize, runtime: R) -> MetricsTask<R> {
     let (mut sender, receiver) = mpsc::channel(buffer);
+    let metrics_path = metrics_path.into();
 
     let task = runtime.clone().spawn_task(async move {
         let mut buf_reader = BufReader::new(
             runtime
-                .fs_open_file_for_read(metrics_path.as_ref())
+                .fs_open_file_for_read(&metrics_path)
                 .await
                 .map_err(MetricsTaskError::FilesystemError)?,
         )

@@ -1,5 +1,5 @@
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{atomic::Ordering, Arc},
 };
 
@@ -56,9 +56,9 @@ pub enum MovedResourceType {
 /// The underlying state of a [Resource].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResourceState {
-    /// The [Resource] is not initialized yet, meaning it has no effective or local path yet.
+    /// The [Resource] is not initialized yet, meaning it has no effective or virtual path yet.
     Uninitialized,
-    /// The [Resource] has been initialized, meaning its effective path (and its local path if it has one) now exists.
+    /// The [Resource] has been initialized, meaning its effective path and virtual path now exist.
     Initialized,
     /// The [Resource] has been initialized and is now disposed, meaning its effective path likely no longer exists.
     Disposed,
@@ -80,19 +80,19 @@ impl std::fmt::Display for ResourceState {
 /// in the same resource system.
 ///
 /// The [Resource]'s state includes its [ResourceType], [ResourceState] and three paths that characterize the file:
-/// the source path, available in all [ResourceState]s, an effective path available after initialization and,
-/// optionally, a local path also available post-initialization. The source path is the original path of the file
-/// on disk, created by the fctools-utilizing application or by Firecracker, the effective path is the final absolute
-/// path of the file that it ends up in after initialization, and the local path (when filled out) is the relative path
-/// of the file after initialization, as which it is seen by Firecracker in a jailed environment, or the same absolute
-/// path if no jailing takes place.
+/// the initial path, available in all [ResourceState]s, an effective and a virtual path available after initialization.
+/// The initial path is the original path of the file on disk, created by the fctools-utilizing application or by
+/// Firecracker, the effective path is the final path of the file on disk after initialization, and the virtual path
+/// is the path of the file as seen by Firecracker. In the case of jailing, for instance, the effective and virtual
+/// paths differ due to the virtual path being a relative path from inside the jail and the effective path being an
+/// absolute path. But, when no jailing occurs, the effective and virtual paths are usually equivalent.
 ///
 /// The scheduling of resource initialization and disposal is the explicit responsibility of a VMM executor. The
 /// appropriate [Resource] functions that perform scheduling manually should only be used if the VMM executor layer is
 /// disabled or if you intend to create your own executor.
 ///
-/// When the VM layer is enabled, a [Resource] implements serde's Serialize trait by serializing either its local path
-/// for moved resources or its source path, and panics if either is inaccessible, so it is not safe to serialize an
+/// When the VM layer is enabled, a [Resource] implements serde's Serialize trait by serializing either its virtual path
+/// for moved resources or its initial path, and panics if either is inaccessible, so it is not safe to serialize an
 /// uninitialized [Resource].
 #[derive(Debug, Clone)]
 pub struct Resource(Arc<ResourceInfo>);
@@ -124,29 +124,34 @@ impl Resource {
         self.0.r#type
     }
 
-    /// Get the source path as an owned [PathBuf] from this [Resource].
-    pub fn get_source_path(&self) -> PathBuf {
-        self.0.source_path.clone()
+    /// Get the initial path as a borrowed [Path] from this [Resource].
+    pub fn get_initial_path(&self) -> &Path {
+        self.0.initial_path.as_path()
     }
 
-    /// Get the effective path as an owned [PathBuf] from this [Resource], or [None] if the [Resource]
-    /// is not yet initialized.
-    pub fn get_effective_path(&self) -> Option<PathBuf> {
-        self.0.init_info.get().map(|data| data.effective_path.clone())
+    /// Get the effective path as a borrowed [PathBuf] from this [Resource], or [None] if the [Resource]
+    /// has not yet been initialized.
+    pub fn get_effective_path(&self) -> Option<&Path> {
+        self.0.init_info.get().map(|data| data.effective_path.as_path())
     }
 
-    /// Get the local path as an owned [PathBuf] from this [Resource], or [None] if the [Resource] is not
-    /// yet initialized or hasn't been assigned a local path during its initialization.
-    pub fn get_local_path(&self) -> Option<PathBuf> {
-        self.0.init_info.get().and_then(|data| data.local_path.clone())
+    /// Get the virtual path as a borrowed [Path] from this [Resource], or [None] if the [Resource] has not
+    /// yet been initialized.
+    pub fn get_virtual_path(&self) -> Option<&Path> {
+        self.0.init_info.get().map(|data| {
+            data.virtual_path
+                .as_deref()
+                .unwrap_or_else(|| data.effective_path.as_path())
+        })
     }
 
-    /// Schedule this [Resource] to be initialized by its system to the given effective and local paths.
-    /// This operation doesn't actually wait for the initialization to occur.
+    /// Schedule this [Resource] to be initialized by its system to the given effective and virtual paths.
+    /// If the virtual path is [None], it is assumed to be the same as the effective path. This operation
+    /// doesn't actually wait for the initialization to occur.
     pub fn start_initialization(
         &self,
         effective_path: PathBuf,
-        local_path: Option<PathBuf>,
+        virtual_path: Option<PathBuf>,
     ) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Uninitialized)?;
 
@@ -154,19 +159,19 @@ impl Resource {
             .request_tx
             .unbounded_send(ResourceRequest::Initialize(ResourceInitInfo {
                 effective_path,
-                local_path,
+                virtual_path,
             }))
             .map_err(|_| ResourceSystemError::ChannelDisconnected)
     }
 
-    /// Schedule this [Resource] to be initialized by its system to the same effective (and local, if the
-    /// resource is moved) path as its source path. This operation doesn't actually wait for the initialization
-    /// to occur.
+    /// Schedule this [Resource] to be initialized by its resource system to the same effective and
+    /// virtual paths as its initial path. This doesn't wait for the initialization to occur.
     pub fn start_initialization_with_same_path(&self) -> Result<(), ResourceSystemError> {
-        self.start_initialization(self.get_source_path(), Some(self.get_source_path()))
+        self.start_initialization(self.get_initial_path().to_owned(), None)
     }
 
-    /// Schedule this [Resource] to be disposed by its system.
+    /// Schedule this [Resource] to be disposed by its resource system. This doesn't wait for the
+    /// disposal to occur.
     pub fn start_disposal(&self) -> Result<(), ResourceSystemError> {
         self.assert_state(ResourceState::Initialized)?;
         let _ = self.0.request_tx.unbounded_send(ResourceRequest::Dispose);
@@ -194,15 +199,10 @@ impl serde::Serialize for Resource {
     {
         match self.0.r#type {
             ResourceType::Moved(_) => self
-                .0
-                .init_info
-                .get()
+                .get_virtual_path()
                 .expect("called serialize on uninitialized resource")
-                .local_path
-                .as_ref()
-                .expect("no local_path for moved resource")
                 .serialize(serializer),
-            _ => self.0.source_path.serialize(serializer),
+            _ => self.0.initial_path.serialize(serializer),
         }
     }
 }

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::{process_spawner::ProcessSpawner, runtime::Runtime, vmm::installation::VmmInstallation};
 
 use super::{
-    jailed::{JailedVmmExecutor, LocalPathResolver},
+    jailed::{JailedVmmExecutor, VirtualPathResolver},
     process_handle::ProcessHandle,
     unrestricted::UnrestrictedVmmExecutor,
     VmmExecutor, VmmExecutorContext, VmmExecutorError,
@@ -13,24 +13,24 @@ use super::{
 /// with the given [LocalPathResolver] behind an enum with [VmmExecutor] implemented on it. fctools was
 /// specifically designed with the minimization of heap allocation and dynamic dispatch, so this is a
 /// statically dispatched workaround provided out-of-the-box.
-pub enum EitherVmmExecutor<P: LocalPathResolver + 'static> {
+pub enum EitherVmmExecutor<P: VirtualPathResolver + 'static> {
     Unrestricted(UnrestrictedVmmExecutor),
     Jailed(JailedVmmExecutor<P>),
 }
 
-impl<J: LocalPathResolver + 'static> From<UnrestrictedVmmExecutor> for EitherVmmExecutor<J> {
+impl<J: VirtualPathResolver + 'static> From<UnrestrictedVmmExecutor> for EitherVmmExecutor<J> {
     fn from(value: UnrestrictedVmmExecutor) -> Self {
         EitherVmmExecutor::Unrestricted(value)
     }
 }
 
-impl<J: LocalPathResolver + 'static> From<JailedVmmExecutor<J>> for EitherVmmExecutor<J> {
+impl<J: VirtualPathResolver + 'static> From<JailedVmmExecutor<J>> for EitherVmmExecutor<J> {
     fn from(value: JailedVmmExecutor<J>) -> Self {
         EitherVmmExecutor::Jailed(value)
     }
 }
 
-impl<J: LocalPathResolver + 'static> VmmExecutor for EitherVmmExecutor<J> {
+impl<J: VirtualPathResolver + 'static> VmmExecutor for EitherVmmExecutor<J> {
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf> {
         match self {
             EitherVmmExecutor::Unrestricted(executor) => executor.get_socket_path(installation),

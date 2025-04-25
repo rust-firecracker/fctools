@@ -288,10 +288,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         send_api_request(self, "/snapshot/create", "PUT", Some(&create_snapshot)).await?;
         let snapshot_effective_path = self
             .vmm_process
-            .resolve_effective_path(create_snapshot.snapshot.get_source_path());
+            .resolve_effective_path(create_snapshot.snapshot.get_initial_path());
         let mem_file_effective_path = self
             .vmm_process
-            .resolve_effective_path(create_snapshot.mem_file.get_source_path());
+            .resolve_effective_path(create_snapshot.mem_file.get_initial_path());
 
         futures_util::try_join!(
             upgrade_owner(
@@ -325,12 +325,20 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
             .map_err(VmApiError::ResourceSystemError)?;
 
         Ok(VmSnapshot {
-            snapshot_path: create_snapshot.snapshot.get_effective_path().ok_or_else(|| {
-                VmApiError::ResourceSystemError(ResourceSystemError::IncorrectState(ResourceState::Uninitialized))
-            })?,
-            mem_file_path: create_snapshot.mem_file.get_effective_path().ok_or_else(|| {
-                VmApiError::ResourceSystemError(ResourceSystemError::IncorrectState(ResourceState::Uninitialized))
-            })?,
+            snapshot_path: create_snapshot
+                .snapshot
+                .get_effective_path()
+                .ok_or_else(|| {
+                    VmApiError::ResourceSystemError(ResourceSystemError::IncorrectState(ResourceState::Uninitialized))
+                })?
+                .to_owned(),
+            mem_file_path: create_snapshot
+                .mem_file
+                .get_effective_path()
+                .ok_or_else(|| {
+                    VmApiError::ResourceSystemError(ResourceSystemError::IncorrectState(ResourceState::Uninitialized))
+                })?
+                .to_owned(),
             configuration_data: self.configuration.get_data().clone(),
         })
     }

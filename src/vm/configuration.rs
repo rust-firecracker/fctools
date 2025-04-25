@@ -102,7 +102,7 @@ pub enum InitMethod {
     #[default]
     ViaApiCalls,
     /// Create an intermittent Firecracker JSON configuration that is serialized to the
-    /// given local path, and pass it to Firecracker in order for initialization and boot
+    /// given virtual path, and pass it to Firecracker in order for initialization and boot
     /// to be performed automatically.
     ViaJsonConfiguration(PathBuf),
 }

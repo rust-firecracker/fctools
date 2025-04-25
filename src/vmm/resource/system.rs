@@ -71,7 +71,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         let (request_tx, request_rx) = mpsc::unbounded();
         let (response_tx, response_rx) = mpsc::unbounded();
 
-        runtime.clone().spawn_task(resource_system_main_task::<S, R>(
+        runtime.clone().spawn_task(resource_system_main_task(
             request_rx,
             response_tx,
             owned_resources,
@@ -102,12 +102,12 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
         &self.resources
     }
 
-    /// Create a [Resource] in this [ResourceSystem] from a given source path and a [ResourceType]. The data will
-    /// immediately be transmitted into the [ResourceSystem]'s central task, and an extra [Resource] clone will be
+    /// Create a [Resource] in this [ResourceSystem] from a given initial path and a [ResourceType]. The data will
+    /// immediately be transmitted to the [ResourceSystem]'s central task, and an extra [Resource] clone will be
     /// stored inside the buffer accessible via [get_resources](ResourceSystem::get_resources).
     pub fn create_resource<P: Into<PathBuf>>(
         &mut self,
-        source_path: P,
+        initial_path: P,
         r#type: ResourceType,
     ) -> Result<Resource, ResourceSystemError> {
         let (request_tx, request_rx) = mpsc::unbounded();
@@ -118,7 +118,7 @@ impl<S: ProcessSpawner, R: Runtime> ResourceSystem<S, R> {
             request_rx,
             info: Arc::new(ResourceInfo {
                 request_tx,
-                source_path: source_path.into(),
+                initial_path: initial_path.into(),
                 r#type,
                 init_info: OnceLock::new(),
                 disposed: AtomicBool::new(false),
@@ -171,8 +171,8 @@ pub enum ResourceSystemError {
     ChangeOwnerError(ChangeOwnerError),
     /// An I/O error occurred while interacting with the filesystem for a scheduled action.
     FilesystemError(std::io::Error),
-    /// A [Resource]'s source path was missing at the time of the execution of a scheduled action.
-    SourcePathMissing,
+    /// A [Resource]'s initial path was missing at the time of the execution of a scheduled action.
+    InitialPathMissing,
     /// A chain of multiple [ResourceSystemError]s occurred, represented in the inner [Vec] according to
     /// their chronological order.
     ErrorChain(Vec<ResourceSystemError>),
@@ -193,7 +193,7 @@ impl std::fmt::Display for ResourceSystemError {
             ),
             ResourceSystemError::ChangeOwnerError(err) => write!(f, "An error occurred when changing ownership: {err}"),
             ResourceSystemError::FilesystemError(err) => write!(f, "A filesystem error occurred: {err}"),
-            ResourceSystemError::SourcePathMissing => write!(f, "A resource's source path is missing"),
+            ResourceSystemError::InitialPathMissing => write!(f, "A resource's initial path is missing"),
             ResourceSystemError::ErrorChain(errors) => write!(
                 f,
                 "A chain of {} errors occurred, meaning that amount of operations failed",

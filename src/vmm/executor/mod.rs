@@ -1,7 +1,7 @@
 use std::{future::Future, path::PathBuf, process::ExitStatus};
 
 #[cfg(feature = "jailed-vmm-executor")]
-use jailed::LocalPathResolverError;
+use jailed::VirtualPathResolverError;
 use process_handle::ProcessHandle;
 
 use crate::{process_spawner::ProcessSpawner, runtime::Runtime};
@@ -47,7 +47,7 @@ pub enum VmmExecutorError {
     /// A [LocalPathResolverError] occurred.
     #[cfg(feature = "jailed-vmm-executor")]
     #[cfg_attr(docsrs, doc(cfg(feature = "jailed-vmm-executor")))]
-    LocalPathResolverError(LocalPathResolverError),
+    LocalPathResolverError(VirtualPathResolverError),
     /// Another type of error occurred within the [VmmExecutor] implementation's code. This error variant is
     /// reserved for custom [VmmExecutor] implementations and isn't used by the built-in ones.
     Other(Box<dyn std::error::Error + Send + Sync>),
@@ -93,12 +93,12 @@ pub trait VmmExecutor: Send + Sync {
     /// Get the host location of the VMM socket, if one exists.
     fn get_socket_path(&self, installation: &VmmInstallation) -> Option<PathBuf>;
 
-    /// Resolve an effective path of a resource from its local path.
+    /// Resolve an effective path of a resource from its virtual path.
     fn resolve_effective_path(&self, installation: &VmmInstallation, local_path: PathBuf) -> PathBuf;
 
     /// Prepare all transient resources for the VMM invocation. It is assumed that an implementation of this function
     /// appropriately schedules the initialization of all [Resource]s inside the given [VmmExecutorContext] to effective
-    /// and local paths according to the executor's discretion. It will therefore be necessary to manually synchronize
+    /// and virtual paths according to the executor's discretion. It will therefore be necessary to manually synchronize
     /// the resource system that the [Resource]s come from in order to ensure the scheduled operations complete.
     /// This synchronization is automatically performed by VMM processes and VMs.
     fn prepare<S: ProcessSpawner, R: Runtime>(

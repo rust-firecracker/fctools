@@ -202,7 +202,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmVsockHttp for Vm<E, S, R> 
             .ok_or(VmVsockHttpError::VsockNotConfigured)?
             .uds
             .get_effective_path()
-            .ok_or(VmVsockHttpError::VsockResourceUninitialized)?;
+            .ok_or(VmVsockHttpError::VsockResourceUninitialized)?
+            .to_owned();
 
         Ok(VmVsockHttpClient(VmVsockHttpClientInner::ConnectionPool {
             client,

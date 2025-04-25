@@ -14,7 +14,7 @@ use fctools::{
         arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
         executor::{
             either::EitherVmmExecutor,
-            jailed::{FlatLocalPathResolver, JailedVmmExecutor},
+            jailed::{FlatVirtualPathResolver, JailedVmmExecutor},
             unrestricted::UnrestrictedVmmExecutor,
         },
         ownership::VmmOwnershipModel,
@@ -105,7 +105,8 @@ fn vm_logger_test(resource_type: CreatedResourceType) {
                 .as_ref()
                 .unwrap()
                 .get_effective_path()
-                .unwrap();
+                .unwrap()
+                .to_owned();
 
             let metadata = metadata(&log_path).await.unwrap();
             if resource_type == CreatedResourceType::Fifo {
@@ -141,7 +142,8 @@ fn vm_metrics_test(resource_type: CreatedResourceType) {
                 .unwrap()
                 .metrics
                 .get_effective_path()
-                .unwrap();
+                .unwrap()
+                .to_owned();
 
             assert_eq!(
                 metadata(&metrics_path).await.unwrap().file_type().is_fifo(),
@@ -163,7 +165,9 @@ fn vm_processes_vsock() {
             .unwrap()
             .uds
             .get_effective_path()
-            .unwrap();
+            .unwrap()
+            .to_owned();
+
         assert!(metadata(&uds_path).await.unwrap().file_type().is_socket());
         shutdown_test_vm(&mut vm).await;
         assert!(!try_exists(uds_path).await.unwrap());
@@ -285,7 +289,7 @@ async fn prepare_snapshot_vm(old_vm: &mut TestVm, snapshot: VmSnapshot, is_jaile
         true => EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
             JailerArguments::new(rand::rng().next_u32().to_string().try_into().unwrap()),
-            FlatLocalPathResolver::default(),
+            FlatVirtualPathResolver::default(),
         )),
         false => EitherVmmExecutor::Unrestricted(UnrestrictedVmmExecutor::new(VmmArguments::new(
             VmmApiSocket::Enabled(get_tmp_path()),

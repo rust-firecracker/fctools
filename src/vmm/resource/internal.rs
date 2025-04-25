@@ -8,7 +8,7 @@ use std::{
     task::Poll,
 };
 
-use futures_channel::mpsc;
+use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures_util::StreamExt;
 
 use crate::{
@@ -21,8 +21,8 @@ use super::{system::ResourceSystemError, CreatedResourceType, MovedResourceType,
 
 #[derive(Debug)]
 pub struct ResourceInfo {
-    pub request_tx: mpsc::UnboundedSender<ResourceRequest>,
-    pub source_path: PathBuf,
+    pub request_tx: UnboundedSender<ResourceRequest>,
+    pub initial_path: PathBuf,
     pub r#type: ResourceType,
     pub init_info: OnceLock<Arc<ResourceInitInfo>>,
     pub disposed: AtomicBool,
@@ -31,13 +31,13 @@ pub struct ResourceInfo {
 #[derive(Debug, Clone)]
 pub struct ResourceInitInfo {
     pub effective_path: PathBuf,
-    pub local_path: Option<PathBuf>,
+    pub virtual_path: Option<PathBuf>,
 }
 
 pub struct OwnedResource<R: Runtime> {
     pub init_task: Option<R::Task<Result<ResourceInitInfo, ResourceSystemError>>>,
     pub dispose_task: Option<R::Task<Result<(), ResourceSystemError>>>,
-    pub request_rx: mpsc::UnboundedReceiver<ResourceRequest>,
+    pub request_rx: UnboundedReceiver<ResourceRequest>,
     pub info: Arc<ResourceInfo>,
 }
 
@@ -57,8 +57,8 @@ pub enum ResourceSystemResponse {
 }
 
 pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
-    mut request_rx: mpsc::UnboundedReceiver<ResourceSystemRequest<R>>,
-    response_tx: mpsc::UnboundedSender<ResourceSystemResponse>,
+    mut request_rx: UnboundedReceiver<ResourceSystemRequest<R>>,
+    response_tx: UnboundedSender<ResourceSystemResponse>,
     mut owned_resources: Vec<OwnedResource<R>>,
     process_spawner: S,
     runtime: R,
@@ -211,20 +211,20 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
 ) -> Result<ResourceInitInfo, ResourceSystemError> {
     match info.r#type {
         ResourceType::Moved(moved_resource_type) => {
-            if info.source_path == init_info.effective_path {
+            if info.initial_path == init_info.effective_path {
                 return Ok(init_info);
             }
 
-            upgrade_owner(&info.source_path, ownership_model, &process_spawner, &runtime)
+            upgrade_owner(&info.initial_path, ownership_model, &process_spawner, &runtime)
                 .await
                 .map_err(ResourceSystemError::ChangeOwnerError)?;
 
             if !runtime
-                .fs_exists(&info.source_path)
+                .fs_exists(&info.initial_path)
                 .await
                 .map_err(ResourceSystemError::FilesystemError)?
             {
-                return Err(ResourceSystemError::SourcePathMissing);
+                return Err(ResourceSystemError::InitialPathMissing);
             }
 
             if let Some(parent_path) = init_info.effective_path.parent() {
@@ -237,43 +237,43 @@ async fn resource_system_init_task<S: ProcessSpawner, R: Runtime>(
             match moved_resource_type {
                 MovedResourceType::Copied => {
                     runtime
-                        .fs_copy(&info.source_path, &init_info.effective_path)
+                        .fs_copy(&info.initial_path, &init_info.effective_path)
                         .await
                         .map_err(ResourceSystemError::FilesystemError)?;
                 }
                 MovedResourceType::HardLinked => {
                     runtime
-                        .fs_hard_link(&info.source_path, &init_info.effective_path)
+                        .fs_hard_link(&info.initial_path, &init_info.effective_path)
                         .await
                         .map_err(ResourceSystemError::FilesystemError)?;
                 }
                 MovedResourceType::CopiedOrHardLinked => {
                     if runtime
-                        .fs_copy(&info.source_path, &init_info.effective_path)
+                        .fs_copy(&info.initial_path, &init_info.effective_path)
                         .await
                         .is_err()
                     {
                         runtime
-                            .fs_hard_link(&info.source_path, &init_info.effective_path)
+                            .fs_hard_link(&info.initial_path, &init_info.effective_path)
                             .await
                             .map_err(ResourceSystemError::FilesystemError)?;
                     }
                 }
                 MovedResourceType::HardLinkedOrCopied => {
                     if runtime
-                        .fs_hard_link(&info.source_path, &init_info.effective_path)
+                        .fs_hard_link(&info.initial_path, &init_info.effective_path)
                         .await
                         .is_err()
                     {
                         runtime
-                            .fs_copy(&info.source_path, &init_info.effective_path)
+                            .fs_copy(&info.initial_path, &init_info.effective_path)
                             .await
                             .map_err(ResourceSystemError::FilesystemError)?;
                     }
                 }
                 MovedResourceType::Renamed => {
                     runtime
-                        .fs_rename(&info.source_path, &init_info.effective_path)
+                        .fs_rename(&info.initial_path, &init_info.effective_path)
                         .await
                         .map_err(ResourceSystemError::FilesystemError)?;
                 }

@@ -213,7 +213,7 @@ impl VmmArguments {
         self.resources
             .get(index)
             .expect("Resource buffer doesn't contain index")
-            .get_local_path()
+            .get_virtual_path()
             .expect("Resource is uninitialized at the time of argument join")
             .to_string_lossy()
             .into_owned()

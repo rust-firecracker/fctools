@@ -101,7 +101,8 @@ fn create_endpoint_and_service<E: VmmExecutor, S: ProcessSpawner, R: Runtime, C:
         .ok_or(VmVsockGrpcError::VsockNotConfigured)?
         .uds
         .get_effective_path()
-        .ok_or(VmVsockGrpcError::VsockResourceUninitialized)?;
+        .ok_or(VmVsockGrpcError::VsockResourceUninitialized)?
+        .to_owned();
 
     let endpoint = configure_endpoint(
         Endpoint::try_from(format!("http://[::1]:{guest_port}"))
