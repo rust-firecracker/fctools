@@ -21,7 +21,7 @@ use super::{process_handle::ProcessHandle, VmmExecutor, VmmExecutorContext, VmmE
 pub struct UnrestrictedVmmExecutor {
     vmm_arguments: VmmArguments,
     command_modifier_chain: Vec<Box<dyn CommandModifier>>,
-    pipes_to_null: bool,
+    disable_pipes: bool,
     id: Option<VmmId>,
 }
 
@@ -31,7 +31,7 @@ impl UnrestrictedVmmExecutor {
         Self {
             vmm_arguments,
             command_modifier_chain: Vec::new(),
-            pipes_to_null: false,
+            disable_pipes: false,
             id: None,
         }
     }
@@ -48,10 +48,10 @@ impl UnrestrictedVmmExecutor {
         self
     }
 
-    /// Configure the [UnrestrictedVmmExecutor] to set the pipes of the [ProcessHandle]'s process to null, meaning
-    /// that they won't be accessible via a [ProcessHandle::get_pipes] call.
-    pub fn pipes_to_null(mut self) -> Self {
-        self.pipes_to_null = true;
+    /// Configure the [UnrestrictedVmmExecutor] to disable the pipes of the [ProcessHandle]'s process, meaning that
+    /// they won't be accessible via a [ProcessHandle::get_pipes] call.
+    pub fn disable_pipes(mut self) -> Self {
+        self.disable_pipes = true;
         self
     }
 
@@ -128,10 +128,10 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
 
         let child = context
             .process_spawner
-            .spawn(&binary_path, arguments.as_slice(), self.pipes_to_null, &context.runtime)
+            .spawn(&binary_path, arguments.as_slice(), self.disable_pipes, &context.runtime)
             .await
             .map_err(VmmExecutorError::ProcessSpawnFailed)?;
-        Ok(ProcessHandle::from_child(child, self.pipes_to_null))
+        Ok(ProcessHandle::from_child(child, self.disable_pipes))
     }
 
     async fn cleanup<S: ProcessSpawner, R: Runtime>(
