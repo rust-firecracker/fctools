@@ -129,7 +129,7 @@ pub trait Runtime: Clone + Send + Sync + 'static {
     fn spawn_process(
         &self,
         program: &OsStr,
-        args: Vec<OsString>,
+        args: &[OsString],
         stdout: bool,
         stderr: bool,
         stdin: bool,
@@ -140,7 +140,7 @@ pub trait Runtime: Clone + Send + Sync + 'static {
     fn run_process(
         &self,
         program: &OsStr,
-        args: Vec<OsString>,
+        args: &[OsString],
         stdout: bool,
         stderr: bool,
     ) -> impl Future<Output = Result<Output, std::io::Error>> + Send;

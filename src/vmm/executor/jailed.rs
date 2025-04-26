@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -147,7 +150,7 @@ impl<V: VirtualPathResolver> VmmExecutor for JailedVmmExecutor<V> {
             .jailer_arguments
             .join(uid, gid, context.installation.get_firecracker_path());
         let mut binary_path = context.installation.get_jailer_path().to_owned();
-        arguments.push("--".to_string());
+        arguments.push(OsString::from("--"));
         arguments.extend(self.vmm_arguments.join(config_path));
 
         for command_modifier in &self.command_modifier_chain {
@@ -157,7 +160,7 @@ impl<V: VirtualPathResolver> VmmExecutor for JailedVmmExecutor<V> {
         // Nulling the pipes is redundant since the jailer can do this itself via daemonization
         let mut process = context
             .process_spawner
-            .spawn(&binary_path, arguments, false, &context.runtime)
+            .spawn(&binary_path, arguments.as_slice(), false, &context.runtime)
             .await
             .map_err(VmmExecutorError::ProcessSpawnFailed)?;
 

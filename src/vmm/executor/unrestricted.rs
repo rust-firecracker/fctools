@@ -122,13 +122,13 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         }
 
         if let Some(ref id) = self.id {
-            arguments.push("--id".to_string());
-            arguments.push(id.as_ref().to_owned());
+            arguments.push("--id".into());
+            arguments.push(id.as_ref().into());
         }
 
         let child = context
             .process_spawner
-            .spawn(&binary_path, arguments, self.pipes_to_null, &context.runtime)
+            .spawn(&binary_path, arguments.as_slice(), self.pipes_to_null, &context.runtime)
             .await
             .map_err(VmmExecutorError::ProcessSpawnFailed)?;
         Ok(ProcessHandle::from_child(child, self.pipes_to_null))

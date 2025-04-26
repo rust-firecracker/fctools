@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsString,
     os::unix::process::ExitStatusExt,
     path::{Path, PathBuf},
     process::ExitStatus,
@@ -108,11 +109,11 @@ pub async fn upgrade_owner<R: Runtime, S: ProcessSpawner>(
         let mut process = process_spawner
             .spawn(
                 &PathBuf::from("chown"),
-                vec![
-                    "-f".to_string(),
-                    "-R".to_string(),
-                    format!("{}:{}", *PROCESS_UID, *PROCESS_GID),
-                    path.to_string_lossy().into_owned(),
+                &[
+                    OsString::from("-f"),
+                    OsString::from("-R"),
+                    OsString::from(format!("{}:{}", *PROCESS_UID, *PROCESS_GID)),
+                    OsString::from(path),
                 ],
                 false,
                 runtime,

@@ -1,4 +1,4 @@
-use std::{future::Future, path::Path};
+use std::{ffi::OsStr, future::Future, path::Path};
 
 #[cfg(any(feature = "direct-process-spawner", feature = "elevation-process-spawners"))]
 use std::ffi::OsString;
@@ -25,12 +25,12 @@ use crate::runtime::Runtime;
 /// and cheap. If some inner state is stored, storing an [Arc] of it internally is recommended to avoid expensive copying
 /// operations.
 pub trait ProcessSpawner: Clone + Send + Sync + 'static {
-    /// Spawn the process with the given binary path and arguments, optionally nulling as many of its pipes as feasible.
+    /// Spawn the process with the given binary path and arguments, optionally disabling as many of its pipes as feasible.
     fn spawn<R: Runtime>(
         &self,
         binary_path: &Path,
-        arguments: Vec<String>,
-        pipes_to_null: bool,
+        arguments: &[OsString],
+        disable_pipes: bool,
         runtime: &R,
     ) -> impl Future<Output = Result<R::Child, std::io::Error>> + Send;
 }
@@ -47,16 +47,16 @@ impl ProcessSpawner for DirectProcessSpawner {
     fn spawn<R: Runtime>(
         &self,
         binary_path: &Path,
-        arguments: Vec<String>,
-        pipes_to_null: bool,
+        arguments: &[OsString],
+        disable_pipes: bool,
         runtime: &R,
     ) -> impl Future<Output = Result<R::Child, std::io::Error>> + Send {
         std::future::ready(runtime.spawn_process(
             binary_path.as_os_str(),
-            arguments.into_iter().map(OsString::from).collect(),
-            !pipes_to_null,
-            !pipes_to_null,
-            !pipes_to_null,
+            arguments,
+            !disable_pipes,
+            !disable_pipes,
+            !disable_pipes,
         ))
     }
 }
@@ -93,8 +93,8 @@ impl ProcessSpawner for SuProcessSpawner {
     async fn spawn<R: Runtime>(
         &self,
         path: &Path,
-        arguments: Vec<String>,
-        pipes_to_null: bool,
+        arguments: &[OsString],
+        disable_pipes: bool,
         runtime: &R,
     ) -> Result<R::Child, std::io::Error> {
         let program = match self.0.su_path {
@@ -102,7 +102,7 @@ impl ProcessSpawner for SuProcessSpawner {
             None => DEFAULT_SU_PROGRAM.as_os_str(),
         };
 
-        let mut process = runtime.spawn_process(program, Vec::new(), !pipes_to_null, !pipes_to_null, true)?;
+        let mut process = runtime.spawn_process(program, &[], !disable_pipes, !disable_pipes, true)?;
 
         let stdin = process
             .get_stdin()
@@ -110,10 +110,10 @@ impl ProcessSpawner for SuProcessSpawner {
             .ok_or_else(|| std::io::Error::other("Stdin not received"))?;
         stdin.write_all(format!("{}\n", self.0.password).as_bytes()).await?;
         stdin
-            .write_all(format!("{path:?} {} ; exit\n", arguments.join(" ")).as_bytes())
+            .write_all(format!("{path:?} {:?} ; exit\n", arguments.join(OsStr::new(" "))).as_bytes())
             .await?;
 
-        if pipes_to_null {
+        if disable_pipes {
             drop(process.take_stdin());
         }
 
@@ -153,8 +153,8 @@ impl ProcessSpawner for SudoProcessSpawner {
     async fn spawn<R: Runtime>(
         &self,
         path: &Path,
-        arguments: Vec<String>,
-        pipes_to_null: bool,
+        arguments: &[OsString],
+        disable_pipes: bool,
         runtime: &R,
     ) -> Result<R::Child, std::io::Error> {
         let program = match self.0.sudo_path {
@@ -163,9 +163,9 @@ impl ProcessSpawner for SudoProcessSpawner {
         };
 
         let mut args = vec![OsString::from("-S"), OsString::from("-s"), OsString::from(path)];
-        args.extend(arguments.into_iter().map(OsString::from));
+        args.extend(arguments.iter().cloned());
 
-        let mut child = runtime.spawn_process(program, args, !pipes_to_null, !pipes_to_null, true)?;
+        let mut child = runtime.spawn_process(program, args.as_slice(), !disable_pipes, !disable_pipes, true)?;
         let stdin_ref = child
             .get_stdin()
             .as_mut()
@@ -175,7 +175,7 @@ impl ProcessSpawner for SudoProcessSpawner {
             stdin_ref.write_all(format!("{password}\n").as_bytes()).await?;
         }
 
-        if pipes_to_null {
+        if disable_pipes {
             drop(child.take_stdin());
         }
 

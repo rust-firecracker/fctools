@@ -12,7 +12,7 @@ use fcnet_types::{FirecrackerIpStack, FirecrackerNetwork, FirecrackerNetworkOper
 use fctools::{
     extension::link_local::LinkLocalSubnet,
     process_spawner::{DirectProcessSpawner, ProcessSpawner},
-    runtime::{tokio::TokioRuntime, Runtime},
+    runtime::tokio::TokioRuntime,
     vm::{
         configuration::{InitMethod, VmConfiguration, VmConfigurationData},
         models::{
@@ -141,21 +141,6 @@ pub fn get_create_snapshot(resource_system: &mut TestResourceSystem) -> CreateSn
 #[allow(unused)]
 pub fn get_process_spawner() -> Arc<impl ProcessSpawner> {
     Arc::new(DirectProcessSpawner)
-}
-
-#[derive(Default, Clone)]
-pub struct FailingRunner;
-
-impl ProcessSpawner for FailingRunner {
-    async fn spawn<R: Runtime>(
-        &self,
-        _path: &Path,
-        _arguments: Vec<String>,
-        _pipes_to_null: bool,
-        _runtime: &R,
-    ) -> Result<R::Child, std::io::Error> {
-        Err(std::io::Error::other("Purposeful test failure"))
-    }
 }
 
 // VMM TEST FRAMEWORK

@@ -98,7 +98,7 @@ async fn installation_verifies_for_correct_parameters() {
 #[tokio::test]
 async fn direct_process_spawner_can_null_pipes() {
     let mut process = DirectProcessSpawner
-        .spawn(&PathBuf::from("echo"), vec![], true, &TokioRuntime)
+        .spawn(&PathBuf::from("echo"), &[], true, &TokioRuntime)
         .await
         .unwrap();
     assert!(process.take_stdout().is_none());
@@ -109,7 +109,7 @@ async fn direct_process_spawner_can_null_pipes() {
 #[tokio::test]
 async fn direct_process_spawner_can_invoke_process() {
     let mut process = DirectProcessSpawner
-        .spawn(&PathBuf::from("bash"), vec!["--help".to_string()], false, &TokioRuntime)
+        .spawn(&PathBuf::from("bash"), &["--help".into()], false, &TokioRuntime)
         .await
         .unwrap();
     let mut buf = Vec::new();
@@ -148,7 +148,7 @@ async fn test_elevation<F: FnOnce(String) -> S, S: ProcessSpawner>(process_spawn
     let mut process = process_spawner
         .spawn(
             &PathBuf::from("bash"),
-            vec!["-c".to_string(), "'echo $UID'".to_string()],
+            &["-c".into(), "'echo $UID'".into()],
             pipes_nulled,
             &TokioRuntime,
         )

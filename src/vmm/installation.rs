@@ -128,7 +128,7 @@ async fn verify_imp<R: Runtime>(
     }
 
     let output = runtime
-        .run_process(path.as_os_str(), vec![OsString::from("--version")], true, false)
+        .run_process(path.as_os_str(), &[OsString::from("--version")], true, false)
         .await
         .map_err(|_| VmmInstallationVerificationError::BinaryNotExecutable)?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();

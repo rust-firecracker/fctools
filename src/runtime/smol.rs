@@ -150,7 +150,7 @@ impl Runtime for SmolRuntime {
     fn spawn_process(
         &self,
         program: &OsStr,
-        args: Vec<OsString>,
+        args: &[OsString],
         stdout: bool,
         stderr: bool,
         stdin: bool,
@@ -168,7 +168,7 @@ impl Runtime for SmolRuntime {
     fn run_process(
         &self,
         program: &OsStr,
-        args: Vec<OsString>,
+        args: &[OsString],
         stdout: bool,
         stderr: bool,
     ) -> impl Future<Output = Result<std::process::Output, std::io::Error>> + Send {

@@ -147,7 +147,7 @@ impl<'p, R: Runtime> SnapshotEditor<'p, R> {
             .runtime
             .run_process(
                 self.path.as_os_str(),
-                args.iter().map(OsString::from).collect(),
+                args.iter().map(OsString::from).collect::<Vec<_>>().as_slice(),
                 true,
                 false,
             )

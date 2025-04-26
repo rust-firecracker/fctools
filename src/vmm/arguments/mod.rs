@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{ffi::OsString, path::PathBuf};
 
 use super::resource::Resource;
 
@@ -12,7 +12,7 @@ pub struct VmmArguments {
 
     log_level: Option<VmmLogLevel>,
     show_log_origin: bool,
-    log_module: Option<String>,
+    log_module: Option<OsString>,
     show_log_level: bool,
     enable_boot_timer: bool,
     api_max_payload_bytes: Option<u32>,
@@ -66,7 +66,7 @@ impl VmmArguments {
     }
 
     /// Set the text representing the log module being filtered for by the VMM.
-    pub fn log_module<M: Into<String>>(mut self, log_module: M) -> Self {
+    pub fn log_module<M: Into<OsString>>(mut self, log_module: M) -> Self {
         self.log_module = Some(log_module.into());
         self
     }
@@ -128,80 +128,80 @@ impl VmmArguments {
         &self.resources
     }
 
-    /// Join these [VmmArguments] into a [Vec] of process arguments, using the given optional config path.
+    /// Join these [VmmArguments] into a buffer of process arguments, using the given optional config path.
     /// This function assumes all resources inside this [VmmArguments] struct are initialized, otherwise a panic is
-    /// emitted. The order in which the argument [String]s are inserted into the resulting [Vec] is not stable!
-    pub fn join(&self, config_path: Option<PathBuf>) -> Vec<String> {
+    /// emitted. The order in which the argument [OsString]s are inserted into the resulting [Vec] is not stable!
+    pub fn join(&self, config_path: Option<PathBuf>) -> Vec<OsString> {
         let mut args = Vec::with_capacity(1);
 
         match self.api_socket {
             VmmApiSocket::Disabled => {
-                args.push("--no-api".to_string());
+                args.push("--no-api".into());
             }
             VmmApiSocket::Enabled(ref socket_path) => {
-                args.push("--api-sock".to_string());
-                args.push(socket_path.to_string_lossy().into_owned());
+                args.push("--api-sock".into());
+                args.push(socket_path.into());
             }
         }
 
         if let Some(config_path) = config_path {
-            args.push("--config-file".to_string());
-            args.push(config_path.to_string_lossy().into_owned());
+            args.push("--config-file".into());
+            args.push(config_path.into());
         }
 
         if let Some(log_level) = self.log_level {
-            args.push("--level".to_string());
-            args.push(log_level.to_string());
+            args.push("--level".into());
+            args.push(log_level.to_string().into());
         }
 
         if self.show_log_origin {
-            args.push("--show-log-origin".to_string());
+            args.push("--show-log-origin".into());
         }
 
         if let Some(module) = self.log_module.clone() {
-            args.push("--module".to_string());
+            args.push("--module".into());
             args.push(module);
         }
 
         if self.show_log_level {
-            args.push("--show-level".to_string());
+            args.push("--show-level".into());
         }
 
         if self.enable_boot_timer {
-            args.push("--boot-timer".to_string());
+            args.push("--boot-timer".into());
         }
 
         if let Some(max_payload) = self.api_max_payload_bytes {
-            args.push("--http-api-max-payload-size".to_string());
-            args.push(max_payload.to_string());
+            args.push("--http-api-max-payload-size".into());
+            args.push(max_payload.to_string().into());
         }
 
         if let Some(limit) = self.mmds_size_limit {
-            args.push("--mmds-size-limit".to_string());
-            args.push(limit.to_string());
+            args.push("--mmds-size-limit".into());
+            args.push(limit.to_string().into());
         }
 
         if self.disable_seccomp {
-            args.push("--no-seccomp".to_string());
+            args.push("--no-seccomp".into());
         }
 
         if let Some(index) = self.log_resource_index {
-            args.push("--log-path".to_string());
+            args.push("--log-path".into());
             args.push(self.get_resource_path_string(index));
         }
 
         if let Some(index) = self.metadata_resource_index {
-            args.push("--metadata".to_string());
+            args.push("--metadata".into());
             args.push(self.get_resource_path_string(index));
         }
 
         if let Some(index) = self.metrics_resource_index {
-            args.push("--metrics-path".to_string());
+            args.push("--metrics-path".into());
             args.push(self.get_resource_path_string(index));
         }
 
         if let Some(index) = self.seccomp_filter_resource_index {
-            args.push("--seccomp-filter".to_string());
+            args.push("--seccomp-filter".into());
             args.push(self.get_resource_path_string(index));
         }
 
@@ -209,14 +209,13 @@ impl VmmArguments {
     }
 
     #[inline(always)]
-    fn get_resource_path_string(&self, index: usize) -> String {
+    fn get_resource_path_string(&self, index: usize) -> OsString {
         self.resources
             .get(index)
             .expect("Resource buffer doesn't contain index")
             .get_virtual_path()
             .expect("Resource is uninitialized at the time of argument join")
-            .to_string_lossy()
-            .into_owned()
+            .into()
     }
 }
 
@@ -262,7 +261,7 @@ impl std::fmt::Display for VmmLogLevel {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{ffi::OsString, path::PathBuf};
 
     use uuid::Uuid;
 
@@ -395,9 +394,9 @@ mod tests {
 
         for matcher in matchers {
             if let Some(matcher) = matcher.strip_prefix("!") {
-                assert!(!joined_args.contains(&matcher.to_string()));
+                assert!(!joined_args.contains(&OsString::from(matcher)));
             } else {
-                assert!(joined_args.contains(&matcher.to_string()));
+                assert!(joined_args.contains(&OsString::from(matcher)));
             }
         }
     }

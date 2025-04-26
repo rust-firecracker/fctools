@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    ffi::OsString,
     path::{Path, PathBuf},
 };
 
@@ -9,13 +10,13 @@ use crate::vmm::id::VmmId;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JailerArguments {
     pub(crate) jail_id: VmmId,
-    cgroup_values: HashMap<String, String>,
+    cgroup_values: HashMap<OsString, OsString>,
     cgroup_version: Option<JailerCgroupVersion>,
     pub(crate) chroot_base_dir: Option<PathBuf>,
     pub(crate) daemonize: bool,
     network_namespace_path: Option<PathBuf>,
     pub(crate) exec_in_new_pid_ns: bool,
-    parent_cgroup: Option<String>,
+    parent_cgroup: Option<OsString>,
     max_file_size_limit: Option<u64>,
     max_fd_limit: Option<u64>,
 }
@@ -38,13 +39,13 @@ impl JailerArguments {
     }
 
     /// Add a cgroup key-value pair to the [JailerArguments].
-    pub fn cgroup<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
+    pub fn cgroup<K: Into<OsString>, V: Into<OsString>>(mut self, key: K, value: V) -> Self {
         self.cgroup_values.insert(key.into(), value.into());
         self
     }
 
     /// Add an iterator of cgroup key-value pairs to the [JailerArguments].
-    pub fn cgroups<I: IntoIterator<Item = (String, String)>>(mut self, cgroups: I) -> Self {
+    pub fn cgroups<I: IntoIterator<Item = (OsString, OsString)>>(mut self, cgroups: I) -> Self {
         self.cgroup_values.extend(cgroups);
         self
     }
@@ -81,7 +82,7 @@ impl JailerArguments {
     }
 
     /// Specify a parent cgroup for the jailer.
-    pub fn parent_cgroup<C: Into<String>>(mut self, parent_cgroup: C) -> Self {
+    pub fn parent_cgroup<C: Into<OsString>>(mut self, parent_cgroup: C) -> Self {
         self.parent_cgroup = Some(parent_cgroup.into());
         self
     }
@@ -99,66 +100,66 @@ impl JailerArguments {
         self
     }
 
-    /// Join the [JailerArguments] into a [Vec] of process arguments, using the given jailer target UID and GID as
-    /// well as a [Path] to the "firecracker" binary. The order in which the argument [String]s are inserted into
+    /// Join the [JailerArguments] into a buffer of process arguments, using the given jailer target UID and GID as
+    /// well as a [Path] to the "firecracker" binary. The order in which the argument [OsString]s are inserted into
     /// the resulting [Vec] is not stable!
-    pub fn join(&self, uid: u32, gid: u32, firecracker_binary_path: &Path) -> Vec<String> {
-        let mut args = Vec::with_capacity(8);
-        args.push("--exec-file".to_string());
-        args.push(firecracker_binary_path.to_string_lossy().into_owned());
-        args.push("--uid".to_string());
-        args.push(uid.to_string());
-        args.push("--gid".to_string());
-        args.push(gid.to_string());
-        args.push("--id".to_string());
-        args.push(self.jail_id.as_ref().to_owned());
+    pub fn join(&self, uid: u32, gid: u32, firecracker_binary_path: &Path) -> Vec<OsString> {
+        let mut args: Vec<OsString> = Vec::with_capacity(8);
+        args.push("--exec-file".into());
+        args.push(firecracker_binary_path.into());
+        args.push("--uid".into());
+        args.push(uid.to_string().into());
+        args.push("--gid".into());
+        args.push(gid.to_string().into());
+        args.push("--id".into());
+        args.push(self.jail_id.as_ref().into());
 
         if !self.cgroup_values.is_empty() {
             for (key, value) in &self.cgroup_values {
-                args.push("--cgroup".to_string());
-                args.push(format!("{key}={value}"));
+                args.push("--cgroup".into());
+                args.push(format!("{key:?}={value:?}").into());
             }
         }
 
         if let Some(cgroup_version) = self.cgroup_version {
-            args.push("--cgroup-version".to_string());
+            args.push("--cgroup-version".into());
             args.push(match cgroup_version {
-                JailerCgroupVersion::V1 => "1".to_string(),
-                JailerCgroupVersion::V2 => "2".to_string(),
+                JailerCgroupVersion::V1 => "1".into(),
+                JailerCgroupVersion::V2 => "2".into(),
             });
         }
 
         if let Some(ref chroot_base_dir) = self.chroot_base_dir {
-            args.push("--chroot-base-dir".to_string());
-            args.push(chroot_base_dir.to_string_lossy().into_owned());
+            args.push("--chroot-base-dir".into());
+            args.push(chroot_base_dir.into());
         }
 
         if self.daemonize {
-            args.push("--daemonize".to_string());
+            args.push("--daemonize".into());
         }
 
         if let Some(ref network_namespace_path) = self.network_namespace_path {
-            args.push("--netns".to_string());
-            args.push(network_namespace_path.to_string_lossy().into_owned());
+            args.push("--netns".into());
+            args.push(network_namespace_path.into());
         }
 
         if self.exec_in_new_pid_ns {
-            args.push("--new-pid-ns".to_string());
+            args.push("--new-pid-ns".into());
         }
 
         if let Some(parent_cgroup) = self.parent_cgroup.clone() {
-            args.push("--parent-cgroup".to_string());
+            args.push("--parent-cgroup".into());
             args.push(parent_cgroup);
         }
 
         if let Some(max_file_size_limit) = self.max_file_size_limit {
-            args.push("--resource-limit".to_string());
-            args.push(format!("fsize={max_file_size_limit}"));
+            args.push("--resource-limit".into());
+            args.push(format!("fsize={max_file_size_limit}").into());
         }
 
         if let Some(max_fd_limit) = self.max_fd_limit {
-            args.push("--resource-limit".to_string());
-            args.push(format!("no-file={max_fd_limit}"));
+            args.push("--resource-limit".into());
+            args.push(format!("no-file={max_fd_limit}").into());
         }
 
         args
@@ -176,7 +177,7 @@ pub enum JailerCgroupVersion {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{ffi::OsString, path::PathBuf};
 
     use crate::vmm::id::VmmId;
 
@@ -249,11 +250,11 @@ mod tests {
 
     fn check<const AMOUNT: usize>(args: JailerArguments, matchers: [&str; AMOUNT]) {
         let joined_args = args.join(1, 1, &PathBuf::from("/tmp/firecracker"));
-        assert!(joined_args.contains(&String::from("--exec-file")));
-        assert!(joined_args.contains(&String::from("/tmp/firecracker")));
+        assert!(joined_args.contains(&OsString::from("--exec-file")));
+        assert!(joined_args.contains(&OsString::from("/tmp/firecracker")));
 
         for matcher in matchers {
-            assert!(joined_args.contains(&matcher.to_string()));
+            assert!(joined_args.contains(&matcher.into()));
         }
     }
 }

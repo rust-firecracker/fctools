@@ -1,4 +1,4 @@
-use std::{fmt::Debug, path::PathBuf};
+use std::{ffi::OsString, fmt::Debug, path::PathBuf};
 
 /// A [CommandModifier] is a simple transformation that can be applied to a [Vec] of [String] arguments
 /// and a [PathBuf] binary path. This allows customizing argument behavior beyond the scope of what the
@@ -7,20 +7,20 @@ use std::{fmt::Debug, path::PathBuf};
 /// [CommandModifier] should be chained together and executed in the exact order they were configured.
 pub trait CommandModifier: Debug + Send + Sync + 'static {
     /// Apply the modification to the given arguments and binary path.
-    fn apply(&self, binary_path: &mut PathBuf, arguments: &mut Vec<String>);
+    fn apply(&self, binary_path: &mut PathBuf, arguments: &mut Vec<OsString>);
 }
 
 /// A [CommandModifier] that wraps the "firecracker"/"jailer" invocation behind iproute2's "netns exec" command
 /// in order to put the spawned process in a certain network namespace via the iproute2 utility.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NetnsCommandModifier {
-    netns_name: String,
+    netns_name: OsString,
     iproute2_path: PathBuf,
 }
 
 impl NetnsCommandModifier {
     /// Create a new [NetnsCommandModifier] from a given name of a network namespace.
-    pub fn new<N: Into<String>>(netns_name: N) -> Self {
+    pub fn new<N: Into<OsString>>(netns_name: N) -> Self {
         Self {
             netns_name: netns_name.into(),
             iproute2_path: PathBuf::from("/usr/sbin/ip"),
@@ -35,13 +35,13 @@ impl NetnsCommandModifier {
 }
 
 impl CommandModifier for NetnsCommandModifier {
-    fn apply(&self, binary_path: &mut PathBuf, arguments: &mut Vec<String>) {
-        let original_binary_path = binary_path.to_string_lossy().into_owned();
+    fn apply(&self, binary_path: &mut PathBuf, arguments: &mut Vec<OsString>) {
+        let original_binary_path = binary_path.to_owned();
         *binary_path = self.iproute2_path.clone();
-        arguments.insert(0, "netns".to_string());
-        arguments.insert(1, "exec".to_string());
-        arguments.insert(2, self.netns_name.clone());
-        arguments.insert(3, original_binary_path);
+        arguments.insert(0, "netns".into());
+        arguments.insert(1, "exec".into());
+        arguments.insert(2, self.netns_name.clone().into());
+        arguments.insert(3, original_binary_path.into());
     }
 }
 
@@ -50,7 +50,7 @@ impl CommandModifier for NetnsCommandModifier {
 fn netns_command_modifier_performs_changes() {
     let command_modifier = NetnsCommandModifier::new("my_netns").iproute2_path("/sbin/ip");
     let mut binary_path = PathBuf::from("/opt/binary");
-    let mut arguments = vec!["run".to_string(), "my".to_string(), "stuff".to_string()];
+    let mut arguments = vec!["run".into(), "my".into(), "stuff".into()];
     command_modifier.apply(&mut binary_path, &mut arguments);
     assert_eq!(binary_path.to_str().unwrap(), "/sbin/ip");
     assert_eq!(
