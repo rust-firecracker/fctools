@@ -8,7 +8,7 @@
         "boot_wait_ms": 6000,
         "boot_socket_timeout_ms": 10000
     },
-    "network_interface": "ens0",
+    "network_interface": "eth0",
     "jailer_uid": 1000,
     "jailer_gid": 1000
 }
