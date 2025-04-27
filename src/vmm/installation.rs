@@ -95,14 +95,14 @@ impl VmmInstallation {
         runtime: &R,
     ) -> Result<(), VmmInstallationVerificationError> {
         futures_util::try_join!(
-            verify_imp::<R>(
+            verify_imp(
                 runtime,
                 &self.0.firecracker_path,
                 expected_version.as_ref(),
                 "Firecracker"
             ),
-            verify_imp::<R>(runtime, &self.0.jailer_path, expected_version.as_ref(), "Jailer"),
-            verify_imp::<R>(
+            verify_imp(runtime, &self.0.jailer_path, expected_version.as_ref(), "Jailer"),
+            verify_imp(
                 runtime,
                 &self.0.snapshot_editor_path,
                 expected_version.as_ref(),
