@@ -117,7 +117,7 @@ impl JailerArguments {
         if !self.cgroup_values.is_empty() {
             for (key, value) in &self.cgroup_values {
                 args.push("--cgroup".into());
-                args.push(format!("{key:?}={value:?}").into());
+                args.push(format!("{}={}", key.to_string_lossy(), value.to_string_lossy()).into());
             }
         }
 
