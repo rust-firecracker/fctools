@@ -1,12 +1,12 @@
 [filesystem]
 type = "Ext4"
-size_mib = 250
+size_mib = 150
 
 [container]
 engine = "Podman"
 rootful = true
 wait_timeout_s = 1
-image = { name = "docker.io/library/debian", tag = "bookworm-slim" }
+image = { name = "docker.io/library/debian", tag = "trixie-slim" }
 
 [[commands]]
 script_inline = """
@@ -19,7 +19,6 @@ rm -f /etc/systemd/system/multi-user.target.wants/systemd-resolved.service
 rm -f /etc/systemd/system/dbus-org.freedesktop.resolve1.service
 rm -f /etc/systemd/system/sysinit.target.wants/systemd-timesyncd.service
 
-systemctl disable e2scrub_reap.service
 rm -vf /etc/systemd/system/timers.target.wants/*
 
 for console in ttyS0; do

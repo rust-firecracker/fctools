@@ -1,14 +1,14 @@
 {
     "toolchain": {
-        "version": "v1.10.1",
-        "snapshot_version": "v4.0.0"
+        "version": "v1.13.1",
+        "snapshot_version": "v5.0.0"
     },
     "waits": {
         "shutdown_timeout_ms": 10000,
         "boot_wait_ms": 6000,
         "boot_socket_timeout_ms": 10000
     },
-    "network_interface": "eth0",
+    "network_interface": "wlp7s0",
     "jailer_uid": 1000,
     "jailer_gid": 1000
 }
