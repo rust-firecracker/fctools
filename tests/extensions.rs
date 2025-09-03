@@ -7,7 +7,7 @@ use fctools::{
         grpc_vsock::VmVsockGrpc, http_vsock::VmVsockHttp, metrics::spawn_metrics_task,
         snapshot_editor::SnapshotEditorExt,
     },
-    runtime::{tokio::TokioRuntime, RuntimeTask},
+    runtime::{RuntimeTask, tokio::TokioRuntime},
     vm::{api::VmApi, models::SnapshotType},
     vmm::{process::HyperResponseExt, resource::CreatedResourceType},
 };
@@ -15,7 +15,7 @@ use futures_util::StreamExt;
 use http_body_util::Full;
 use serde::{Deserialize, Serialize};
 use test_framework::{
-    get_create_snapshot, get_real_firecracker_installation, shutdown_test_vm, TestOptions, TestVm, VmBuilder,
+    TestOptions, TestVm, VmBuilder, get_create_snapshot, get_real_firecracker_installation, shutdown_test_vm,
 };
 use tokio::fs::metadata;
 
@@ -58,7 +58,7 @@ mod codegen {
                 .ready()
                 .await
                 .map_err(|e| tonic::Status::unknown(format!("Service was not ready: {}", e.into())))?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/guest_agent.GuestAgentService/Unary");
             let mut req = request.into_request();
             req.extensions_mut()
@@ -74,7 +74,7 @@ mod codegen {
                 .ready()
                 .await
                 .map_err(|e| tonic::Status::unknown(format!("Service was not ready: {}", e.into())))?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/guest_agent.GuestAgentService/ClientStreaming");
             let mut req = request.into_streaming_request();
             req.extensions_mut()
@@ -90,7 +90,7 @@ mod codegen {
                 .ready()
                 .await
                 .map_err(|e| tonic::Status::unknown(format!("Service was not ready: {}", e.into())))?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/guest_agent.GuestAgentService/ServerStreaming");
             let mut req = request.into_request();
             req.extensions_mut()
@@ -106,7 +106,7 @@ mod codegen {
                 .ready()
                 .await
                 .map_err(|e| tonic::Status::unknown(format!("Service was not ready: {}", e.into())))?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/guest_agent.GuestAgentService/DuplexStreaming");
             let mut req = request.into_streaming_request();
             req.extensions_mut()

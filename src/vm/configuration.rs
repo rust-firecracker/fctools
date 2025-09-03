@@ -34,14 +34,8 @@ impl VmConfiguration {
     #[inline]
     pub fn get_data_mut(&mut self) -> &mut VmConfigurationData {
         match self {
-            VmConfiguration::New {
-                init_method: _,
-                ref mut data,
-            } => data,
-            VmConfiguration::RestoredFromSnapshot {
-                load_snapshot: _,
-                ref mut data,
-            } => data,
+            VmConfiguration::New { init_method: _, data } => data,
+            VmConfiguration::RestoredFromSnapshot { load_snapshot: _, data } => data,
         }
     }
 
@@ -49,14 +43,8 @@ impl VmConfiguration {
     #[inline]
     pub fn get_data(&self) -> &VmConfigurationData {
         match self {
-            VmConfiguration::New {
-                init_method: _,
-                ref data,
-            } => data,
-            VmConfiguration::RestoredFromSnapshot {
-                load_snapshot: _,
-                ref data,
-            } => data,
+            VmConfiguration::New { init_method: _, data } => data,
+            VmConfiguration::RestoredFromSnapshot { load_snapshot: _, data } => data,
         }
     }
 }

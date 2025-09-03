@@ -4,14 +4,14 @@ use fctools::{
     process_spawner::DirectProcessSpawner,
     runtime::tokio::TokioRuntime,
     vm::{
+        VmState,
         api::VmApi,
         configuration::InitMethod,
         shutdown::{VmShutdownAction, VmShutdownMethod},
         snapshot::{PrepareVmFromSnapshotOptions, VmSnapshot},
-        VmState,
     },
     vmm::{
-        arguments::{jailer::JailerArguments, VmmApiSocket, VmmArguments},
+        arguments::{VmmApiSocket, VmmArguments, jailer::JailerArguments},
         executor::{
             either::EitherVmmExecutor,
             jailed::{FlatVirtualPathResolver, JailedVmmExecutor},
@@ -21,9 +21,8 @@ use fctools::{
         resource::{CreatedResourceType, MovedResourceType},
     },
 };
-use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};
-use rand::RngCore;
-use test_framework::{get_create_snapshot, get_tmp_path, shutdown_test_vm, TestOptions, TestVm, VmBuilder};
+use futures_util::{AsyncBufReadExt, StreamExt, io::BufReader};
+use test_framework::{TestOptions, TestVm, VmBuilder, get_create_snapshot, get_tmp_path, shutdown_test_vm};
 use tokio::fs::{metadata, try_exists};
 
 mod test_framework;
@@ -288,7 +287,7 @@ async fn prepare_snapshot_vm(old_vm: &mut TestVm, snapshot: VmSnapshot, is_jaile
     let executor = match is_jailed {
         true => EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
-            JailerArguments::new(rand::rng().next_u32().to_string().try_into().unwrap()),
+            JailerArguments::new(fastrand::u32(2..u32::MAX).to_string().try_into().unwrap()),
             FlatVirtualPathResolver::default(),
         )),
         false => EitherVmmExecutor::Unrestricted(UnrestrictedVmmExecutor::new(VmmArguments::new(

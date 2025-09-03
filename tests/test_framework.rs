@@ -14,19 +14,19 @@ use fctools::{
     process_spawner::{DirectProcessSpawner, ProcessSpawner},
     runtime::tokio::TokioRuntime,
     vm::{
+        Vm,
         configuration::{InitMethod, VmConfiguration, VmConfigurationData},
         models::{
             BalloonDevice, BootSource, CreateSnapshot, Drive, LoggerSystem, MachineConfiguration, MetricsSystem,
             MmdsConfiguration, MmdsVersion, NetworkInterface, SnapshotType, VsockDevice,
         },
         shutdown::{VmShutdownAction, VmShutdownMethod},
-        Vm,
     },
     vmm::{
         arguments::{
+            VmmApiSocket, VmmArguments,
             command_modifier::NetnsCommandModifier,
             jailer::{JailerArguments, JailerCgroupVersion},
-            VmmApiSocket, VmmArguments,
         },
         executor::{
             either::EitherVmmExecutor,
@@ -36,10 +36,9 @@ use fctools::{
         installation::VmmInstallation,
         ownership::VmmOwnershipModel,
         process::{VmmProcess, VmmProcessState},
-        resource::{system::ResourceSystem, CreatedResourceType, MovedResourceType, ResourceType},
+        resource::{CreatedResourceType, MovedResourceType, ResourceType, system::ResourceSystem},
     },
 };
-use rand::{Rng, RngCore};
 use serde::Deserialize;
 use tokio::sync::{Mutex, MutexGuard, OnceCell};
 use uuid::Uuid;
@@ -185,7 +184,7 @@ async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProce
 
     let vmm_arguments = VmmArguments::new(VmmApiSocket::Enabled(socket_path.clone()));
 
-    let mut jailer_arguments = JailerArguments::new(rand::rng().next_u32().to_string().try_into().unwrap())
+    let mut jailer_arguments = JailerArguments::new(fastrand::u32(1..u32::MAX).to_string().try_into().unwrap())
         .cgroup_version(JailerCgroupVersion::V2);
 
     if !no_new_pid_ns {
@@ -343,7 +342,7 @@ impl VmBuilder {
     }
 
     fn setup_simple_network(&self) -> NetworkData {
-        let subnet_index = rand::rng().random_range(1..1000);
+        let subnet_index = fastrand::u16(1..1000);
         let subnet = LinkLocalSubnet::new(subnet_index, 30).unwrap();
         let guest_ip = subnet.get_host_ip(0).unwrap().into();
         let tap_ip = subnet.get_host_ip(1).unwrap().into();
@@ -375,7 +374,7 @@ impl VmBuilder {
     }
 
     fn setup_namespaced_network(&self) -> NetworkData {
-        let subnet_index = rand::rng().random_range(1..=3000);
+        let subnet_index = fastrand::u16(1..3000);
         let subnet = LinkLocalSubnet::new(subnet_index, 29).unwrap();
 
         let guest_ip = subnet.get_host_ip(0).unwrap().into();
@@ -528,7 +527,7 @@ impl VmBuilder {
 
         fn new_vsock_device(resource_system: &mut TestResourceSystem) -> VsockDevice {
             VsockDevice {
-                guest_cid: rand::rng().next_u32(),
+                guest_cid: fastrand::u32(2..u32::MAX),
                 uds: resource_system
                     .create_resource(get_tmp_path(), ResourceType::Produced)
                     .unwrap(),
@@ -565,7 +564,7 @@ impl VmBuilder {
         );
 
         let test_options = TestOptions::get_blocking();
-        let mut jailer_arguments = JailerArguments::new(rand::rng().next_u32().to_string().try_into().unwrap())
+        let mut jailer_arguments = JailerArguments::new(fastrand::u32(2..u32::MAX).to_string().try_into().unwrap())
             .cgroup_version(JailerCgroupVersion::V2);
 
         if let Some(ref network) = self.jailed_network_data {
