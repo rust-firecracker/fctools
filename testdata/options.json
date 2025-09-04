@@ -1,7 +1,7 @@
 {
     "toolchain": {
         "version": "v1.13.1",
-        "snapshot_version": "v5.0.0"
+        "snapshot_version": "v8.0.0"
     },
     "waits": {
         "shutdown_timeout_ms": 10000,

@@ -142,6 +142,16 @@ pub fn get_process_spawner() -> Arc<impl ProcessSpawner> {
     Arc::new(DirectProcessSpawner)
 }
 
+#[allow(unused)]
+#[inline]
+pub fn assert_stdout_normality(buf: String) {
+    assert!(
+        buf.contains("Running Firecracker")
+            && buf.contains("Vmm is stopping")
+            && buf.contains("Firecracker exiting successfully")
+    );
+}
+
 // VMM TEST FRAMEWORK
 
 #[allow(unused)]

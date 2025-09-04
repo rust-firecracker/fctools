@@ -25,6 +25,8 @@ use futures_util::{AsyncBufReadExt, StreamExt, io::BufReader};
 use test_framework::{TestOptions, TestVm, VmBuilder, get_create_snapshot, get_tmp_path, shutdown_test_vm};
 use tokio::fs::{metadata, try_exists};
 
+use crate::test_framework::assert_stdout_normality;
+
 mod test_framework;
 
 #[test]
@@ -205,7 +207,7 @@ fn vm_can_take_pipes() {
                 buf.push_str(&line);
             }
 
-            assert!(buf.contains("Artificially kick devices."));
+            assert_stdout_normality(buf);
         });
 }
 

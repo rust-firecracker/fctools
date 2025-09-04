@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use futures_channel::mpsc;
-use futures_util::{io::BufReader, AsyncBufReadExt, SinkExt, StreamExt};
+use futures_util::{AsyncBufReadExt, SinkExt, StreamExt, io::BufReader};
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::Runtime;
@@ -28,6 +28,8 @@ pub struct Metrics {
     pub signals: SignalsMetrics,
     pub vsock: VsockMetrics,
     pub entropy: EntropyMetrics,
+    #[serde(default)]
+    pub rtc: Option<RtcMetrics>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -170,6 +172,8 @@ pub struct MmdsMetrics {
     pub rx_accepted_err: u64,
     pub rx_accepted_unusual: u64,
     pub rx_bad_eth: u64,
+    pub rx_invalid_token: u64,
+    pub rx_no_token: u64,
     pub rx_count: u64,
     pub tx_bytes: u64,
     pub tx_count: u64,
@@ -283,16 +287,27 @@ pub struct EntropyMetrics {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RtcMetrics {
+    pub error_count: u64,
+    pub missed_read_count: u64,
+    pub missed_write_count: u64,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MetricsAggregate {
     pub min_us: u64,
     pub max_us: u64,
     pub sum_us: u64,
 }
 
+/// An error that the dedicated metrics async task can fail with.
 #[derive(Debug)]
 pub enum MetricsTaskError {
+    /// An I/O error occurred while either opening the metrics file/pipe in read-only mode or reading from it.
     FilesystemError(std::io::Error),
+    /// An error occurred while trying to deserialize the metrics line received from the metrics file/pipe.
     SerdeError(serde_json::Error),
+    /// An error occurred while sending the deserialized [Metrics] object into the [mpsc] channel.
     SendError(mpsc::SendError),
 }
 
@@ -340,6 +355,7 @@ pub fn spawn_metrics_task<R: Runtime, P: Into<PathBuf>>(metrics_path: P, buffer:
                 None => return Ok(()),
                 Some(Err(err)) => return Err(MetricsTaskError::FilesystemError(err)),
             };
+
             let metrics_entry = serde_json::from_str::<Metrics>(&line).map_err(MetricsTaskError::SerdeError)?;
             sender.send(metrics_entry).await.map_err(MetricsTaskError::SendError)?;
         }

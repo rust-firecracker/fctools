@@ -2,11 +2,13 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use fctools::vmm::process::{HyperResponseExt, VmmProcessState};
-use futures_util::{io::BufReader, AsyncBufReadExt, StreamExt};
+use futures_util::{AsyncBufReadExt, StreamExt, io::BufReader};
 use http_body_util::Full;
 use hyper::Request;
 use hyper_client_sockets::Backend;
-use test_framework::{run_vmm_process_test, TestOptions, TestVmmProcess};
+use test_framework::{TestOptions, TestVmmProcess, run_vmm_process_test};
+
+use crate::test_framework::assert_stdout_normality;
 
 mod test_framework;
 
@@ -46,9 +48,9 @@ async fn vmm_can_take_out_pipes() {
         let mut buf_reader = BufReader::new(pipes.stdout).lines();
         while let Some(Ok(line)) = buf_reader.next().await {
             buf.push_str(&line);
-            buf.push('\n');
         }
-        assert!(buf.contains("Artificially kick devices."));
+
+        assert_stdout_normality(buf);
 
         process.cleanup().await.unwrap();
     })
