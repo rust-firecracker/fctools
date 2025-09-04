@@ -6,11 +6,11 @@ use std::{path::PathBuf, process::ExitStatus, time::Duration};
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{util::RuntimeHyperExecutor, Runtime},
+    runtime::{Runtime, util::RuntimeHyperExecutor},
     vmm::{
-        executor::{process_handle::ProcessHandlePipes, VmmExecutor},
+        executor::{VmmExecutor, process_handle::ProcessHandlePipes},
         installation::VmmInstallation,
-        ownership::{upgrade_owner, ChangeOwnerError},
+        ownership::{ChangeOwnerError, upgrade_owner},
         process::{VmmProcess, VmmProcessError, VmmProcessState},
         resource::system::{ResourceSystem, ResourceSystemError},
     },

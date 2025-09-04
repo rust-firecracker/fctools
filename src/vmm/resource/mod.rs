@@ -1,6 +1,6 @@
 use std::{
     path::{Path, PathBuf},
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
 };
 
 use internal::{ResourceInfo, ResourceInitInfo, ResourceRequest};

@@ -9,7 +9,7 @@ use hyper_client_sockets::{connector::FirecrackerConnector, uri::FirecrackerUri}
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{util::RuntimeHyperExecutor, Runtime},
+    runtime::{Runtime, util::RuntimeHyperExecutor},
     vm::Vm,
     vmm::executor::VmmExecutor,
 };

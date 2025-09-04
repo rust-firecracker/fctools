@@ -2,8 +2,8 @@ use std::{
     future::poll_fn,
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, OnceLock,
+        atomic::{AtomicBool, Ordering},
     },
     task::Poll,
 };
@@ -14,10 +14,10 @@ use futures_util::StreamExt;
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::{Runtime, RuntimeTask},
-    vmm::ownership::{downgrade_owner, upgrade_owner, VmmOwnershipModel},
+    vmm::ownership::{VmmOwnershipModel, downgrade_owner, upgrade_owner},
 };
 
-use super::{system::ResourceSystemError, CreatedResourceType, MovedResourceType, ResourceType};
+use super::{CreatedResourceType, MovedResourceType, ResourceType, system::ResourceSystemError};
 
 #[derive(Debug)]
 pub struct ResourceInfo {

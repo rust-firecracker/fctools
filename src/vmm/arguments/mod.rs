@@ -270,7 +270,7 @@ mod tests {
         runtime::tokio::TokioRuntime,
         vmm::{
             ownership::VmmOwnershipModel,
-            resource::{system::ResourceSystem, CreatedResourceType, Resource, ResourceType},
+            resource::{CreatedResourceType, Resource, ResourceType, system::ResourceSystem},
         },
     };
 

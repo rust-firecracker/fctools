@@ -2,7 +2,7 @@
 use std::marker::PhantomData;
 use std::{
     path::PathBuf,
-    sync::{atomic::AtomicBool, Arc, OnceLock},
+    sync::{Arc, OnceLock, atomic::AtomicBool},
 };
 
 use futures_channel::mpsc;
@@ -15,8 +15,8 @@ use crate::{
 };
 
 use super::{
-    internal::{resource_system_main_task, OwnedResource, ResourceInfo, ResourceSystemRequest, ResourceSystemResponse},
     Resource, ResourceState, ResourceType,
+    internal::{OwnedResource, ResourceInfo, ResourceSystemRequest, ResourceSystemResponse, resource_system_main_task},
 };
 
 /// A [ResourceSystem] represents a non-cloneable object connected to a background task running on a [Runtime]. This task

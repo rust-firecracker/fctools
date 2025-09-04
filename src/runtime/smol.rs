@@ -19,7 +19,7 @@ use pin_project_lite::pin_project;
 
 use crate::runtime::util::get_stdio_from_piped;
 
-use super::{util::chown_all_blocking, Runtime, RuntimeAsyncFd, RuntimeChild, RuntimeTask};
+use super::{Runtime, RuntimeAsyncFd, RuntimeChild, RuntimeTask, util::chown_all_blocking};
 
 #[derive(Clone)]
 enum MaybeStaticExecutor {

@@ -2,11 +2,11 @@ use std::path::PathBuf;
 
 use fctools::{
     process_spawner::{DirectProcessSpawner, ProcessSpawner, SuProcessSpawner, SudoProcessSpawner},
-    runtime::{tokio::TokioRuntime, RuntimeChild},
+    runtime::{RuntimeChild, tokio::TokioRuntime},
     vmm::installation::{VmmInstallation, VmmInstallationVerificationError},
 };
 use futures_util::AsyncReadExt;
-use test_framework::{get_test_path, TestOptions};
+use test_framework::{TestOptions, get_test_path};
 use uuid::Uuid;
 
 mod test_framework;

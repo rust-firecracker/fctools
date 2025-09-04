@@ -5,7 +5,7 @@ use tonic::transport::{Channel, Endpoint};
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{util::RuntimeHyperExecutor, Runtime},
+    runtime::{Runtime, util::RuntimeHyperExecutor},
     vm::Vm,
     vmm::executor::VmmExecutor,
 };

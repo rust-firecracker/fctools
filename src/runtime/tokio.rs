@@ -19,8 +19,8 @@ use tokio::{
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use super::{
-    util::{chown_all_blocking, get_stdio_from_piped},
     Runtime, RuntimeAsyncFd, RuntimeChild, RuntimeTask,
+    util::{chown_all_blocking, get_stdio_from_piped},
 };
 
 /// The [Runtime] implementation backed by the [tokio] crate. Since [tokio] heavily utilizes thread-local

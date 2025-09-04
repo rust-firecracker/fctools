@@ -9,8 +9,8 @@ use crate::{
 };
 
 use super::{
-    api::{VmApi, VmApiError},
     Vm, VmStateCheckError,
+    api::{VmApi, VmApiError},
 };
 
 /// The methods that can be used to shut down a [Vm].
@@ -181,7 +181,7 @@ pub(super) async fn apply<E: VmmExecutor, S: ProcessSpawner, R: Runtime, I: Iter
                     index,
                     graceful: action.graceful,
                     errors,
-                })
+                });
             }
             Err(error) => {
                 errors.push(error);

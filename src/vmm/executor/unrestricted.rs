@@ -4,7 +4,7 @@ use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
     vmm::{
-        arguments::{command_modifier::CommandModifier, VmmApiSocket, VmmArguments},
+        arguments::{VmmApiSocket, VmmArguments, command_modifier::CommandModifier},
         id::VmmId,
         installation::VmmInstallation,
         ownership::upgrade_owner,
@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-use super::{process_handle::ProcessHandle, VmmExecutor, VmmExecutorContext, VmmExecutorError};
+use super::{VmmExecutor, VmmExecutorContext, VmmExecutorError, process_handle::ProcessHandle};
 
 /// A [VmmExecutor] that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
 /// This [VmmExecutor] allows rootless execution, given that the user has been granted access to /dev/kvm, but using

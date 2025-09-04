@@ -7,14 +7,14 @@ use crate::{
     process_spawner::ProcessSpawner,
     runtime::{Runtime, RuntimeChild},
     vmm::{
-        arguments::{command_modifier::CommandModifier, jailer::JailerArguments, VmmApiSocket, VmmArguments},
+        arguments::{VmmApiSocket, VmmArguments, command_modifier::CommandModifier, jailer::JailerArguments},
         installation::VmmInstallation,
-        ownership::{downgrade_owner_recursively, upgrade_owner, PROCESS_GID, PROCESS_UID},
+        ownership::{PROCESS_GID, PROCESS_UID, downgrade_owner_recursively, upgrade_owner},
         resource::ResourceType,
     },
 };
 
-use super::{process_handle::ProcessHandle, VmmExecutor, VmmExecutorContext, VmmExecutorError};
+use super::{VmmExecutor, VmmExecutorContext, VmmExecutorError, process_handle::ProcessHandle};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". The "jailer", by design, can only run as "root", even though the "firecracker" process itself

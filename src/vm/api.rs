@@ -4,7 +4,7 @@ use bytes::Bytes;
 use http::{Request, Response, StatusCode};
 use http_body_util::Full;
 use hyper::body::Incoming;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     process_spawner::ProcessSpawner,
@@ -14,11 +14,12 @@ use crate::{
         executor::VmmExecutor,
         ownership::ChangeOwnerError,
         process::{HyperResponseExt, VmmProcessError},
-        resource::{system::ResourceSystemError, ResourceState},
+        resource::{ResourceState, system::ResourceSystemError},
     },
 };
 
 use super::{
+    Vm, VmState, VmStateCheckError,
     configuration::VmConfigurationData,
     models::{
         BalloonDevice, BalloonStatistics, CreateSnapshot, Info, LoadSnapshot, MachineConfiguration, ReprAction,
@@ -26,7 +27,6 @@ use super::{
         ReprUpdatedState, UpdateBalloonDevice, UpdateBalloonStatistics, UpdateDrive, UpdateNetworkInterface,
     },
     snapshot::VmSnapshot,
-    Vm, VmState, VmStateCheckError,
 };
 
 /// An error that can be emitted by the [VmApi] Firecracker Management API bindings.
@@ -174,11 +174,11 @@ pub trait VmApi {
 
     /// Create a MMDS for the VM via the API, containing an initial untyped [serde_json::Value].
     fn create_mmds_untyped(&mut self, value: &serde_json::Value)
-        -> impl Future<Output = Result<(), VmApiError>> + Send;
+    -> impl Future<Output = Result<(), VmApiError>> + Send;
 
     /// Update the VM's MMDS contents via the API to a new untyped [serde_json::Value].
     fn update_mmds_untyped(&mut self, value: &serde_json::Value)
-        -> impl Future<Output = Result<(), VmApiError>> + Send;
+    -> impl Future<Output = Result<(), VmApiError>> + Send;
 
     /// Get the contents of the VM's MMDS as an untyped [serde_json::Value].
     fn get_mmds_untyped(&mut self) -> impl Future<Output = Result<serde_json::Value, VmApiError>> + Send;

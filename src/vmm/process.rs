@@ -10,7 +10,7 @@ use hyper_util::client::legacy::Client;
 
 use crate::{
     process_spawner::ProcessSpawner,
-    runtime::{util::RuntimeHyperExecutor, Runtime},
+    runtime::{Runtime, util::RuntimeHyperExecutor},
     vmm::{
         executor::{VmmExecutor, VmmExecutorError},
         installation::VmmInstallation,
@@ -19,10 +19,10 @@ use crate::{
 
 use super::{
     executor::{
-        process_handle::{ProcessHandle, ProcessHandlePipes, ProcessHandlePipesError},
         VmmExecutorContext,
+        process_handle::{ProcessHandle, ProcessHandlePipes, ProcessHandlePipesError},
     },
-    ownership::{upgrade_owner, ChangeOwnerError},
+    ownership::{ChangeOwnerError, upgrade_owner},
     resource::system::{ResourceSystem, ResourceSystemError},
 };
 

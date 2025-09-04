@@ -9,7 +9,7 @@ use crate::{process_spawner::ProcessSpawner, runtime::Runtime};
 use super::{
     installation::VmmInstallation,
     ownership::{ChangeOwnerError, VmmOwnershipModel},
-    resource::{system::ResourceSystemError, Resource},
+    resource::{Resource, system::ResourceSystemError},
 };
 
 #[cfg(feature = "either-vmm-executor")]
