@@ -621,7 +621,9 @@ impl VmBuilder {
                 version: MmdsVersion::V2,
                 network_interfaces: vec!["eth0".to_string()],
                 ipv4_address: None,
+                imds_compat: None,
             };
+
             unrestricted_data.mmds_configuration = Some(mmds_config.clone());
             jailed_data.mmds_configuration = Some(mmds_config);
         }

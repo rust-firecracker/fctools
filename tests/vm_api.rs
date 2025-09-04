@@ -2,16 +2,16 @@ use assert_matches::assert_matches;
 use bytes::Bytes;
 use fctools::{
     vm::{
+        VmState,
         api::{VmApi, VmApiError},
         models::{UpdateBalloonDevice, UpdateBalloonStatistics},
-        VmState,
     },
     vmm::{process::HyperResponseExt, resource::CreatedResourceType},
 };
 use http::{Request, StatusCode};
 use http_body_util::Full;
 use serde::{Deserialize, Serialize};
-use test_framework::{shutdown_test_vm, VmBuilder};
+use test_framework::{VmBuilder, shutdown_test_vm};
 
 mod test_framework;
 

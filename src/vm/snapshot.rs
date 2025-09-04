@@ -3,20 +3,20 @@ use std::path::PathBuf;
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
-    vm::models::{LoadSnapshot, MemoryBackend, MemoryBackendType},
+    vm::models::{LoadSnapshot, MemoryBackend, MemoryBackendType, NetworkOverride},
     vmm::{
         executor::VmmExecutor,
         ownership::VmmOwnershipModel,
         resource::{
-            system::{ResourceSystem, ResourceSystemError},
             MovedResourceType, ResourceState, ResourceType,
+            system::{ResourceSystem, ResourceSystemError},
         },
     },
 };
 
 use super::{
-    configuration::{VmConfiguration, VmConfigurationData},
     Vm, VmError,
+    configuration::{VmConfiguration, VmConfigurationData},
 };
 
 /// The data associated with a snapshot created for a [Vm].
@@ -44,10 +44,12 @@ pub struct PrepareVmFromSnapshotOptions<E: VmmExecutor, S: ProcessSpawner, R: Ru
     pub moved_resource_type: MovedResourceType,
     /// The [VmmOwnershipModel] of the new [Vm].
     pub ownership_model: VmmOwnershipModel,
-    /// Optionally, whether to enable diff snapshots when restoring the new VM.
-    pub enable_diff_snapshots: Option<bool>,
+    /// Optionally, whether to track dirty pages to improve the space efficiency of diff snapshots.
+    pub track_dirty_pages: Option<bool>,
     /// Optionally, whether to resume the new VM immediately.
     pub resume_vm: Option<bool>,
+    /// A [Vec] of all [NetworkOverride]s to apply when restoring the VM.
+    pub network_overrides: Vec<NetworkOverride>,
 }
 
 impl VmSnapshot {
@@ -103,13 +105,14 @@ impl VmSnapshot {
         }
 
         let load_snapshot = LoadSnapshot {
-            enable_diff_snapshots: options.enable_diff_snapshots,
+            track_dirty_pages: options.track_dirty_pages,
             mem_backend: MemoryBackend {
                 backend_type: MemoryBackendType::File,
                 backend: mem_file,
             },
             snapshot,
             resume_vm: options.resume_vm,
+            network_overrides: options.network_overrides,
         };
 
         let configuration = VmConfiguration::RestoredFromSnapshot {

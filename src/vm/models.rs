@@ -46,6 +46,8 @@ pub struct BalloonStatistics {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub free_memory: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_memory: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub available_memory: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disk_caches: Option<u64>,
@@ -69,6 +71,74 @@ pub struct BootSource {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "initrd_path")]
     pub initrd: Option<Resource>,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum CpuTemplate {
+    Resource(Resource),
+    Untyped(serde_json::Value),
+    X86(X86CpuTemplate),
+    Arm(ArmCpuTemplate),
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct X86CpuTemplate {
+    pub kvm_capabilities: Vec<String>,
+    pub cpuid_modifiers: Vec<X86CpuidModifier>,
+    pub msr_modifiers: Vec<X86MsrModifier>,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct X86CpuidModifier {
+    pub leaf: String,
+    pub subleaf: String,
+    pub flags: u32,
+    pub modifiers: Vec<X86CpuidRegisterModifier>,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct X86CpuidRegisterModifier {
+    pub register: X86CpuidRegister,
+    pub bitmap: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum X86CpuidRegister {
+    #[serde(rename = "eax")]
+    Eax,
+    #[serde(rename = "ebx")]
+    Ebx,
+    #[serde(rename = "ecx")]
+    Ecx,
+    #[serde(rename = "edx")]
+    Edx,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct X86MsrModifier {
+    pub addr: String,
+    pub bitmap: String,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct ArmCpuTemplate {
+    pub kvm_capabilities: Vec<String>,
+    pub vcpu_features: Vec<ArmVcpuFeature>,
+    #[serde(rename = "reg_modifiers")]
+    pub register_modifiers: Vec<ArmRegisterModifier>,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct ArmVcpuFeature {
+    pub index: usize,
+    pub bitmap: String,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct ArmRegisterModifier {
+    pub addr: String,
+    pub bitmap: String,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
@@ -174,6 +244,8 @@ pub struct MmdsConfiguration {
     pub network_interfaces: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ipv4_address: Option<Ipv4Addr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imds_compat: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -228,12 +300,15 @@ pub enum SnapshotType {
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct LoadSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub enable_diff_snapshots: Option<bool>,
+    pub track_dirty_pages: Option<bool>,
     pub mem_backend: MemoryBackend,
     #[serde(rename = "snapshot_path")]
     pub snapshot: Resource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume_vm: Option<bool>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub network_overrides: Vec<NetworkOverride>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
@@ -247,6 +322,12 @@ pub struct MemoryBackend {
 pub enum MemoryBackendType {
     File,
     Uffd,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct NetworkOverride {
+    pub iface_id: String,
+    pub host_dev_name: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -293,65 +374,6 @@ pub(crate) struct ReprInfo {
 pub(crate) enum ReprIsPaused {
     Running,
     Paused,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct CpuTemplate {
-    pub kvm_capabilities: Vec<String>,
-    #[cfg(target_arch = "x86_64")]
-    #[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
-    pub cpuid_modifiers: Vec<CpuidModifier>,
-    #[cfg(target_arch = "x86_64")]
-    #[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
-    pub msr_modifiers: Vec<MsrModifier>,
-    #[cfg(target_arch = "aarch64")]
-    #[cfg_attr(docsrs, doc(cfg(target_arch = "aarch64")))]
-    pub vcpu_features: Vec<VcpuFeature>,
-    #[cfg(target_arch = "aarch64")]
-    #[cfg_attr(docsrs, doc(cfg(target_arch = "aarch64")))]
-    pub reg_modifiers: Vec<RegModifier>,
-}
-
-#[cfg(target_arch = "x86_64")]
-#[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct CpuidModifier {
-    pub leaf: String,
-    pub subleaf: String,
-    pub flags: u32,
-    pub modifiers: Vec<CpuidRegisterModifier>,
-}
-
-#[cfg(target_arch = "x86_64")]
-#[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct CpuidRegisterModifier {
-    pub register: String,
-    pub bitmap: String,
-}
-
-#[cfg(target_arch = "x86_64")]
-#[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct MsrModifier {
-    pub addr: String,
-    pub bitmap: String,
-}
-
-#[cfg(target_arch = "aarch64")]
-#[cfg_attr(docsrs, doc(cfg(target_arch = "aarch64")))]
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct VcpuFeature {
-    pub index: u32,
-    pub bitmap: String,
-}
-
-#[cfg(target_arch = "aarch64")]
-#[cfg_attr(docsrs, doc(cfg(target_arch = "aarch64")))]
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct RegModifier {
-    pub addr: String,
-    pub bitmap: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -307,8 +307,9 @@ async fn prepare_snapshot_vm(old_vm: &mut TestVm, snapshot: VmSnapshot, is_jaile
                     uid: TestOptions::get().await.jailer_uid,
                     gid: TestOptions::get().await.jailer_gid,
                 },
-                enable_diff_snapshots: Some(false),
+                track_dirty_pages: Some(false),
                 resume_vm: Some(true),
+                network_overrides: Vec::new(),
             },
         )
         .await
