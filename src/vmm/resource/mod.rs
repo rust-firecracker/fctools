@@ -74,7 +74,7 @@ impl std::fmt::Display for ResourceState {
     }
 }
 
-/// A [Resource] is resource pointer that communicates with an actual resource object owned by a resource system.
+/// A [Resource] is a resource pointer that communicates with an actual resource object owned by a resource system.
 /// This pointer can be cloned cheaply with the same performance overhead as that of cloning a single [Arc], meaning
 /// that cloning a [Resource] is essentially instant. Two [Resource]s are always equal if they point to the same object
 /// in the same resource system.

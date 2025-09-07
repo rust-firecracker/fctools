@@ -421,7 +421,7 @@ pub(super) async fn init_new<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
 ) -> Result<(), VmApiError> {
     send_api_request(vm, "/boot-source", "PUT", Some(&data.boot_source)).await?;
 
-    for drive in &data.drives {
+    for drive in data.drives.iter() {
         send_api_request(vm, format!("/drives/{}", drive.drive_id).as_str(), "PUT", Some(drive)).await?;
     }
 
@@ -431,7 +431,7 @@ pub(super) async fn init_new<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
         send_api_request(vm, "/cpu-config", "PUT", Some(cpu_template)).await?;
     }
 
-    for network_interface in &data.network_interfaces {
+    for network_interface in data.network_interfaces.iter() {
         send_api_request(
             vm,
             format!("/network-interfaces/{}", network_interface.iface_id).as_str(),

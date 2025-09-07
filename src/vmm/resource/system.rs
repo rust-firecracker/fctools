@@ -196,7 +196,7 @@ impl std::fmt::Display for ResourceSystemError {
             ResourceSystemError::InitialPathMissing => write!(f, "A resource's initial path is missing"),
             ResourceSystemError::ErrorChain(errors) => write!(
                 f,
-                "A chain of {} errors occurred, meaning that amount of operations failed",
+                "A chain of {} errors occurred, meaning that number of operations failed",
                 errors.len()
             ),
         }

@@ -153,7 +153,7 @@ impl<V: VirtualPathResolver> VmmExecutor for JailedVmmExecutor<V> {
         arguments.push(OsString::from("--"));
         arguments.extend(self.vmm_arguments.join(config_path));
 
-        for command_modifier in &self.command_modifier_chain {
+        for command_modifier in self.command_modifier_chain.iter() {
             command_modifier.apply(&mut binary_path, &mut arguments);
         }
 

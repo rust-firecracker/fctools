@@ -117,7 +117,7 @@ impl VmmExecutor for UnrestrictedVmmExecutor {
         let mut arguments = self.vmm_arguments.join(config_path);
         let mut binary_path = context.installation.get_firecracker_path().to_owned();
 
-        for command_modifier in &self.command_modifier_chain {
+        for command_modifier in self.command_modifier_chain.iter() {
             command_modifier.apply(&mut binary_path, &mut arguments);
         }
 

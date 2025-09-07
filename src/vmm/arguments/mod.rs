@@ -9,7 +9,6 @@ pub mod jailer;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VmmArguments {
     pub(crate) api_socket: VmmApiSocket,
-
     log_level: Option<VmmLogLevel>,
     show_log_origin: bool,
     log_module: Option<OsString>,
@@ -17,13 +16,11 @@ pub struct VmmArguments {
     enable_boot_timer: bool,
     api_max_payload_bytes: Option<u32>,
     mmds_size_limit: Option<u32>,
-    disable_seccomp: bool,
-
-    log_resource_index: Option<usize>,
-    metadata_resource_index: Option<usize>,
-    metrics_resource_index: Option<usize>,
-    seccomp_filter_resource_index: Option<usize>,
-    resources: Vec<Resource>,
+    seccomp_filter_disabled: bool,
+    log_resource: Option<Resource>,
+    metadata_resource: Option<Resource>,
+    metrics_resource: Option<Resource>,
+    seccomp_filter_resource: Option<Resource>,
 }
 
 impl VmmArguments {
@@ -38,12 +35,11 @@ impl VmmArguments {
             enable_boot_timer: false,
             api_max_payload_bytes: None,
             mmds_size_limit: None,
-            disable_seccomp: false,
-            log_resource_index: None,
-            metadata_resource_index: None,
-            metrics_resource_index: None,
-            seccomp_filter_resource_index: None,
-            resources: Vec::new(),
+            seccomp_filter_disabled: false,
+            log_resource: None,
+            metadata_resource: None,
+            metrics_resource: None,
+            seccomp_filter_resource: None,
         }
     }
 
@@ -89,43 +85,52 @@ impl VmmArguments {
         self
     }
 
-    /// Disable seccomp filtering, which is enabled by default for security purposes.
-    pub fn disable_seccomp(mut self) -> Self {
-        self.disable_seccomp = true;
+    /// Customize the seccomp filter used by the VMM, disable it or set it back to the default one.
+    pub fn seccomp_filter(mut self, seccomp_filter: VmmSeccompFilter) -> Self {
+        match seccomp_filter {
+            VmmSeccompFilter::Default => {
+                self.seccomp_filter_disabled = false;
+                self.seccomp_filter_resource = None;
+            }
+            VmmSeccompFilter::Disabled => {
+                self.seccomp_filter_disabled = true;
+            }
+            VmmSeccompFilter::Custom(resource) => {
+                self.seccomp_filter_disabled = false;
+                self.seccomp_filter_resource = Some(resource);
+            }
+        }
+
         self
     }
 
     /// Specify the [Resource] pointing to the log file for the VMM.
     pub fn logs(mut self, logs: Resource) -> Self {
-        self.resources.push(logs);
-        self.log_resource_index = Some(self.resources.len() - 1);
+        self.log_resource = Some(logs);
         self
     }
 
     /// Specify the [Resource] pointing to the metadata file for the VMM.
     pub fn metadata(mut self, metadata: Resource) -> Self {
-        self.resources.push(metadata);
-        self.metadata_resource_index = Some(self.resources.len() - 1);
+        self.metadata_resource = Some(metadata);
         self
     }
 
     /// Specify the [Resource] pointing to the metrics file for the VMM.
     pub fn metrics(mut self, metrics: Resource) -> Self {
-        self.resources.push(metrics);
-        self.metrics_resource_index = Some(self.resources.len() - 1);
+        self.metrics_resource = Some(metrics);
         self
     }
 
-    /// Specify the [Resource] pointing to a custom seccomp filter file for the VMM.
-    pub fn seccomp_filter(mut self, seccomp_filter: Resource) -> Self {
-        self.resources.push(seccomp_filter);
-        self.seccomp_filter_resource_index = Some(self.resources.len() - 1);
-        self
-    }
-
-    /// Get a shared slice into an internal buffer holding all [Resource]s tied to these [VmmArguments].
-    pub fn get_resources(&self) -> &[Resource] {
-        &self.resources
+    /// Get an iterator over references for all the resources embedded in these [VmmArguments].
+    pub fn get_resources(&self) -> VmmArgumentResources<'_> {
+        VmmArgumentResources {
+            arguments: self,
+            logs: self.log_resource.is_some(),
+            metadata: self.metadata_resource.is_some(),
+            metrics: self.metrics_resource.is_some(),
+            seccomp_filter: self.seccomp_filter_resource.is_some(),
+        }
     }
 
     /// Join these [VmmArguments] into a buffer of process arguments, using the given optional config path.
@@ -181,41 +186,79 @@ impl VmmArguments {
             args.push(limit.to_string().into());
         }
 
-        if self.disable_seccomp {
+        if self.seccomp_filter_disabled {
             args.push("--no-seccomp".into());
-        }
-
-        if let Some(index) = self.log_resource_index {
-            args.push("--log-path".into());
-            args.push(self.get_resource_path_string(index));
-        }
-
-        if let Some(index) = self.metadata_resource_index {
-            args.push("--metadata".into());
-            args.push(self.get_resource_path_string(index));
-        }
-
-        if let Some(index) = self.metrics_resource_index {
-            args.push("--metrics-path".into());
-            args.push(self.get_resource_path_string(index));
-        }
-
-        if let Some(index) = self.seccomp_filter_resource_index {
+        } else if let Some(ref resource) = self.seccomp_filter_resource {
             args.push("--seccomp-filter".into());
-            args.push(self.get_resource_path_string(index));
+            args.push(self.get_resource_path(resource));
+        }
+
+        if let Some(ref resource) = self.log_resource {
+            args.push("--log-path".into());
+            args.push(self.get_resource_path(resource));
+        }
+
+        if let Some(ref resource) = self.metadata_resource {
+            args.push("--metadata".into());
+            args.push(self.get_resource_path(resource));
+        }
+
+        if let Some(ref resource) = self.metrics_resource {
+            args.push("--metrics-path".into());
+            args.push(self.get_resource_path(resource));
         }
 
         args
     }
 
     #[inline(always)]
-    fn get_resource_path_string(&self, index: usize) -> OsString {
-        self.resources
-            .get(index)
-            .expect("Resource buffer doesn't contain index")
+    fn get_resource_path(&self, resource: &Resource) -> OsString {
+        resource
             .get_virtual_path()
             .expect("Resource is uninitialized at the time of argument join")
             .into()
+    }
+}
+
+/// An iterator over the references of all resources embedded in an instance of [VmmArguments], with both
+/// the iterator itself as well as its items being bound to the lifetime of the [VmmArguments].
+pub struct VmmArgumentResources<'a> {
+    arguments: &'a VmmArguments,
+    logs: bool,
+    metadata: bool,
+    metrics: bool,
+    seccomp_filter: bool,
+}
+
+impl<'a> Iterator for VmmArgumentResources<'a> {
+    type Item = &'a Resource;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.logs {
+            true => {
+                self.logs = false;
+                self.arguments.log_resource.as_ref()
+            }
+            false => match self.metadata {
+                true => {
+                    self.metadata = false;
+                    self.arguments.metadata_resource.as_ref()
+                }
+                false => match self.metrics {
+                    true => {
+                        self.metrics = false;
+                        self.arguments.metrics_resource.as_ref()
+                    }
+                    false => match self.seccomp_filter {
+                        true => {
+                            self.seccomp_filter = false;
+                            self.arguments.seccomp_filter_resource.as_ref()
+                        }
+                        false => None,
+                    },
+                },
+            },
+        }
     }
 }
 
@@ -226,6 +269,20 @@ pub enum VmmApiSocket {
     Disabled,
     /// The socket should be enabled at the given path via --api-sock argument.
     Enabled(PathBuf),
+}
+
+/// A configuration of a VMM's seccomp filter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VmmSeccompFilter {
+    /// The default seccomp filter optimized for the current host by the Firecracker developers should be used.
+    /// This is the default behavior, in which no additional arguments are passed.
+    Default,
+    /// Seccomp filtering and the default filter as an extension of it should be disabled, which is not
+    /// recommended for most production environments. The --no-seccomp argument is passed in this case.
+    Disabled,
+    /// A custom-made seccomp filter pointed to by the given moved [Resource] should be used in place of the
+    /// default. With this option, the --seccomp-filter argument is passed alongside the [Resource]'s virtual path.
+    Custom(Resource),
 }
 
 /// A level of logging used by the VMM.
@@ -269,6 +326,7 @@ mod tests {
         process_spawner::DirectProcessSpawner,
         runtime::tokio::TokioRuntime,
         vmm::{
+            arguments::VmmSeccompFilter,
             ownership::VmmOwnershipModel,
             resource::{CreatedResourceType, Resource, ResourceType, system::ResourceSystem},
         },
@@ -347,22 +405,35 @@ mod tests {
         .await;
     }
 
-    #[tokio::test]
-    async fn seccomp_filter_path_can_be_set() {
-        test_with_resource(|path, resource| {
-            check_without_config(new().seccomp_filter(resource), ["--seccomp-filter", path]);
-        })
-        .await;
-    }
-
     #[test]
     fn mmds_size_limit_can_be_set() {
         check_without_config(new().mmds_size_limit(1000), ["--mmds-size-limit", "1000"]);
     }
 
     #[test]
-    fn seccomp_can_be_disabled() {
-        check_without_config(new().disable_seccomp(), ["--no-seccomp"]);
+    fn default_seccomp_filter_can_be_used_implicitly() {
+        check_without_config(new(), ["!--no-seccomp"]);
+    }
+
+    #[test]
+    fn default_seccomp_filter_can_be_used_explicitly() {
+        check_without_config(new().seccomp_filter(VmmSeccompFilter::Default), ["!--no-seccomp"]);
+    }
+
+    #[test]
+    fn seccomp_filter_can_be_disabled() {
+        check_without_config(new().seccomp_filter(VmmSeccompFilter::Disabled), ["--no-seccomp"]);
+    }
+
+    #[tokio::test]
+    async fn custom_seccomp_filter_can_be_used() {
+        test_with_resource(|path, resource| {
+            check_without_config(
+                new().seccomp_filter(VmmSeccompFilter::Custom(resource)),
+                ["--seccomp-filter", path],
+            );
+        })
+        .await;
     }
 
     #[test]
