@@ -38,10 +38,10 @@ impl CommandModifier for NetnsCommandModifier {
     fn apply(&self, binary_path: &mut PathBuf, arguments: &mut Vec<OsString>) {
         let original_binary_path = binary_path.to_owned();
         *binary_path = self.iproute2_path.clone();
-        arguments.insert(0, "netns".into());
-        arguments.insert(1, "exec".into());
-        arguments.insert(2, self.netns_name.clone().into());
-        arguments.insert(3, original_binary_path.into());
+        arguments.insert(0, OsString::from("netns"));
+        arguments.insert(1, OsString::from("exec"));
+        arguments.insert(2, OsString::from(self.netns_name.clone()));
+        arguments.insert(3, OsString::from(original_binary_path));
     }
 }
 

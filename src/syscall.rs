@@ -9,11 +9,15 @@ mod imp_nix {
         path::Path,
     };
 
-    use nix::sys::stat::Mode;
+    use nix::{
+        sys::stat::Mode,
+        unistd::{Gid, Uid},
+    };
 
     #[inline]
     pub fn chown(path: &Path, uid: u32, gid: u32) -> Result<(), std::io::Error> {
-        nix::unistd::chown(path, Some(uid.into()), Some(gid.into())).map_err(|_| std::io::Error::last_os_error())
+        nix::unistd::chown(path, Some(Uid::from(uid)), Some(Gid::from(gid)))
+            .map_err(|_| std::io::Error::last_os_error())
     }
 
     #[inline]

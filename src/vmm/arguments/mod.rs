@@ -16,7 +16,8 @@ pub struct VmmArguments {
     enable_boot_timer: bool,
     api_max_payload_bytes: Option<u32>,
     mmds_size_limit: Option<u32>,
-    seccomp_filter_disabled: bool,
+    disable_seccomp_filter: bool,
+    enable_pci_support: bool,
     log_resource: Option<Resource>,
     metadata_resource: Option<Resource>,
     metrics_resource: Option<Resource>,
@@ -35,7 +36,8 @@ impl VmmArguments {
             enable_boot_timer: false,
             api_max_payload_bytes: None,
             mmds_size_limit: None,
-            seccomp_filter_disabled: false,
+            disable_seccomp_filter: false,
+            enable_pci_support: false,
             log_resource: None,
             metadata_resource: None,
             metrics_resource: None,
@@ -89,14 +91,15 @@ impl VmmArguments {
     pub fn seccomp_filter(mut self, seccomp_filter: VmmSeccompFilter) -> Self {
         match seccomp_filter {
             VmmSeccompFilter::Default => {
-                self.seccomp_filter_disabled = false;
+                self.disable_seccomp_filter = false;
                 self.seccomp_filter_resource = None;
             }
             VmmSeccompFilter::Disabled => {
-                self.seccomp_filter_disabled = true;
+                self.disable_seccomp_filter = true;
+                self.seccomp_filter_resource = None;
             }
             VmmSeccompFilter::Custom(resource) => {
-                self.seccomp_filter_disabled = false;
+                self.disable_seccomp_filter = false;
                 self.seccomp_filter_resource = Some(resource);
             }
         }
@@ -122,7 +125,13 @@ impl VmmArguments {
         self
     }
 
-    /// Get an iterator over references for all the resources embedded in these [VmmArguments].
+    /// Enable PCIe support in the VMM.
+    pub fn enable_pci_support(mut self) -> Self {
+        self.enable_pci_support = true;
+        self
+    }
+
+    /// Get an iterator over the references for all the resources embedded in these [VmmArguments].
     pub fn get_resources(&self) -> VmmArgumentResources<'_> {
         VmmArgumentResources {
             arguments: self,
@@ -141,71 +150,75 @@ impl VmmArguments {
 
         match self.api_socket {
             VmmApiSocket::Disabled => {
-                args.push("--no-api".into());
+                args.push(OsString::from("--no-api"));
             }
             VmmApiSocket::Enabled(ref socket_path) => {
-                args.push("--api-sock".into());
-                args.push(socket_path.into());
+                args.push(OsString::from("--api-sock"));
+                args.push(OsString::from(socket_path));
             }
         }
 
         if let Some(config_path) = config_path {
-            args.push("--config-file".into());
-            args.push(config_path.into());
+            args.push(OsString::from("--config-file"));
+            args.push(OsString::from(config_path));
         }
 
         if let Some(log_level) = self.log_level {
-            args.push("--level".into());
-            args.push(log_level.to_string().into());
+            args.push(OsString::from("--level"));
+            args.push(OsString::from(log_level.to_string()));
         }
 
         if self.show_log_origin {
-            args.push("--show-log-origin".into());
+            args.push(OsString::from("--show-log-origin"));
         }
 
         if let Some(module) = self.log_module.clone() {
-            args.push("--module".into());
+            args.push(OsString::from("--module"));
             args.push(module);
         }
 
         if self.show_log_level {
-            args.push("--show-level".into());
+            args.push(OsString::from("--show-level"));
         }
 
         if self.enable_boot_timer {
-            args.push("--boot-timer".into());
+            args.push(OsString::from("--boot-timer"));
         }
 
         if let Some(max_payload) = self.api_max_payload_bytes {
-            args.push("--http-api-max-payload-size".into());
-            args.push(max_payload.to_string().into());
+            args.push(OsString::from("--http-api-max-payload-size"));
+            args.push(OsString::from(max_payload.to_string()));
         }
 
         if let Some(limit) = self.mmds_size_limit {
-            args.push("--mmds-size-limit".into());
-            args.push(limit.to_string().into());
+            args.push(OsString::from("--mmds-size-limit"));
+            args.push(OsString::from(limit.to_string()));
         }
 
-        if self.seccomp_filter_disabled {
-            args.push("--no-seccomp".into());
+        if self.disable_seccomp_filter {
+            args.push(OsString::from("--no-seccomp"));
         } else if let Some(ref resource) = self.seccomp_filter_resource {
-            args.push("--seccomp-filter".into());
+            args.push(OsString::from("--seccomp-filter"));
             args.push(self.get_resource_path(resource));
         }
 
         if let Some(ref resource) = self.log_resource {
-            args.push("--log-path".into());
+            args.push(OsString::from("--log-path"));
             args.push(self.get_resource_path(resource));
         }
 
         if let Some(ref resource) = self.metadata_resource {
-            args.push("--metadata".into());
+            args.push(OsString::from("--metadata"));
             args.push(self.get_resource_path(resource));
         }
 
         if let Some(ref resource) = self.metrics_resource {
-            args.push("--metrics-path".into());
+            args.push(OsString::from("--metrics-path"));
             args.push(self.get_resource_path(resource));
+        }
+
+        if self.enable_pci_support {
+            args.push(OsString::from("--enable-pci"));
         }
 
         args
@@ -448,6 +461,16 @@ mod tests {
     #[test]
     fn config_path_does_not_get_added() {
         check_with_config(new(), None, ["!--config-file", "!/tmp/config.json"]);
+    }
+
+    #[test]
+    fn pci_support_is_disabled_by_default() {
+        check_without_config(new(), ["!--enable-pci"]);
+    }
+
+    #[test]
+    fn pci_support_can_be_enabled() {
+        check_without_config(new().enable_pci_support(), ["--enable-pci"]);
     }
 
     #[inline]
