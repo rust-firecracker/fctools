@@ -310,8 +310,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         self.vmm_process.get_resource_system_mut()
     }
 
+    #[inline]
     fn ensure_state(&mut self, expected_state: VmState) -> Result<(), VmStateCheckError> {
         let current_state = self.get_state();
+
         if current_state != expected_state {
             Err(VmStateCheckError::Other {
                 expected: expected_state,
@@ -322,8 +324,10 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         }
     }
 
+    #[inline]
     fn ensure_paused_or_running(&mut self) -> Result<(), VmStateCheckError> {
         let current_state = self.get_state();
+
         if current_state != VmState::Running && current_state != VmState::Paused {
             Err(VmStateCheckError::PausedOrRunning { actual: current_state })
         } else {
@@ -331,14 +335,18 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> Vm<E, S, R> {
         }
     }
 
+    #[inline]
     fn ensure_exited_or_crashed(&mut self) -> Result<(), VmStateCheckError> {
         let current_state = self.get_state();
+
         if let VmState::Crashed(_) = current_state {
             return Ok(());
         }
+
         if current_state == VmState::Exited {
             return Ok(());
         }
+
         Err(VmStateCheckError::ExitedOrCrashed { actual: current_state })
     }
 }
