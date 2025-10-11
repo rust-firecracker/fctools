@@ -290,7 +290,7 @@ async fn prepare_snapshot_vm(old_vm: &mut TestVm, snapshot: VmSnapshot, is_jaile
         true => EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(get_tmp_path())),
             JailerArguments::new(fastrand::u32(2..u32::MAX).to_string().try_into().unwrap()),
-            FlatVirtualPathResolver::default(),
+            FlatVirtualPathResolver,
         )),
         false => EitherVmmExecutor::Unrestricted(UnrestrictedVmmExecutor::new(VmmArguments::new(
             VmmApiSocket::Enabled(get_tmp_path()),

@@ -335,15 +335,15 @@ mod tests {
 
     #[test]
     fn flat_virtual_path_resolver_moves_correctly() {
-        let renamer = FlatVirtualPathResolver::default();
-        assert_virtual_path_resolver(&renamer, "/opt/file", "/file");
-        assert_virtual_path_resolver(&renamer, "/tmp/some_path.txt", "/some_path.txt");
-        assert_virtual_path_resolver(&renamer, "/some/complex/outside/path/filename.ext4", "/filename.ext4");
+        let resolver = FlatVirtualPathResolver;
+        assert_virtual_path_resolver(&resolver, "/opt/file", "/file");
+        assert_virtual_path_resolver(&resolver, "/tmp/some_path.txt", "/some_path.txt");
+        assert_virtual_path_resolver(&resolver, "/some/complex/outside/path/filename.ext4", "/filename.ext4");
     }
 
-    fn assert_virtual_path_resolver<V: VirtualPathResolver>(renamer: &V, path: &str, expectation: &str) {
+    fn assert_virtual_path_resolver<V: VirtualPathResolver>(resolver: &V, path: &str, expectation: &str) {
         assert_eq!(
-            renamer
+            resolver
                 .resolve_virtual_path(&PathBuf::from(path))
                 .unwrap()
                 .to_str()

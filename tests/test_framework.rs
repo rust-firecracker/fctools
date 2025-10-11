@@ -202,7 +202,7 @@ async fn get_vmm_processes(no_new_pid_ns: bool) -> (TestVmmProcess, TestVmmProce
     }
 
     let unrestricted_executor = UnrestrictedVmmExecutor::new(vmm_arguments.clone());
-    let jailed_executor = JailedVmmExecutor::new(vmm_arguments, jailer_arguments, FlatVirtualPathResolver::default());
+    let jailed_executor = JailedVmmExecutor::new(vmm_arguments, jailer_arguments, FlatVirtualPathResolver);
     let ownership_model = VmmOwnershipModel::Downgraded {
         uid: TestOptions::get().await.jailer_uid.into(),
         gid: TestOptions::get().await.jailer_gid.into(),
@@ -590,7 +590,7 @@ impl VmBuilder {
         let jailed_executor = EitherVmmExecutor::Jailed(JailedVmmExecutor::new(
             VmmArguments::new(VmmApiSocket::Enabled(socket_path)),
             jailer_arguments,
-            FlatVirtualPathResolver::default(),
+            FlatVirtualPathResolver,
         ));
 
         // add components from builder to data

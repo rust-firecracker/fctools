@@ -39,7 +39,7 @@ nix = { version = "0.29.0", features = [
     "process",
     "signal",
 ], optional = true }
-rustix = { version = "1.0.8", default-features = false, features = [
+rustix = { version = "1.1.2", default-features = false, features = [
     "fs",
     "process",
 ], optional = true }
@@ -55,9 +55,9 @@ tokio = { version = "1.47.1", default-features = false, features = [
 # smol runtime
 async-task = { version = "4.7.1", optional = true }
 async-executor = { version = "1.13.3", optional = true, features = ["static"] }
-async-io = { version = "2.5.0", optional = true }
-async-process = { version = "2.4.0", optional = true }
-async-fs = { version = "2.1.3", optional = true }
+async-io = { version = "2.6.0", optional = true }
+async-process = { version = "2.5.0", optional = true }
+async-fs = { version = "2.2.0", optional = true }
 blocking = { version = "1.6.2", optional = true }
 pin-project-lite = { version = "0.2.16", optional = true }
 # vmm core
@@ -75,15 +75,15 @@ hyper-client-sockets = { version = "0.6.0", optional = true, features = [
     "unix",
     "hyper-util",
 ] }
-hyper-util = { version = "0.1.16", features = [
+hyper-util = { version = "0.1.17", features = [
     "client-legacy",
     "client",
     "http1",
 ], default-features = false, optional = true }
 http = { version = "1.3.1", optional = true }
 # vm
-serde = { version = "1.0.219", features = ["derive"], optional = true }
-serde_json = { version = "1.0.143", optional = true }
+serde = { version = "1.0.228", features = ["derive"], optional = true }
+serde_json = { version = "1.0.145", optional = true }
 # extensions
 cidr = { version = "0.3.1", optional = true }
 tonic = { version = "0.14.2", optional = true, default-features = false, features = [
