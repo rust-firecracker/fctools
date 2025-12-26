@@ -55,6 +55,30 @@ pub struct BalloonStatistics {
     pub hugetlb_allocations: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hugetlb_failures: Option<u64>,
+    #[cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oom_kill: Option<u64>,
+    #[cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alloc_stall: Option<u64>,
+    #[cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub async_scan: Option<u64>,
+    #[cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direct_scan: Option<u64>,
+    #[cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub async_reclaim: Option<u64>,
+    #[cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direct_reclaim: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -78,10 +102,16 @@ pub struct BootSource {
 pub enum CpuTemplate {
     Resource(Resource),
     Untyped(serde_json::Value),
+    #[cfg(target_arch = "x86_64")]
+    #[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
     X86(X86CpuTemplate),
+    #[cfg(target_arch = "aarch64")]
+    #[cfg_attr(docsrs, doc(cfg(target_arch = "aarch64")))]
     Arm(ArmCpuTemplate),
 }
 
+#[cfg(target_arch = "x86_64")]
+#[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct X86CpuTemplate {
     pub kvm_capabilities: Vec<String>,
@@ -89,6 +119,8 @@ pub struct X86CpuTemplate {
     pub msr_modifiers: Vec<X86MsrModifier>,
 }
 
+#[cfg(target_arch = "x86_64")]
+#[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct X86CpuidModifier {
     pub leaf: String,
@@ -97,12 +129,16 @@ pub struct X86CpuidModifier {
     pub modifiers: Vec<X86CpuidRegisterModifier>,
 }
 
+#[cfg(target_arch = "x86_64")]
+#[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct X86CpuidRegisterModifier {
     pub register: X86CpuidRegister,
     pub bitmap: String,
 }
 
+#[cfg(target_arch = "x86_64")]
+#[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum X86CpuidRegister {
     #[serde(rename = "eax")]
@@ -115,12 +151,16 @@ pub enum X86CpuidRegister {
     Edx,
 }
 
+#[cfg(target_arch = "x86_64")]
+#[cfg_attr(docsrs, doc(cfg(target_arch = "x86_64")))]
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct X86MsrModifier {
     pub addr: String,
     pub bitmap: String,
 }
 
+#[cfg(target_arch = "aarch64")]
+#[cfg_attr(docsrs, doc(cfg(target_arch = "aarch64")))]
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ArmCpuTemplate {
     pub kvm_capabilities: Vec<String>,
@@ -129,12 +169,16 @@ pub struct ArmCpuTemplate {
     pub register_modifiers: Vec<ArmRegisterModifier>,
 }
 
+#[cfg(target_arch = "aarch64")]
+#[cfg_attr(docsrs, doc(cfg(target_arch = "aarch64")))]
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ArmVcpuFeature {
     pub index: usize,
     pub bitmap: String,
 }
 
+#[cfg(target_arch = "aarch64")]
+#[cfg_attr(docsrs, doc(cfg(target_arch = "aarch64")))]
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct ArmRegisterModifier {
     pub addr: String,
@@ -294,6 +338,8 @@ pub struct CreateSnapshot {
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SnapshotType {
     Full,
+    #[cfg(feature = "firecracker-diff-snapshots")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-diff-snapshots")))]
     Diff,
 }
 

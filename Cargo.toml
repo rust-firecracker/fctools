@@ -125,6 +125,8 @@ full = [
     "grpc-vsock-extension",
     "link-local-extension",
     "snapshot-editor-extension",
+    "firecracker-diff-snapshots",
+    "firecracker-host-kernel-6-12-balloon-statistics",
 ]
 default = []
 # syscall backends
@@ -184,3 +186,6 @@ grpc-vsock-extension = [
 ]
 link-local-extension = ["dep:cidr"]
 snapshot-editor-extension = ["vmm-executor"]
+# Firecracker features dependent on developer preview functionality or more modern Linux kernel versions
+firecracker-diff-snapshots = []
+firecracker-host-kernel-6-12-balloon-statistics = []
