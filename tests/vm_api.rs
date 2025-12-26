@@ -83,7 +83,7 @@ fn vm_api_can_receive_info() {
 #[test]
 fn vm_api_can_flush_metrics() {
     VmBuilder::new()
-        .metrics_system(CreatedResourceType::Fifo)
+        .metrics_system(CreatedResourceType::File)
         .run(|mut vm| async move {
             vm.flush_metrics().await.unwrap();
             shutdown_test_vm(&mut vm).await;

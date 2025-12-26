@@ -325,6 +325,7 @@ impl VmBuilder {
             amount_mib: 64,
             deflate_on_oom: false,
             stats_polling_interval_s: polling_interval_s,
+            free_page_reporting: None,
         });
         self
     }

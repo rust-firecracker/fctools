@@ -177,12 +177,13 @@ pub async fn resource_system_main_task<S: ProcessSpawner, R: Runtime>(
         };
 
         if synchronization_in_progress {
-            let pending_tasks = owned_resources
+            let no_pending_tasks = owned_resources
                 .iter()
                 .filter(|resource| resource.init_task.is_some() || resource.dispose_task.is_some())
-                .count();
+                .next()
+                .is_none();
 
-            if pending_tasks == 0 {
+            if no_pending_tasks {
                 synchronization_in_progress = false;
 
                 let result = match synchronization_errors.len() {

@@ -22,6 +22,8 @@ pub struct BalloonDevice {
     pub deflate_on_oom: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stats_polling_interval_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub free_page_reporting: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]

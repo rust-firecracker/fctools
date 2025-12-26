@@ -1,7 +1,10 @@
 use std::future::Future;
 
 use bytes::Bytes;
-use http::{Request, Response, StatusCode, header::CONTENT_TYPE};
+use http::{
+    Request, Response, StatusCode,
+    header::{ACCEPT, CONTENT_TYPE},
+};
 use http_body_util::Full;
 use hyper::body::Incoming;
 use serde::{Serialize, de::DeserializeOwned};
@@ -563,6 +566,7 @@ async fn send_api_request_internal<E: VmmExecutor, S: ProcessSpawner, R: Runtime
         Some(body) => {
             let request_json = serde_json::to_string(&body).map_err(VmApiError::SerdeError)?;
             request_builder
+                .header(ACCEPT, "application/json")
                 .header(CONTENT_TYPE, "application/json")
                 .body(Full::new(Bytes::from(request_json)))
         }
