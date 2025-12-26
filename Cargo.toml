@@ -127,7 +127,8 @@ full = [
     "snapshot-editor-extension",
     "firecracker-diff-snapshots",
     "firecracker-async-drive-io-engine",
-    "firecracker-host-kernel-6-12-balloon-statistics",
+    "firecracker-balloon-free-page-hinting",
+    "firecracker-balloon-statistics-requiring-6-12-kernel",
 ]
 default = []
 # syscall backends
@@ -190,4 +191,5 @@ snapshot-editor-extension = ["vmm-executor"]
 # Firecracker features dependent on developer preview functionality or more modern Linux kernel versions
 firecracker-diff-snapshots = []
 firecracker-async-drive-io-engine = []
-firecracker-host-kernel-6-12-balloon-statistics = []
+firecracker-balloon-free-page-hinting = []
+firecracker-balloon-statistics-requiring-6-12-kernel = []

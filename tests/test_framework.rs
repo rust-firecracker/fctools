@@ -320,12 +320,18 @@ impl VmBuilder {
         self
     }
 
-    pub fn balloon_device(mut self, polling_interval_s: Option<i32>) -> Self {
+    pub fn balloon_device(
+        mut self,
+        polling_interval_s: Option<i32>,
+        free_page_reporting: bool,
+        free_page_hinting: bool,
+    ) -> Self {
         self.balloon_device = Some(BalloonDevice {
             amount_mib: 64,
             deflate_on_oom: false,
             stats_polling_interval_s: polling_interval_s,
-            free_page_reporting: None,
+            free_page_reporting: Some(free_page_reporting),
+            free_page_hinting: Some(free_page_hinting),
         });
         self
     }

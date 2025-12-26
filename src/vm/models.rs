@@ -24,6 +24,10 @@ pub struct BalloonDevice {
     pub stats_polling_interval_s: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub free_page_reporting: Option<bool>,
+    #[cfg(feature = "firecracker-balloon-free-page-hinting")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-free-page-hinting")))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub free_page_hinting: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -57,28 +61,28 @@ pub struct BalloonStatistics {
     pub hugetlb_allocations: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hugetlb_failures: Option<u64>,
-    #[cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")))]
+    #[cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oom_kill: Option<u64>,
-    #[cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")))]
+    #[cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alloc_stall: Option<u64>,
-    #[cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")))]
+    #[cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub async_scan: Option<u64>,
-    #[cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")))]
+    #[cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub direct_scan: Option<u64>,
-    #[cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")))]
+    #[cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub async_reclaim: Option<u64>,
-    #[cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-host-kernel-6-12-balloon-statistics")))]
+    #[cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub direct_reclaim: Option<u64>,
 }
@@ -86,6 +90,21 @@ pub struct BalloonStatistics {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct UpdateBalloonStatistics {
     pub stats_polling_interval_s: u16,
+}
+
+#[cfg(feature = "firecracker-balloon-free-page-hinting")]
+#[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-free-page-hinting")))]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct StartBalloonFreePageHintingRun {
+    pub acknowledge_on_stop: bool,
+}
+
+#[cfg(feature = "firecracker-balloon-free-page-hinting")]
+#[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-free-page-hinting")))]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct BalloonFreePageHintingRunStatus {
+    pub host_cmd: u32,
+    pub guest_cmd: Option<u32>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]

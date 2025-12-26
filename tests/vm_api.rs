@@ -1,10 +1,12 @@
+use std::time::Duration;
+
 use assert_matches::assert_matches;
 use bytes::Bytes;
 use fctools::{
     vm::{
         VmState,
         api::{VmApi, VmApiError},
-        models::{UpdateBalloonDevice, UpdateBalloonStatistics},
+        models::{StartBalloonFreePageHintingRun, UpdateBalloonDevice, UpdateBalloonStatistics},
     },
     vmm::{process::HyperResponseExt, resource::CreatedResourceType},
 };
@@ -17,23 +19,25 @@ mod test_framework;
 
 #[test]
 fn vm_api_can_catch_api_errors() {
-    VmBuilder::new().balloon_device(None).run(|mut vm| async move {
-        // trying to set up balloon stats after being disabled pre-boot is a bad request
-        let error = vm
-            .update_balloon_statistics(UpdateBalloonStatistics {
-                stats_polling_interval_s: 1,
-            })
-            .await
-            .unwrap_err();
-        assert_matches!(
-            error,
-            VmApiError::ReceivedErrorResponse {
-                status_code: StatusCode::BAD_REQUEST,
-                fault_message: _
-            }
-        );
-        shutdown_test_vm(&mut vm).await;
-    });
+    VmBuilder::new()
+        .balloon_device(None, false, false)
+        .run(|mut vm| async move {
+            // trying to set up balloon stats after being disabled pre-boot is a bad request
+            let error = vm
+                .update_balloon_statistics(UpdateBalloonStatistics {
+                    stats_polling_interval_s: 1,
+                })
+                .await
+                .unwrap_err();
+            assert_matches!(
+                error,
+                VmApiError::ReceivedErrorResponse {
+                    status_code: StatusCode::BAD_REQUEST,
+                    fault_message: _
+                }
+            );
+            shutdown_test_vm(&mut vm).await;
+        });
 }
 
 #[test]
@@ -92,47 +96,76 @@ fn vm_api_can_flush_metrics() {
 
 #[test]
 fn vm_api_can_get_balloon() {
-    VmBuilder::new().balloon_device(None).run(|mut vm| async move {
-        let balloon = vm.get_balloon_device().await.unwrap();
-        assert_eq!(balloon.stats_polling_interval_s, Some(0));
-        assert_eq!(balloon.amount_mib, 64);
-        assert!(!balloon.deflate_on_oom);
-        shutdown_test_vm(&mut vm).await;
-    });
+    VmBuilder::new()
+        .balloon_device(None, false, false)
+        .run(|mut vm| async move {
+            let balloon = vm.get_balloon_device().await.unwrap();
+            assert_eq!(balloon.stats_polling_interval_s, Some(0));
+            assert_eq!(balloon.amount_mib, 64);
+            assert!(!balloon.deflate_on_oom);
+            shutdown_test_vm(&mut vm).await;
+        });
+}
+
+#[test]
+fn vm_api_can_perform_balloon_free_page_hinting_runs() {
+    VmBuilder::new()
+        .balloon_device(None, false, true)
+        .run(|mut vm| async move {
+            vm.start_balloon_free_page_hinting_run(StartBalloonFreePageHintingRun {
+                acknowledge_on_stop: false,
+            })
+            .await
+            .unwrap();
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            vm.get_balloon_free_page_hinting_run_status().await.unwrap();
+            vm.stop_balloon_free_page_hinting_run().await.unwrap();
+
+            shutdown_test_vm(&mut vm).await;
+        });
 }
 
 #[test]
 fn vm_api_can_update_balloon() {
-    VmBuilder::new().balloon_device(None).run(|mut vm| async move {
-        vm.update_balloon_device(UpdateBalloonDevice { amount_mib: 50 })
-            .await
-            .unwrap();
-        let balloon = vm.get_balloon_device().await.unwrap();
-        assert_eq!(balloon.amount_mib, 50);
-        shutdown_test_vm(&mut vm).await;
-    });
+    VmBuilder::new()
+        .balloon_device(None, false, false)
+        .run(|mut vm| async move {
+            vm.update_balloon_device(UpdateBalloonDevice { amount_mib: 50 })
+                .await
+                .unwrap();
+            let balloon = vm.get_balloon_device().await.unwrap();
+            assert_eq!(balloon.amount_mib, 50);
+            shutdown_test_vm(&mut vm).await;
+        });
 }
 
 #[test]
 fn vm_api_can_get_balloon_statistics() {
-    VmBuilder::new().balloon_device(Some(1)).run(|mut vm| async move {
-        let statistics = vm.get_balloon_statistics().await.unwrap();
-        assert_ne!(statistics.actual_mib, 0);
-        shutdown_test_vm(&mut vm).await;
-    });
+    VmBuilder::new()
+        .balloon_device(Some(1), false, false)
+        .run(|mut vm| async move {
+            let statistics = vm.get_balloon_statistics().await.unwrap();
+            assert_ne!(statistics.actual_mib, 0);
+            dbg!(&statistics);
+            shutdown_test_vm(&mut vm).await;
+        });
 }
 
 #[test]
 fn vm_api_can_update_balloon_statistics() {
-    VmBuilder::new().balloon_device(Some(1)).run(|mut vm| async move {
-        vm.update_balloon_statistics(UpdateBalloonStatistics {
-            stats_polling_interval_s: 3,
-        })
-        .await
-        .unwrap();
-        let _ = vm.get_balloon_statistics().await.unwrap();
-        shutdown_test_vm(&mut vm).await;
-    });
+    VmBuilder::new()
+        .balloon_device(Some(1), false, false)
+        .run(|mut vm| async move {
+            vm.update_balloon_statistics(UpdateBalloonStatistics {
+                stats_polling_interval_s: 3,
+            })
+            .await
+            .unwrap();
+            let _ = vm.get_balloon_statistics().await.unwrap();
+            shutdown_test_vm(&mut vm).await;
+        });
 }
 
 #[test]

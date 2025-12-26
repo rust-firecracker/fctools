@@ -139,6 +139,26 @@ pub trait VmApi {
         update_balloon_statistics: UpdateBalloonStatistics,
     ) -> impl Future<Output = Result<(), VmApiError>> + Send;
 
+    /// Start a free page hinting run on the VM's balloon via the API.
+    #[cfg(feature = "firecracker-balloon-free-page-hinting")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-free-page-hinting")))]
+    fn start_balloon_free_page_hinting_run(
+        &mut self,
+        start_run: super::models::StartBalloonFreePageHintingRun,
+    ) -> impl Future<Output = Result<(), VmApiError>> + Send;
+
+    /// Get the status of an ongoing free page hinting run on the VM's balloon via the API.
+    #[cfg(feature = "firecracker-balloon-free-page-hinting")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-free-page-hinting")))]
+    fn get_balloon_free_page_hinting_run_status(
+        &mut self,
+    ) -> impl Future<Output = Result<super::models::BalloonFreePageHintingRunStatus, VmApiError>> + Send;
+
+    /// Stop an ongoing free page hinting run on the VM's balloon via the API.
+    #[cfg(feature = "firecracker-balloon-free-page-hinting")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-free-page-hinting")))]
+    fn stop_balloon_free_page_hinting_run(&mut self) -> impl Future<Output = Result<(), VmApiError>> + Send;
+
     /// Update a drive of the VM via the API.
     fn update_drive(&mut self, update_drive: UpdateDrive) -> impl Future<Output = Result<(), VmApiError>> + Send;
 
@@ -262,6 +282,35 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
     ) -> Result<(), VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         send_api_request(self, "/balloon/statistics", "PATCH", Some(update_balloon_statistics)).await
+    }
+
+    #[cfg(feature = "firecracker-balloon-free-page-hinting")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-free-page-hinting")))]
+    async fn start_balloon_free_page_hinting_run(
+        &mut self,
+        start_run: super::models::StartBalloonFreePageHintingRun,
+    ) -> Result<(), VmApiError> {
+        self.ensure_state(VmState::Running)
+            .map_err(VmApiError::StateCheckError)?;
+        send_api_request(self, "/balloon/hinting/start", "PATCH", Some(start_run)).await
+    }
+
+    #[cfg(feature = "firecracker-balloon-free-page-hinting")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-free-page-hinting")))]
+    async fn get_balloon_free_page_hinting_run_status(
+        &mut self,
+    ) -> Result<super::models::BalloonFreePageHintingRunStatus, VmApiError> {
+        self.ensure_state(VmState::Running)
+            .map_err(VmApiError::StateCheckError)?;
+        send_api_request_with_response(self, "/balloon/hinting/status", "GET", None::<i64>).await
+    }
+
+    #[cfg(feature = "firecracker-balloon-free-page-hinting")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-free-page-hinting")))]
+    async fn stop_balloon_free_page_hinting_run(&mut self) -> Result<(), VmApiError> {
+        self.ensure_state(VmState::Running)
+            .map_err(VmApiError::StateCheckError)?;
+        send_api_request(self, "/balloon/hinting/stop", "PATCH", None::<i64>).await
     }
 
     async fn update_drive(&mut self, update_drive: UpdateDrive) -> Result<(), VmApiError> {
@@ -397,7 +446,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
     }
 
     async fn get_memory_hotplug_status(&mut self) -> Result<MemoryHotplugStatus, VmApiError> {
-        self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
+        self.ensure_state(VmState::Running)
+            .map_err(VmApiError::StateCheckError)?;
         send_api_request_with_response(self, "/hotplug/memory", "GET", None::<i32>).await
     }
 
@@ -405,7 +455,8 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         &mut self,
         update_memory_hotplug: UpdateMemoryHotplugConfiguration,
     ) -> Result<(), VmApiError> {
-        self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
+        self.ensure_state(VmState::Running)
+            .map_err(VmApiError::StateCheckError)?;
         send_api_request(self, "/hotplug/memory", "PATCH", Some(update_memory_hotplug)).await
     }
 
