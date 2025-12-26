@@ -36,8 +36,6 @@ pub struct Metrics {
 pub struct ApiServerMetrics {
     pub process_startup_time_us: u64,
     pub process_startup_time_cpu_us: u64,
-    pub sync_response_fails: u64,
-    pub sync_vmm_send_timeout_count: u64,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -77,7 +75,6 @@ pub struct BlockMetrics {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DeprecatedApiMetrics {
     pub deprecated_http_api_calls: u64,
-    pub deprecated_cmd_line_api_calls: u64,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -163,7 +160,6 @@ pub struct LoggerMetrics {
     pub missed_metrics_count: u64,
     pub metrics_fails: u64,
     pub missed_log_count: u64,
-    pub log_fails: u64,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -193,7 +189,6 @@ pub struct NetMetrics {
     pub event_fails: u64,
     pub rx_queue_event_count: u64,
     pub rx_event_rate_limiter_count: u64,
-    pub rx_partial_writes: u64,
     pub rx_rate_limiter_throttled: u64,
     pub rx_tap_event_count: u64,
     pub rx_bytes_count: u64,
@@ -208,7 +203,6 @@ pub struct NetMetrics {
     pub tx_fails: u64,
     pub tx_count: u64,
     pub tx_packets_count: u64,
-    pub tx_partial_reads: u64,
     pub tx_queue_event_count: u64,
     pub tx_rate_limiter_event_count: u64,
     pub tx_rate_limiter_throttled: u64,
@@ -236,7 +230,6 @@ pub struct VcpuMetrics {
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VmmMetrics {
-    pub device_events: u64,
     pub panic_count: u64,
 }
 
