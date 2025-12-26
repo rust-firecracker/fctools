@@ -517,8 +517,8 @@ pub(super) async fn init_restored_from_snapshot<E: VmmExecutor, S: ProcessSpawne
     data: VmConfigurationData,
     load_snapshot: LoadSnapshot,
 ) -> Result<(), VmApiError> {
-    if let Some(ref logger) = data.logger_system {
-        send_api_request(vm, "/logger", "PUT", Some(logger)).await?;
+    if let Some(ref logger_system) = data.logger_system {
+        send_api_request(vm, "/logger", "PUT", Some(logger_system)).await?;
     }
 
     if let Some(ref metrics_system) = data.metrics_system {
