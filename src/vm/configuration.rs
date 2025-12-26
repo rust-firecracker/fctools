@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use super::models::{
+use crate::vm::models::{
     BalloonDevice, BootSource, CpuTemplate, Drive, EntropyDevice, LoadSnapshot, LoggerSystem, MachineConfiguration,
-    MetricsSystem, MmdsConfiguration, NetworkInterface, VsockDevice,
+    MemoryHotplugConfiguration, MetricsSystem, MmdsConfiguration, NetworkInterface, PmemDevice, VsockDevice,
 };
 
 /// A configuration for a VM, either being new or having been restored from a snapshot. fctools seamlessly exposes
@@ -58,6 +58,9 @@ pub struct VmConfigurationData {
     pub boot_source: BootSource,
     /// A buffer of all [Drive]s attached to this VM, mandatory.
     pub drives: Vec<Drive>,
+    /// A buffer of all [PmemDevice]s attached to this VM, mandatory but can be empty.
+    #[serde(rename = "pmem")]
+    pub pmem_devices: Vec<PmemDevice>,
     /// The [MachineConfiguration] for this VM, mandatory.
     #[serde(rename = "machine-config")]
     pub machine_configuration: MachineConfiguration,
@@ -68,17 +71,25 @@ pub struct VmConfigurationData {
     #[serde(rename = "network-interfaces")]
     pub network_interfaces: Vec<NetworkInterface>,
     /// The [BalloonDevice] for this VM, optional.
+    #[serde(rename = "balloon")]
     pub balloon_device: Option<BalloonDevice>,
     /// The [VsockDevice] for this VM, optional.
+    #[serde(rename = "vsock")]
     pub vsock_device: Option<VsockDevice>,
     /// The [LoggerSystem] for this VM, optional.
+    #[serde(rename = "logger")]
     pub logger_system: Option<LoggerSystem>,
     /// The [MetricsSystem] for this VM, optional.
+    #[serde(rename = "metrics")]
     pub metrics_system: Option<MetricsSystem>,
+    /// The [MemoryHotplugConfiguration] for this VM, optional.
+    #[serde(rename = "memory-hotplug")]
+    pub memory_hotplug_configuration: Option<MemoryHotplugConfiguration>,
     /// The [MmdsConfiguration] for this VM, optional.
     #[serde(rename = "mmds-config")]
     pub mmds_configuration: Option<MmdsConfiguration>,
     /// The [EntropyDevice] for this VM, optional.
+    #[serde(rename = "entropy")]
     pub entropy_device: Option<EntropyDevice>,
 }
 

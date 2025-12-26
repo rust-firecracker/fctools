@@ -335,6 +335,7 @@ mod tests {
 
     use uuid::Uuid;
 
+    use super::{VmmApiSocket, VmmArguments, VmmLogLevel};
     use crate::{
         process_spawner::DirectProcessSpawner,
         runtime::tokio::TokioRuntime,
@@ -344,8 +345,6 @@ mod tests {
             resource::{CreatedResourceType, Resource, ResourceType, system::ResourceSystem},
         },
     };
-
-    use super::{VmmApiSocket, VmmArguments, VmmLogLevel};
 
     fn new() -> VmmArguments {
         VmmArguments::new(VmmApiSocket::Enabled(PathBuf::from("/tmp/api.sock")))

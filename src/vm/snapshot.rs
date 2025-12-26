@@ -3,7 +3,11 @@ use std::path::PathBuf;
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
-    vm::models::{LoadSnapshot, MemoryBackend, MemoryBackendType, NetworkOverride},
+    vm::{
+        Vm, VmError,
+        configuration::{VmConfiguration, VmConfigurationData},
+        models::{LoadSnapshot, MemoryBackend, MemoryBackendType, NetworkOverride},
+    },
     vmm::{
         executor::VmmExecutor,
         ownership::VmmOwnershipModel,
@@ -12,11 +16,6 @@ use crate::{
             system::{ResourceSystem, ResourceSystemError},
         },
     },
-};
-
-use super::{
-    Vm, VmError,
-    configuration::{VmConfiguration, VmConfigurationData},
 };
 
 /// The data associated with a snapshot created for a [Vm].

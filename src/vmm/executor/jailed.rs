@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use super::{VmmExecutor, VmmExecutorContext, VmmExecutorError, process_handle::ProcessHandle};
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::{Runtime, RuntimeChild},
@@ -13,8 +14,6 @@ use crate::{
         resource::ResourceType,
     },
 };
-
-use super::{VmmExecutor, VmmExecutorContext, VmmExecutorError, process_handle::ProcessHandle};
 
 /// A [VmmExecutor] that uses the "jailer" binary for maximum security and isolation, dropping privileges to then
 /// run "firecracker". The "jailer", by design, can only run as "root", even though the "firecracker" process itself
@@ -321,9 +320,8 @@ impl JailJoin for PathBuf {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::vmm::executor::jailed::JailJoin;
-
     use super::{FlatVirtualPathResolver, VirtualPathResolver};
+    use crate::vmm::executor::jailed::JailJoin;
 
     #[test]
     fn jail_join_performs_correctly() {

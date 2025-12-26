@@ -163,11 +163,9 @@ mod imp_dummy {
     }
 }
 
-#[cfg(all(feature = "nix-syscall-backend", not(feature = "rustix-syscall-backend")))]
-pub use imp_nix::*;
-
-#[cfg(feature = "rustix-syscall-backend")]
-pub use imp_rustix::*;
-
 #[cfg(not(any(feature = "nix-syscall-backend", feature = "rustix-syscall-backend")))]
 pub use imp_dummy::*;
+#[cfg(all(feature = "nix-syscall-backend", not(feature = "rustix-syscall-backend")))]
+pub use imp_nix::*;
+#[cfg(feature = "rustix-syscall-backend")]
+pub use imp_rustix::*;

@@ -225,6 +225,8 @@ pub enum DriveCacheType {
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DriveIoEngine {
     Sync,
+    #[cfg(feature = "firecracker-async-drive-io-engine")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-async-drive-io-engine")))]
     Async,
 }
 
@@ -240,6 +242,17 @@ pub struct TokenBucket {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub one_time_burst: Option<u64>,
     pub refill_time: u64,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct PmemDevice {
+    pub id: String,
+    #[serde(rename = "path_on_host")]
+    pub block: Resource,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_device: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_only: Option<bool>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq, Eq, Default)]
@@ -280,6 +293,29 @@ pub enum HugePages {
 pub struct MetricsSystem {
     #[serde(rename = "metrics_path")]
     pub metrics: Resource,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct MemoryHotplugConfiguration {
+    pub total_size_mib: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_size_mib: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slot_size_mib: Option<usize>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct UpdateMemoryHotplugConfiguration {
+    pub requested_size_mib: usize,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct MemoryHotplugStatus {
+    pub total_size_mib: usize,
+    pub slot_size_mib: usize,
+    pub block_size_mib: usize,
+    pub plugged_size_mib: usize,
+    pub requested_size_mib: usize,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]

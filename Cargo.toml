@@ -126,6 +126,7 @@ full = [
     "link-local-extension",
     "snapshot-editor-extension",
     "firecracker-diff-snapshots",
+    "firecracker-async-drive-io-engine",
     "firecracker-host-kernel-6-12-balloon-statistics",
 ]
 default = []
@@ -188,4 +189,5 @@ link-local-extension = ["dep:cidr"]
 snapshot-editor-extension = ["vmm-executor"]
 # Firecracker features dependent on developer preview functionality or more modern Linux kernel versions
 firecracker-diff-snapshots = []
+firecracker-async-drive-io-engine = []
 firecracker-host-kernel-6-12-balloon-statistics = []

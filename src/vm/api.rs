@@ -1,7 +1,7 @@
 use std::future::Future;
 
 use bytes::Bytes;
-use http::{Request, Response, StatusCode};
+use http::{Request, Response, StatusCode, header::CONTENT_TYPE};
 use http_body_util::Full;
 use hyper::body::Incoming;
 use serde::{Serialize, de::DeserializeOwned};
@@ -9,24 +9,24 @@ use serde::{Serialize, de::DeserializeOwned};
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
-    vm::upgrade_owner,
+    vm::{
+        Vm, VmState, VmStateCheckError,
+        configuration::VmConfigurationData,
+        models::{
+            BalloonDevice, BalloonStatistics, CreateSnapshot, Info, LoadSnapshot, MachineConfiguration,
+            MemoryHotplugStatus, ReprAction, ReprActionType, ReprApiError, ReprFirecrackerVersion, ReprInfo,
+            ReprIsPaused, ReprUpdateState, ReprUpdatedState, UpdateBalloonDevice, UpdateBalloonStatistics, UpdateDrive,
+            UpdateMemoryHotplugConfiguration, UpdateNetworkInterface,
+        },
+        snapshot::VmSnapshot,
+        upgrade_owner,
+    },
     vmm::{
         executor::VmmExecutor,
         ownership::ChangeOwnerError,
         process::{HyperResponseExt, VmmProcessError},
         resource::{ResourceState, system::ResourceSystemError},
     },
-};
-
-use super::{
-    Vm, VmState, VmStateCheckError,
-    configuration::VmConfigurationData,
-    models::{
-        BalloonDevice, BalloonStatistics, CreateSnapshot, Info, LoadSnapshot, MachineConfiguration, ReprAction,
-        ReprActionType, ReprApiError, ReprFirecrackerVersion, ReprInfo, ReprIsPaused, ReprUpdateState,
-        ReprUpdatedState, UpdateBalloonDevice, UpdateBalloonStatistics, UpdateDrive, UpdateNetworkInterface,
-    },
-    snapshot::VmSnapshot,
 };
 
 /// An error that can be emitted by the [VmApi] Firecracker Management API bindings.
@@ -162,6 +162,15 @@ pub trait VmApi {
 
     /// Resume the VM via the API.
     fn resume(&mut self) -> impl Future<Output = Result<(), VmApiError>> + Send;
+
+    /// Get the current state of memory hotplugging in the VM via the API.
+    fn get_memory_hotplug_status(&mut self) -> impl Future<Output = Result<MemoryHotplugStatus, VmApiError>> + Send;
+
+    /// Update the memory hotplug configuration of the VM via the API.
+    fn update_memory_hotplug_configuration(
+        &mut self,
+        update_memory_hotplug: UpdateMemoryHotplugConfiguration,
+    ) -> impl Future<Output = Result<(), VmApiError>> + Send;
 
     /// Create a MMDS for the VM via the API, containing an initial JSON-serializable value.
     fn create_mmds<T: Serialize + Send>(&mut self, value: T) -> impl Future<Output = Result<(), VmApiError>> + Send;
@@ -384,6 +393,19 @@ impl<E: VmmExecutor, S: ProcessSpawner, R: Runtime> VmApi for Vm<E, S, R> {
         Ok(())
     }
 
+    async fn get_memory_hotplug_status(&mut self) -> Result<MemoryHotplugStatus, VmApiError> {
+        self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
+        send_api_request_with_response(self, "/hotplug/memory", "GET", None::<i32>).await
+    }
+
+    async fn update_memory_hotplug_configuration(
+        &mut self,
+        update_memory_hotplug: UpdateMemoryHotplugConfiguration,
+    ) -> Result<(), VmApiError> {
+        self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
+        send_api_request(self, "/hotplug/memory", "PATCH", Some(update_memory_hotplug)).await
+    }
+
     async fn create_mmds<T: Serialize + Send>(&mut self, value: T) -> Result<(), VmApiError> {
         self.ensure_paused_or_running().map_err(VmApiError::StateCheckError)?;
         send_api_request(self, "/mmds", "PUT", Some(value)).await
@@ -425,6 +447,16 @@ pub(super) async fn init_new<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
         send_api_request(vm, format!("/drives/{}", drive.drive_id).as_str(), "PUT", Some(drive)).await?;
     }
 
+    for pmem_device in data.pmem_devices.iter() {
+        send_api_request(
+            vm,
+            format!("/pmem/{}", pmem_device.id).as_str(),
+            "PUT",
+            Some(pmem_device),
+        )
+        .await?;
+    }
+
     send_api_request(vm, "/machine-config", "PUT", Some(&data.machine_configuration)).await?;
 
     if let Some(ref cpu_template) = data.cpu_template {
@@ -441,28 +473,32 @@ pub(super) async fn init_new<E: VmmExecutor, S: ProcessSpawner, R: Runtime>(
         .await?;
     }
 
-    if let Some(ref balloon) = data.balloon_device {
-        send_api_request(vm, "/balloon", "PUT", Some(balloon)).await?;
+    if let Some(ref balloon_device) = data.balloon_device {
+        send_api_request(vm, "/balloon", "PUT", Some(balloon_device)).await?;
     }
 
-    if let Some(ref vsock) = data.vsock_device {
-        send_api_request(vm, "/vsock", "PUT", Some(vsock)).await?;
+    if let Some(ref vsock_device) = data.vsock_device {
+        send_api_request(vm, "/vsock", "PUT", Some(vsock_device)).await?;
     }
 
-    if let Some(ref logger) = data.logger_system {
-        send_api_request(vm, "/logger", "PUT", Some(logger)).await?;
+    if let Some(ref logger_system) = data.logger_system {
+        send_api_request(vm, "/logger", "PUT", Some(logger_system)).await?;
     }
 
-    if let Some(ref metrics) = data.metrics_system {
-        send_api_request(vm, "/metrics", "PUT", Some(metrics)).await?;
+    if let Some(ref metrics_system) = data.metrics_system {
+        send_api_request(vm, "/metrics", "PUT", Some(metrics_system)).await?;
+    }
+
+    if let Some(ref memory_hotplug_configuration) = data.memory_hotplug_configuration {
+        send_api_request(vm, "/hotplug/memory", "PUT", Some(memory_hotplug_configuration)).await?;
     }
 
     if let Some(ref mmds_configuration) = data.mmds_configuration {
         send_api_request(vm, "/mmds/config", "PUT", Some(mmds_configuration)).await?;
     }
 
-    if let Some(ref entropy) = data.entropy_device {
-        send_api_request(vm, "/entropy", "PUT", Some(entropy)).await?;
+    if let Some(ref entropy_device) = data.entropy_device {
+        send_api_request(vm, "/entropy", "PUT", Some(entropy_device)).await?;
     }
 
     send_api_request(
@@ -527,7 +563,7 @@ async fn send_api_request_internal<E: VmmExecutor, S: ProcessSpawner, R: Runtime
         Some(body) => {
             let request_json = serde_json::to_string(&body).map_err(VmApiError::SerdeError)?;
             request_builder
-                .header("Content-Type", "application/json")
+                .header(CONTENT_TYPE, "application/json")
                 .body(Full::new(Bytes::from(request_json)))
         }
         None => request_builder.body(Full::new(Bytes::new())),

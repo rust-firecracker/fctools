@@ -5,12 +5,11 @@ use futures_util::AsyncWriteExt;
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
+    vm::{
+        Vm, VmStateCheckError,
+        api::{VmApi, VmApiError},
+    },
     vmm::{executor::VmmExecutor, process::VmmProcessError},
-};
-
-use super::{
-    Vm, VmStateCheckError,
-    api::{VmApi, VmApiError},
 };
 
 /// The methods that can be used to shut down a [Vm].

@@ -17,9 +17,8 @@ use async_io::Timer;
 use async_process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use pin_project_lite::pin_project;
 
-use crate::runtime::util::get_stdio_from_piped;
-
 use super::{Runtime, RuntimeAsyncFd, RuntimeChild, RuntimeTask, util::chown_all_blocking};
+use crate::runtime::util::get_stdio_from_piped;
 
 #[derive(Clone)]
 enum MaybeStaticExecutor {

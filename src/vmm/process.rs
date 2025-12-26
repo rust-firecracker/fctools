@@ -2,20 +2,11 @@ use std::{future::Future, path::PathBuf, process::ExitStatus};
 
 use async_once_cell::OnceCell;
 use bytes::{Bytes, BytesMut};
-use http::{Request, Response, StatusCode, Uri};
+use http::{Request, Response, StatusCode, Uri, uri::InvalidUri};
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Body, Incoming};
 use hyper_client_sockets::{connector::UnixConnector, uri::UnixUri};
 use hyper_util::client::legacy::Client;
-
-use crate::{
-    process_spawner::ProcessSpawner,
-    runtime::{Runtime, util::RuntimeHyperExecutor},
-    vmm::{
-        executor::{VmmExecutor, VmmExecutorError},
-        installation::VmmInstallation,
-    },
-};
 
 use super::{
     executor::{
@@ -24,6 +15,14 @@ use super::{
     },
     ownership::{ChangeOwnerError, upgrade_owner},
     resource::system::{ResourceSystem, ResourceSystemError},
+};
+use crate::{
+    process_spawner::ProcessSpawner,
+    runtime::{Runtime, util::RuntimeHyperExecutor},
+    vmm::{
+        executor::{VmmExecutor, VmmExecutorError},
+        installation::VmmInstallation,
+    },
 };
 
 /// A [VmmProcess] is an abstraction that manages a (possibly jailed) Firecracker process. It is
@@ -86,8 +85,8 @@ pub enum VmmProcessError {
     InvalidUri {
         /// The invalid URI of the API request.
         uri: String,
-        /// The [http::uri::InvalidUri] error with the reason for the URI being invalid.
-        error: http::uri::InvalidUri,
+        /// The [InvalidUri] error with the reason for the URI being invalid.
+        error: InvalidUri,
     },
     /// An I/O error occurred while attempting to send a SIGKILL signal via the [ProcessHandle].
     SigkillError(std::io::Error),

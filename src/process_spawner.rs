@@ -1,11 +1,6 @@
-use std::{ffi::OsStr, future::Future, path::Path};
-
 #[cfg(any(feature = "direct-process-spawner", feature = "elevation-process-spawners"))]
 use std::ffi::OsString;
-
-#[cfg(feature = "elevation-process-spawners")]
-use futures_util::AsyncWriteExt;
-
+use std::{ffi::OsStr, future::Future, path::Path};
 #[cfg(feature = "elevation-process-spawners")]
 use std::{
     path::PathBuf,
@@ -13,9 +8,11 @@ use std::{
 };
 
 #[cfg(feature = "elevation-process-spawners")]
-use crate::runtime::RuntimeChild;
+use futures_util::AsyncWriteExt;
 
 use crate::runtime::Runtime;
+#[cfg(feature = "elevation-process-spawners")]
+use crate::runtime::RuntimeChild;
 
 /// A [ProcessSpawner] concerns itself with spawning a rootful or rootless process from the given binary path and arguments.
 /// The command delegated to the spawner is either a "firecracker", "jailer" or "snapshot-editor" invocation for starting

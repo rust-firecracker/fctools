@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use super::{VmmExecutor, VmmExecutorContext, VmmExecutorError, process_handle::ProcessHandle};
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
@@ -11,8 +12,6 @@ use crate::{
         resource::ResourceType,
     },
 };
-
-use super::{VmmExecutor, VmmExecutorContext, VmmExecutorError, process_handle::ProcessHandle};
 
 /// A [VmmExecutor] that uses the "firecracker" binary directly, without jailing it or ensuring it doesn't run as root.
 /// This [VmmExecutor] allows rootless execution, given that the user has been granted access to /dev/kvm, but using

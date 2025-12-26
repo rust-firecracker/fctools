@@ -4,6 +4,14 @@
 
 use std::{path::PathBuf, process::ExitStatus, time::Duration};
 
+use api::VmApiError;
+use bytes::Bytes;
+use configuration::{InitMethod, VmConfiguration};
+use http::Uri;
+use http_body_util::Full;
+use hyper_client_sockets::{connector::UnixConnector, uri::UnixUri};
+use shutdown::{VmShutdownAction, VmShutdownError, VmShutdownOutcome};
+
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::{Runtime, util::RuntimeHyperExecutor},
@@ -15,13 +23,6 @@ use crate::{
         resource::system::{ResourceSystem, ResourceSystemError},
     },
 };
-use api::VmApiError;
-use bytes::Bytes;
-use configuration::{InitMethod, VmConfiguration};
-use http::Uri;
-use http_body_util::Full;
-use hyper_client_sockets::{connector::UnixConnector, uri::UnixUri};
-use shutdown::{VmShutdownAction, VmShutdownError, VmShutdownOutcome};
 
 pub mod api;
 pub mod configuration;

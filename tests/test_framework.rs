@@ -495,6 +495,7 @@ impl VmBuilder {
                     io_engine: None,
                     socket: None,
                 }],
+                pmem_devices: Vec::new(),
                 machine_configuration: MachineConfiguration {
                     vcpu_count: 1,
                     mem_size_mib: 128,
@@ -508,6 +509,7 @@ impl VmBuilder {
                 vsock_device: None,
                 logger_system: None,
                 metrics_system: None,
+                memory_hotplug_configuration: None,
                 mmds_configuration: None,
                 entropy_device: None,
             }

@@ -8,15 +8,14 @@ use std::{
 use futures_channel::mpsc;
 use futures_util::StreamExt;
 
+use super::{
+    Resource, ResourceState, ResourceType,
+    internal::{OwnedResource, ResourceInfo, ResourceSystemRequest, ResourceSystemResponse, resource_system_main_task},
+};
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::Runtime,
     vmm::ownership::{ChangeOwnerError, VmmOwnershipModel},
-};
-
-use super::{
-    Resource, ResourceState, ResourceType,
-    internal::{OwnedResource, ResourceInfo, ResourceSystemRequest, ResourceSystemResponse, resource_system_main_task},
 };
 
 /// A [ResourceSystem] represents a non-cloneable object connected to a background task running on a [Runtime]. This task

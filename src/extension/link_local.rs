@@ -213,9 +213,8 @@ mod tests {
 
     use cidr::Ipv4Inet;
 
-    use crate::extension::link_local::LinkLocalSubnetError;
-
     use super::LinkLocalSubnet;
+    use crate::extension::link_local::LinkLocalSubnetError;
 
     #[test]
     fn subnet_new_fails_with_wide_network_length() {

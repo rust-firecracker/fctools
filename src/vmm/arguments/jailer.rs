@@ -179,9 +179,8 @@ pub enum JailerCgroupVersion {
 mod tests {
     use std::{ffi::OsString, path::PathBuf};
 
-    use crate::vmm::id::VmmId;
-
     use super::{JailerArguments, JailerCgroupVersion};
+    use crate::vmm::id::VmmId;
 
     fn new() -> JailerArguments {
         JailerArguments::new(VmmId::new("jail-id").unwrap())

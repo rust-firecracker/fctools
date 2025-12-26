@@ -11,13 +11,12 @@ use std::{
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures_util::StreamExt;
 
+use super::{CreatedResourceType, MovedResourceType, ResourceType, system::ResourceSystemError};
 use crate::{
     process_spawner::ProcessSpawner,
     runtime::{Runtime, RuntimeTask},
     vmm::ownership::{VmmOwnershipModel, downgrade_owner, upgrade_owner},
 };
-
-use super::{CreatedResourceType, MovedResourceType, ResourceType, system::ResourceSystemError};
 
 #[derive(Debug)]
 pub struct ResourceInfo {
