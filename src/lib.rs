@@ -17,8 +17,7 @@
 //!
 //! 1. The process spawner layer, enabled via the `process-spawner` feature. It provides functionality for invoking the microVM process.
 //! 2. The VMM core layer, enabled via the `vmm-core` feature. It provides basic facilities for managing a VMM.
-//! 3. The VMM executor layer, enabled via the `vmm-executor` feature. It provides an executor trait that handles a VMM's lifecycle, as
-//!    well as introducing handling of VMM ownership models.
+//! 3. The VMM executor layer, enabled via the `vmm-executor` feature. It provides an executor trait that handles a VMM's lifecycle.
 //! 4. The VMM process layer, enabled via the `vmm-process` feature. It provides a VMM process abstraction over an underlying executor,
 //!    introducing various useful features like making requests to the VMM's HTTP API server.
 //! 5. The VM layer, enabled via the `vm` feature. It provides a wide range of high-level and opinionated facilities that build on top of
