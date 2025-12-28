@@ -9,12 +9,11 @@ pub struct VmmId(String);
 /// An error produced when constructing a [VmmId] from an unchecked [String].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum VmmIdError {
-    /// The ID is too long (longer than 60 characters).
+    /// The ID is too long (longer than [VmmId::MAX_LENGTH] characters).
     TooShort,
-    /// The ID is too short (shorter than 5 characters).
+    /// The ID is too short (shorter than [VmmId::MIN_LENGTH] characters).
     TooLong,
-    /// The ID contains an invalid character. Only ASCII alphanumeric characters and the "-" character are
-    /// permitted.
+    /// The ID contains an invalid character. Only alphanumeric characters and hyphens are permitted.
     ContainsInvalidCharacter,
 }
 
@@ -23,26 +22,33 @@ impl std::error::Error for VmmIdError {}
 impl std::fmt::Display for VmmIdError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VmmIdError::TooShort => write!(f, "The provided ID was shorter than 5 characters"),
-            VmmIdError::TooLong => write!(f, "The provided ID was longer than 60 characters"),
+            VmmIdError::TooShort => write!(f, "The provided ID was shorter than {} characters", VmmId::MIN_LENGTH),
+            VmmIdError::TooLong => write!(f, "The provided ID was longer than {} characters", VmmId::MAX_LENGTH),
             VmmIdError::ContainsInvalidCharacter => write!(f, "The provided ID contained an invalid character"),
         }
     }
 }
 
 impl VmmId {
+    /// The minimum length of a [VmmId].
+    pub const MIN_LENGTH: usize = 1;
+
+    /// The maximum length of a [VmmId].
+    pub const MAX_LENGTH: usize = 64;
+
+    /// Try to construct a [VmmId] from a [String] by validating the [String]'s contents.
     pub fn new<I: Into<String>>(id: I) -> Result<VmmId, VmmIdError> {
         let id = id.into();
 
-        if id.len() < 5 {
+        if id.len() < Self::MIN_LENGTH {
             return Err(VmmIdError::TooShort);
         }
 
-        if id.len() > 60 {
+        if id.len() > Self::MAX_LENGTH {
             return Err(VmmIdError::TooLong);
         }
 
-        if id.chars().any(|c| !c.is_ascii_alphanumeric() && c != '-') {
+        if id.chars().any(|c| !c.is_alphanumeric() && c != '-') {
             return Err(VmmIdError::ContainsInvalidCharacter);
         }
 
