@@ -61,28 +61,16 @@ pub struct BalloonStatistics {
     pub hugetlb_allocations: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hugetlb_failures: Option<u64>,
-    #[cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oom_kill: Option<u64>,
-    #[cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alloc_stall: Option<u64>,
-    #[cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub async_scan: Option<u64>,
-    #[cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub direct_scan: Option<u64>,
-    #[cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub async_reclaim: Option<u64>,
-    #[cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "firecracker-balloon-statistics-requiring-6-12-kernel")))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub direct_reclaim: Option<u64>,
 }

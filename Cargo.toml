@@ -1,6 +1,6 @@
 [package]
 name = "fctools"
-version = "0.7.0-alpha.1"
+version = "0.7.0-alpha.2"
 edition = "2024"
 description = "An exhaustive, highly modular and extensible host SDK for the Firecracker microVM manager."
 license = "MIT"
@@ -128,7 +128,6 @@ full = [
     "firecracker-diff-snapshots",
     "firecracker-async-drive-io-engine",
     "firecracker-balloon-free-page-hinting",
-    "firecracker-balloon-statistics-requiring-6-12-kernel",
 ]
 default = []
 # syscall backends
@@ -188,8 +187,7 @@ grpc-vsock-extension = [
 ]
 link-local-extension = ["dep:cidr"]
 snapshot-editor-extension = ["vmm-executor"]
-# Firecracker features dependent on developer preview functionality or more modern Linux kernel versions
+# Firecracker features that are in developer preview as of the lowest Firecracker version supported by this version of fctools
 firecracker-diff-snapshots = []
 firecracker-async-drive-io-engine = []
 firecracker-balloon-free-page-hinting = []
-firecracker-balloon-statistics-requiring-6-12-kernel = []
