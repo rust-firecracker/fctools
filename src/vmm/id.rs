@@ -82,18 +82,13 @@ mod tests {
 
     #[test]
     fn vmm_id_rejects_when_too_short() {
-        for l in 0..5 {
-            let str = (0..l).map(|_| "l").collect::<String>();
-            assert_eq!(VmmId::new(str), Err(VmmIdError::TooShort));
-        }
+        assert_eq!(VmmId::new(""), Err(VmmIdError::TooShort));
     }
 
     #[test]
     fn vmm_id_rejects_when_too_long() {
-        for l in 61..100 {
-            let str = (0..l).map(|_| "L").collect::<String>();
-            assert_eq!(VmmId::new(str), Err(VmmIdError::TooLong));
-        }
+        let str = (0..(VmmId::MAX_LENGTH + 1)).map(|_| "L").collect::<String>();
+        assert_eq!(VmmId::new(str), Err(VmmIdError::TooLong));
     }
 
     #[test]

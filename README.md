@@ -7,4 +7,4 @@ Based on the design decisions of the crate, its MSRV values and the host and gue
 | `fctools` | Rust               | Firecracker        | Linux host kernel   | Linux guest kernel  | Host/guest CPUs       |
 |-----------|--------------------|--------------------|---------------------|---------------------|-----------------------|
 | `0.6.x`   | `1.81.0` and above | `1.7.0` and above  | `5.10.x` or `6.1.x` | `5.10.x` or `6.1.x` | `x86_64`              |
-| `0.7.x`   | `1.85.0` and above | `1.14.0` and above | `5.10.x` or `6.1.x` | `5.10.x` or `6.1.x` | `x86_64` or `aarch64` |
+| `0.7.x`   | `1.88.0` and above | `1.14.0` and above | `5.10.x` or `6.1.x` | `5.10.x` or `6.1.x` | `x86_64` or `aarch64` |
